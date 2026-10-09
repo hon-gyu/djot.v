@@ -46,6 +46,7 @@ let rec inline_text il =
    | SoftBreak -> nl
    | HardBreak -> nl
    | Ext_wikilink (_, t0, al) -> wiki_display t0 al
+   | Hole s -> s
    | _ -> "")
 
 (** val inlines_text : inlines -> string **)

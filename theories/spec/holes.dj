@@ -10,7 +10,7 @@ and never reads it. What language it is in, how it is evaluated, and
 whether its value is a node, a list or an option are the consumer's.
 
 ``` example
-Today I am going shopping for %{List.length items} things.
+Today I am going shopping for %`List.length items` things.
 .
 <p>Today I am going shopping for <code data-hole="">List.length items</code> things.</p>
 ```
@@ -18,109 +18,107 @@ Today I am going shopping for %{List.length items} things.
 The HTML renderer shows a hole nobody evaluated as its expression, so it
 is not lost silently.
 
-## Where a hole ends
+## A hole is a code span
 
-`%{` opens a hole. Inside, every `{` must be matched by a `}`, and the `}`
-that matches the opening one closes the hole.
+A `%` directly before a code span makes it a hole, as a `$` makes it
+math. Everything djot says of the code span holds of the hole: its
+content is read verbatim, backslashes and braces included, a longer
+backtick run lets it hold backticks, and a single space is removed on
+each side when it starts or ends with a backtick.
 
 ``` example
-%{ {r with x = 1} }
+%`{r with x = 1}` and %``f `A`` and %`print_string "\n"`
 .
-<p><code data-hole=""> {r with x = 1} </code></p>
+<p><code data-hole="">{r with x = 1}</code> and <code data-hole="">f `A</code> and <code data-hole="">print_string "\n"</code></p>
 ```
 
-A brace that should not count is escaped. `\{`, `\}` and `\\` are read as
-`{`, `}` and `\`; a backslash before any other character is kept with it,
-so the expression's own escapes reach the consumer as written.
+A hole may cross a line break, which is part of the expression, and one
+the paragraph ends inside runs to its end, as a code span does.
 
 ``` example
-%{ print_string "\}\n" }
+a %`f
+x` b %`g y
 .
-<p><code data-hole=""> print_string "}\n" </code></p>
-```
-
-A hole may cross a line break, which is part of the expression. It ends
-with its paragraph, heading or table cell like any inline.
-
-``` example
-a %{ f
-x } b
-.
-<p>a <code data-hole=""> f
-x </code> b</p>
-```
-
-## What is not a hole
-
-A hole is always closed. When no closing `}` arrives before the end of the
-block, there is no hole and the source reads as if the `%` had been
-escaped. Here the first `%{` never closes, so the second one opens a hole.
-
-``` example
-a %{x and %{y} b
-.
-<p>a %{x and <code data-hole="">y</code> b</p>
+<p>a <code data-hole="">f
+x</code> b <code data-hole="">g y</code></p>
 ```
 
 An empty expression is still a hole, for the consumer to reject.
 
 ``` example
-%{}
+%``
 .
 <p><code data-hole=""></code></p>
 ```
 
-Without the setting, `%{.c}` is a `%` with attributes. With it, `%{` is
-always a hole's opener, and `\%` writes a `%` before braces.
+Attributes after a hole are the hole's, as they are a code span's. A raw
+format is not: as after math, `{=html}` is text.
 
 ``` example
-a %{.c} b and \%{.c} c
+%`x`{.c} and %`y`{=html}
 .
-<p>a <code data-hole="">.c</code> b and <span class="c">%</span> c</p>
+<p><code data-hole="" class="c">x</code> and <code data-hole="">y</code>{=html}</p>
 ```
 
-A `%` inside a code span, an autolink or a link destination is not an
-opener.
+## What is not a hole
+
+Only a `%` immediately before the backticks prefixes them, and `\%`
+writes one that does not.
 
 ``` example
-`%{x}` and [a](%{u})
+a % `x` and \%`y` and %{.c}
 .
-<p><code>%{x}</code> and <a href="%{u}">a</a></p>
+<p>a % <code>x</code> and %<code>y</code> and <span class="c">%</span></p>
+```
+
+A `%` inside a code span, an autolink or a link destination is not a
+prefix.
+
+``` example
+``%`x`` and [a](%`u`)
+.
+<p><code>%`x</code> and <a href="%`u`">a</a></p>
 ```
 
 ## Priority
 
-Once a hole closes, it wins over emphasis, links and spans that overlap
-it: its content is not markup.
+A hole opens at its backticks and closes at the matching run, as a code
+span does, so whatever it holds is not markup and what opens first wins.
 
 ``` example
-*a %{b* c}
+*a %`b* c` and `d %`e` f`
 .
-<p>*a <code data-hole="">b* c</code></p>
+<p>*a <code data-hole="">b* c</code> and <code>d %</code>e<code> f</code></p>
 ```
 
-Between a hole and a code span, whichever opens first wins: a code span
-reads its content as text, and a hole that closes reads its own.
+## Text
+
+A hole's text, from which a heading's identifier and an empty
+reference's label are made, is its expression, as math's is its formula.
 
 ``` example
-`a %{b` c} and %{ f "`" }
+# Total %`n`
 .
-<p><code>a %{b</code> c} and <code data-hole=""> f "`" </code></p>
+<section id="Total-n">
+<h1>Total <code data-hole="">n</code></h1>
+</section>
 ```
 
 ## Blocks
 
-There is no block syntax. A code block whose language is `%` is a code
-block to the parser; a consumer that evaluates holes may read it as one,
-with its content kept exactly, blank lines and indentation included.
+There is no block syntax. A raw block in format `hole` is a raw block to
+the parser, kept exactly, blank lines and indentation included, and a
+consumer that evaluates holes may read it as one. Like any raw block in
+a format the HTML renderer does not know, it renders as nothing.
 
 ```` example
-``` %
+Items:
+
+``` =hole
 ul (List.map item items)
 ```
 .
-<pre><code class="language-%">ul (List.map item items)
-</code></pre>
+<p>Items:</p>
 ````
 
 {% ai-disclosure: ai-generated %}

@@ -769,43 +769,9 @@ Definition after_verb_next (s : string) : bool :=
 Definition raw_text (fmt s : string) : string :=
   (verb_text s ++ String lbrace (String "="%char (fmt ++ one rbrace)))%string.
 
-(* A hole's payload from its source, the bytes between `%{` and the `}`
-   that closes it.  `\{`, `\}` and `\\` are escapes; a backslash before
-   any other byte is kept with it, so a host language's own escapes reach
-   the consumer as written. *)
-Fixpoint hole_text (s : string) : string :=
-  match s with
-  | String c ((String d rest) as tl) =>
-      if (is_bslash c
-          && (Ascii.eqb d lbrace || Ascii.eqb d rbrace || is_bslash d))%bool
-      then String d (hole_text rest)
-      else String c (hole_text tl)
-  | _ => s
-  end.
-
-(* And its source from a payload: every brace escaped, so the depth count
-   never moves, and a backslash escaped where it would otherwise pair with
-   the byte after it, or with the closing brace. *)
-Fixpoint hole_src (s : string) : string :=
-  match s with
-  | EmptyString => EmptyString
-  | String c rest =>
-      if (Ascii.eqb c lbrace || Ascii.eqb c rbrace)%bool
-      then String bslash (String c (hole_src rest))
-      else if is_bslash c
-      then match rest with
-           | String d _ =>
-               if (Ascii.eqb d lbrace || Ascii.eqb d rbrace || is_bslash d)%bool
-               then String bslash (String c (hole_src rest))
-               else String c (hole_src rest)
-           | EmptyString => String bslash (String c EmptyString)
-           end
-      else String c (hole_src rest)
-  end.
-
-(* A hole's own source. *)
+(* A hole's own source: its prefix and its verbatim, as math's. *)
 Definition hole_spell (s : string) : string :=
-  (one percent ++ one lbrace ++ hole_src s ++ one rbrace)%string.
+  (one percent ++ verb_text s)%string.
 
 (* One line's inline content, described by the source that determines it.
    One constructor per inline construct the roundtrip covers, exactly as

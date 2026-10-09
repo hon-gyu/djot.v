@@ -480,10 +480,9 @@ Inductive inline : Type :=
      and `![[...]]` with `embed` set.  Both halves are source as written;
      what a target denotes is the consumer's. *)
   | Ext_wikilink (embed : bool) (target : string) (alias : option string)
-  (* Extension, not djot (`.project/261007.plan.holes.md`): `%{e}`, an
-     expression to be evaluated by the consumer.  The payload is the
-     source between the braces with its escapes decoded; the parser never
-     reads it. *)
+  (* Extension, not djot (`.project/261009.plan.backtick-holes.md`):
+     `` %`e` ``, an expression to be evaluated by the consumer.  The
+     payload is the code span's content; the parser never reads it. *)
   | Hole (s : string).
 
 Definition inlines : Type := list (node inline).

@@ -89,7 +89,7 @@ Definition rparen : ascii := ")"%char.
 (* A wikilink's alias separator.  Not dispatched in text mode. *)
 Definition vbar : ascii := "|"%char.
 
-(* A hole's sigil, `%{e}`.  Dispatched in text mode only while holes are
+(* A hole's sigil, `` %`e` ``.  Dispatched in text mode only while holes are
    on, but no row may use it in any table (`drow_ok`), so that turning
    holes on never takes a character from a row. *)
 Definition percent : ascii := "%"%char.
@@ -202,9 +202,9 @@ Record dconfig : Type := DConfig {
      table, and non-conservative: djot reads the same bytes as text before
      a bracket.  See `.project/custom-tags.md`. *)
   dc_tags : bool;
-  (* Does `%{e}` make a hole?  Off in djot's own table, and
-     non-conservative: djot reads the same bytes as text, or as `%` with
-     attributes after it.  See `.project/261007.plan.holes.md`. *)
+  (* Does `` %`e` `` make a hole?  Off in djot's own table, and
+     non-conservative: djot reads the same bytes as `%` and a code span.
+     See `.project/261009.plan.backtick-holes.md`. *)
   dc_holes : bool
 }.
 
@@ -869,15 +869,15 @@ Fixpoint reference_text (il : inline) : string :=
       | n :: rest => reference_text (node_contents n) ++ go rest
       end in
   match il with
-  | Str s | Verbatim s | Math _ s | RawInline _ s => s
+  (* a hole's text is its expression, as math's is its formula *)
+  | Str s | Verbatim s | Math _ s | RawInline _ s | Hole s => s
   | SoftBreak | HardBreak => nl
   | Emph ns | Strong ns | Highlight ns | Insert ns | Delete ns
   | Superscript ns | Subscript ns | Span _ ns | Link ns _ | Image ns _
   | Quoted _ ns => go ns
   | Ext_wikilink _ t al => wiki_display t al
-  (* a hole's text is not known until it is evaluated *)
   | FootnoteReference _ | Symbol _ | UrlLink _ | EmailLink _
-  | NonBreakingSpace | Hole _ => EmptyString
+  | NonBreakingSpace => EmptyString
   end.
 
 Definition reference_inlines_text (ns : inlines) : string :=

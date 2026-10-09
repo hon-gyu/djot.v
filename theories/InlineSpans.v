@@ -444,8 +444,6 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
       held W o false (sleft (String.length (String lbrace spec)) cur)
   | IPercent txt _ o =>
       held W o (nonempty_str txt) cur /\ byte_at W (sleft 1 cur) = Some percent
-  | IHole _ _ _ txt sh o =>
-      held W o (nonempty_str txt) cur /\ st_inv W cur sh
   end.
 
 (*
@@ -1577,9 +1575,6 @@ Proof.
     split; [|split; [apply prev_blit; [exact B|discriminate]|discriminate]].
     apply oinv_any; exact (held_oinv _ _ _ _ A).
   - (* ISymbol *) destruct H as (_ & _ & _ & B). apply IHst, B.
-  - (* IPercent *) destruct H as (A & B).
-    split; [|split; [unfold prev_ok; rewrite B; reflexivity|discriminate]].
-    apply oinv_any; exact (held_oinv _ _ _ _ A).
 Qed.
 
 Lemma iattr_feed_ok : forall W (CU : InlineCursor) cur next c p src txt prev sh o,
@@ -1920,8 +1915,10 @@ Proof.
   intros txt prev o Ho Hb. pose proof (held_oinv _ _ _ _ Ho) as Ht.
   assert (Hl : forall t, st_inv W next (ilead c t (Some percent) o))
     by (intros t; apply ilead_held; [exact Ht|unfold prev_ok; rewrite Hb; reflexivity]).
-  unfold ipercent_step. destruct (Ascii.eqb c lbrace); [|apply Hl].
-  cbn [st_inv]. split; [eapply held_step; [exact Ho|exact nx_lt]|apply Hl].
+  unfold ipercent_step. destruct (is_tick c); [|apply Hl].
+  cbn [st_inv]. split; [|lia]. destruct Ho as (h & Hlt & Hh).
+  eapply held_intro; [eapply spot_lt_trans; [exact Hlt|exact nx_lt]|].
+  tred. apply flush_text_to_at_ok, Hh.
 Qed.
 
 Lemma ibang_ok : forall txt prev o,
@@ -2217,7 +2214,7 @@ Proof.
           apply oinv_any, oemit_ok; [apply dn_imk_plain; [exact Hk|rewrite Hc; constructor]|].
           eapply oinv_strict; [exact nx_lt|exact Ho']. }
         rewrite Hs, Hn.
-        destruct vk as [|[]|prefix]; cbn [vkind_verb vnode tval tnil];
+        destruct vk as [|[]|prefix|]; cbn [vkind_verb vnode tval tnil];
           rewrite ?andb_true_r, ?andb_false_r.
         all: try (destruct (Ascii.eqb c lbrace) eqn:Eb;
                   [apply Hraw; reflexivity|apply Hlead; reflexivity]).
@@ -2302,23 +2299,6 @@ Proof.
     apply isymbol_ok; [exact He|exact Ho|exact Hnl|apply IHst, Hsh].
   - (* IRaw *) destruct H as (He & Ho). cbn [istep_at]. apply iraw_ok; assumption.
   - (* IPercent *) destruct H as (Ho & Hb). cbn [istep_at]. apply ipercent_ok; assumption.
-  - (* IHole *) destruct H as (Ho & Hsh). cbn [istep_at].
-    assert (Hk : forall d e s',
-               st_inv W next (IHole d e s' txt (istep_at allow c st) o))
-      by (intros; cbn [st_inv];
-          split; [eapply held_step; [exact Ho|exact nx_lt]|apply IHst, Hsh]).
-    unfold ihole_step.
-    destruct esc; [apply Hk|].
-    destruct (is_bslash c); [apply Hk|].
-    destruct (Ascii.eqb c lbrace); [apply Hk|].
-    destruct (Ascii.eqb c rbrace) eqn:E; [|apply Hk].
-    destruct depth as [|d]; [|apply Hk].
-    unfold ihole_close. tred. rewrite Hn.
-    cbn [st_inv orb nonempty_str].
-    split; [|split; [apply eqb_rewrite, E|discriminate]].
-    apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
-    eapply oinv_strict; [exact nx_lt|].
-    apply flush_text_to_at_touched, (held_oinv _ _ _ _ Ho).
 Qed.
 
 End Step.
@@ -2388,7 +2368,7 @@ Definition settled (st : iscan) : Prop :=
   | IBang _ _ _ | IDelim _ _ _ _ _ _ | IClosed _ _
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ | ISymbol _ _ _ _
-  | IPercent _ _ _ | IHole _ _ _ _ _ _ => False
+  | IPercent _ _ _ => False
   | _ => True
   end.
 
@@ -2519,8 +2499,6 @@ Proof.
   - (* IDest *) destruct H as (Hk & Ho & Hsh). cbn [st_inv].
     split; [exact Hk|split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh]].
   - (* ISymbol *) destruct H as (_ & _ & _ & Hsh). apply IHst, Hsh.
-  - (* IHole *) destruct H as (Ho & Hsh). cbn [st_inv].
-    split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh].
 Qed.
 
 End Break.
@@ -2605,7 +2583,6 @@ Proof.
         [apply Hclose; reflexivity|apply IHst, Hsh].
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
-  - destruct H as (_ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & Hsh). apply IHst, Hsh.
 Qed.
 

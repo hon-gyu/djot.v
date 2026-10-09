@@ -240,23 +240,23 @@ Definition tags_rt_lhs (c : cblock) : blocks :=
 
 (* Holes have no node in the canonical view, so their pool is the
    ordinary one read with the setting on, plus text that would open a hole
-   if a `%` were left bare: before a brace, at the end of a run that a
-   braced delimiter follows, and beside a code span. *)
+   if a `%` were left bare: right before a code span, at the end of a run
+   or a line that one follows, and the `%{` that was a hole before. *)
 Definition holes_table : dtable :=
   DTable (with_holes true djot_config) eq_refl.
 
 Definition holes_pool (d : nat) : list cblock :=
   (enum_cblock d
    ++ flat_map (fun p => [p; CQuote [p]; CList LKBullet Tight [[p]]])
-      [ CPara [[CIStr "%{x}"]]
+      [ CPara [[CIStr "%"; CIVerb "x"]]
       ; CPara [[CIStr "a %{.c} b"]]
       ; CPara [[CIStr "50%"]]
       ; CPara [[CIStr "a %"; CIDelim DEmph [CIStr "x"]]]
       ; CPara [[CIStr "%"; CIDelim DMark [CIStr "x"]; CIStr "}"]]
       ; CPara [[CIStr "%"; CIVerb "x"; CIStr "{y}"]]
-      ; CPara [[CIDelim DStrong [CIStr "a %{b"]; CIStr " c}"]]
-      ; CPara [[CIStr "%{"]; [CIStr "x}"]]
-      ; CTable [CTBody [[CIStr "%{x}"]]] ])%list.
+      ; CPara [[CIDelim DStrong [CIStr "a %"]; CIVerb "b"]]
+      ; CPara [[CIStr "a %"]; [CIVerb "x"]]
+      ; CTable [CTBody [[CIStr "%"; CIVerb "x"]]] ])%list.
 
 Definition holes_accepted (d : nat) : list cblock :=
   filter (@cb_ok holes_table _) (holes_pool d).

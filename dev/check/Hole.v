@@ -1,11 +1,11 @@
 (* ai-disclosure: ai-generated *)
 
-(* Holes, `%{e}` (`.project/261007.plan.holes.md`): every row of the
-   spec's examples, read with the setting on and off. *)
+(* Holes, `` %`e` `` (`.project/261009.plan.backtick-holes.md`): each
+   decision, read with the setting on and off. *)
 
 From Stdlib Require Import String List.
 From DjotV Require Import Ast Inline Profile Strings Line Parser Config Reparse
-  Render Step.
+  Render Step Document.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -14,92 +14,103 @@ Definition hole_table : dtable :=
 Local Notation Parse := (@InlineScan.parse_inline_line hole_table).
 Local Notation Lines := (@InlineScan.para_inlines hole_table).
 
-(* Off in djot: the bytes read as they always have. *)
+(* Off in djot: a `%` before a code span is text, and the span code. *)
 Example off_in_djot :
-  (parse_inline_line "a %{x} b", parse_inline_line "a %{.c} b")
-  = ([mk (Str "a %{x} b")],
+  (parse_inline_line "a %`x` b", parse_inline_line "a %{.c} b")
+  = ([mk (Str "a %"); mk (Verbatim "x"); mk (Str " b")],
      [mk (Str "a "); Node NoPos [("class", "c")] (Str "%"); mk (Str " b")]).
 Proof. vm_compute. reflexivity. Qed.
 
+(* E1: a `%` directly before a code span makes it a hole, and the
+   payload is the span's, longer runs and trimming included. *)
 Example a_hole :
-  (Parse "a %{x} b", Parse "%{ f x }", Parse "%{x}")
+  (Parse "a %`x` b", Parse "%``f `A``", Parse "%`` `A` ``")
   = ([mk (Str "a "); mk (Hole "x"); mk (Str " b")],
-     [mk (Hole " f x ")],
-     [mk (Hole "x")]).
+     [mk (Hole "f `A")],
+     [mk (Hole "`A`")]).
 Proof. vm_compute. reflexivity. Qed.
 
-(* D2: the closer is the brace that returns the depth to zero. *)
-Example brace_depth :
-  (Parse "%{ {r with x = 1} }", Parse "%{a{b{c}}d}")
-  = ([mk (Hole " {r with x = 1} ")], [mk (Hole "a{b{c}}d")]).
+(* E3: the payload is verbatim, braces and backslashes included. *)
+Example verbatim_payload :
+  (Parse "%`{r with x = 1}`", Parse "%`print_string ""\n""`", Parse "%`a\`")
+  = ([mk (Hole "{r with x = 1}")], [mk (Hole "print_string ""\n""")],
+     [mk (Hole "a\")]).
 Proof. vm_compute. reflexivity. Qed.
 
-(* D3: `%{` wins over an attribute block. *)
-Example hole_not_attributes :
-  (Parse "a %{.c} b", Parse "foo%{#id}")
-  = ([mk (Str "a "); mk (Hole ".c"); mk (Str " b")],
-     [mk (Str "foo"); mk (Hole "#id")]).
+(* E2: an unclosed hole runs to the end of its paragraph, as an unclosed
+   code span does, and crosses a soft break, which is in its payload. *)
+Example unclosed_runs_on :
+  (Parse "a %`x and y", Lines ["Total: %`f"; "x"], Lines ["a %`f"; "x` b"])
+  = ([mk (Str "a "); mk (Hole "x and y")],
+     [mk (Str "Total: "); mk (Hole "f
+x")],
+     [mk (Str "a "); mk (Hole "f
+x"); mk (Str " b")]).
 Proof. vm_compute. reflexivity. Qed.
 
-(* D6: an empty or blank payload is a hole, for the consumer to reject.
-   Escaped, the `%` is text and `{}` an empty attribute block, which djot
-   drops. *)
+(* E4: an empty payload is a hole, for the consumer to reject. *)
 Example empty_holes :
-  (Parse "%{}", Parse "%{  }", Parse "\%{}")
-  = ([mk (Hole "")], [mk (Hole "  ")], [mk (Str "%")]).
+  (Parse "%``", Parse "%`` ``")
+  = ([mk (Hole "")], [mk (Hole " ")]).
 Proof. vm_compute. reflexivity. Qed.
 
-(* D7: `\{`, `\}` and `\\` are escapes and do not count; any other
-   backslash is kept. *)
-Example escapes :
-  (Parse "%{ print_string ""\}"" }", Parse "%{a\{b}", Parse "%{""\n""}",
-   Parse "%{a\\}")
-  = ([mk (Hole " print_string ""}"" ")], [mk (Hole "a{b")],
-     [mk (Hole """\n""")], [mk (Hole "a\")]).
+(* E5: a raw format after a hole is text, as after math. *)
+Example raw_suffix_is_text :
+  Parse "%`x`{=html}" = [mk (Hole "x"); mk (Str "{=html}")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* D8: places a `%{` does not open. *)
-Example not_an_opener :
-  (Parse "\%{x}", Parse "`%{x}`", Parse "[a](%{u})", Parse "<http://a/%{b}>")
-  = ([mk (Str "%{x}")], [mk (Verbatim "%{x}")],
-     [mk (Link [mk (Str "a")] (Direct "%{u}"))],
-     [mk (UrlLink "http://a/%{b}")]).
-Proof. vm_compute. reflexivity. Qed.
-
-(* D9: a hole is always closed, and a closed one wins over what it
-   overlaps.  With verbatim, whichever opens first wins. *)
-Example unclosed_is_text :
-  (Parse "a %{x", Lines ["Total: %{ f"], Parse "%{ a `b")
-  = ([mk (Str "a %{x")], [mk (Str "Total: %{ f")],
-     [mk (Str "%{ a "); mk (Verbatim "b")]).
-Proof. vm_compute. reflexivity. Qed.
-
-Example closed_hole_wins :
-  (Parse "*a %{b* c}", Parse "[a %{b](u) c}")
-  = ([mk (Str "*a "); mk (Hole "b* c")],
-     [mk (Str "[a "); mk (Hole "b](u) c")]).
-Proof. vm_compute. reflexivity. Qed.
-
-Example holes_and_verbatim :
-  (Parse "`a %{b` c}", Parse "%{ f ""`"" }", Parse "%{ a `b } c")
-  = ([mk (Verbatim "a %{b"); mk (Str " c}")],
-     [mk (Hole " f ""`"" ")],
-     [mk (Hole " a `b "); mk (Str " c")]).
-Proof. vm_compute. reflexivity. Qed.
-
-(* D4: a hole crosses a soft break, which is part of its payload. *)
-Example across_lines :
-  Lines ["a %{ x"; "y } b"]
-  = [mk (Str "a "); mk (Hole " x
-y "); mk (Str " b")].
-Proof. vm_compute. reflexivity. Qed.
-
-(* A hole takes attributes like any inline. *)
+(* E6: attributes after a hole are the hole's. *)
 Example hole_attributes :
-  Parse "%{x}{.c}" = [Node NoPos [("class", "c")] (Hole "x")].
+  Parse "%`x`{.c}" = [Node NoPos [("class", "c")] (Hole "x")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The located scan's range covers the sigil and both braces. *)
+(* E7: only a bare `%` right before the backticks is a prefix; `%{` is
+   what it is with the setting off. *)
+Example not_a_prefix :
+  (Parse "a % `x`", Parse "\%`x`", Parse "a %{.c} b")
+  = ([mk (Str "a % "); mk (Verbatim "x")],
+     [mk (Str "%"); mk (Verbatim "x")],
+     [mk (Str "a "); Node NoPos [("class", "c")] (Str "%"); mk (Str " b")]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* Places a `%` is not read at all. *)
+Example not_an_opener :
+  (Parse "``%`x``", Parse "[a](%`u`)", Parse "<http://a/%`b`>")
+  = ([mk (Verbatim "%`x")],
+     [mk (Link [mk (Str "a")] (Direct "%`u`"))],
+     [mk (UrlLink "http://a/%`b`")]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* E8: no kinds: `%*` and `%?` read as they do with the setting off. *)
+Example no_kinds :
+  (Parse "%*`x`", Parse "%?`x`", Parse "%*`x`*")
+  = ([mk (Str "%*"); mk (Verbatim "x")],
+     [mk (Str "%?"); mk (Verbatim "x")],
+     [mk (Str "%"); mk (Strong [mk (Verbatim "x")])]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* A hole has a code span's priority: what opens first wins. *)
+Example code_span_priority :
+  (Parse "*a %`b* c`", Parse "`d %`e` f`")
+  = ([mk (Str "*a "); mk (Hole "b* c")],
+     [mk (Verbatim "d %"); mk (Str "e"); mk (Verbatim " f")]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* A `%` inside a failed attribute spec still prefixes the code span
+   after it, as a `$` does. *)
+Example prefix_in_failed_spec :
+  (Parse "a{%`x`", Parse "a{$`x`")
+  = ([mk (Str "a{"); mk (Hole "x")],
+     [mk (Str "a{"); mk (Math InlineMath "x")]).
+Proof. vm_compute. reflexivity. Qed.
+
+(* E13: a hole's text is its expression, as math's is its formula. *)
+Example hole_text :
+  (inlines_text (Parse "Total %`n`"), inlines_text (Parse "a$`x`"))
+  = ("Total n", "ax").
+Proof. vm_compute. reflexivity. Qed.
+
+(* The located scan's range covers the sigil and both backtick runs. *)
 Definition hole_range (s : string) : option (nat * nat) :=
   let lines := line_table s in
   match @parse_blocks_located hole_table djot_bconfig s with
@@ -117,8 +128,8 @@ Definition hole_range (s : string) : option (nat * nat) :=
   end.
 
 Example hole_located_ranges :
-  (hole_range "%{x}", hole_range "ab %{\}}")
-  = (Some (0, 4), Some (3, 8)).
+  (hole_range "%`x`", hole_range "ab %``x``")
+  = (Some (0, 4), Some (3, 9)).
 Proof. vm_compute. reflexivity. Qed.
 
 (* A hole is outside the canonical view, as math is, so its own spelling
@@ -131,9 +142,10 @@ Definition hole_again (s : string) : blocks :=
   hole_blocks (@Render.render_djot hole_table djot_bconfig (hole_blocks s)).
 
 Definition hole_samples : list string :=
-  ["a %{x} b"; "%{ {r with x = 1} }"; "%{a\\}"; "%{ print ""\}"" }";
-   "a %{ x
-y } b"; "50\% and %{x}{.c}"; "*a %{b* c}"; "%{\{}"].
+  ["a %`x` b"; "%`{r with x = 1}`"; "%`a\`"; "%``f `A``"; "%`` `A` ``";
+   "a %`f
+x` b"; "50\% and %`x`{.c}"; "*a %`b* c`"; "a %`unclosed";
+   "a % `x` and \%`y`"; "%``"].
 
 Example holes_render_back :
   map hole_again hole_samples = map hole_blocks hole_samples.

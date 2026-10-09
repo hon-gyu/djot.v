@@ -9,6 +9,9 @@ note is the work log behind it: what was built, where it departs from
 [[261007.plan.holes]], and what is still open. It is not updated when
 the rules change.
 
+**Respelled 2026-10-09** as `` %`e` ``, a code span with a `%` prefix:
+[[261009.plan.backtick-holes]]. What follows is the brace form's log.
+
 Status: **implemented** (2026-10-07), v1, on branch `hy/holes`. The
 setting, scanner states, proofs, extraction, the OCaml switch
 `Profile.with_ext_holes` and the Python `ast.ExtHole` are built.

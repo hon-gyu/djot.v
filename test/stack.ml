@@ -24,7 +24,7 @@ let string_text =
 (* Openers, closers and the escapes and candidates around them, with a
    few letters so that runs exist. *)
 let pieces =
-  [| "["; "]"; "("; ")"; "]("; "%"; "%{"; "{"; "}"; "\\"; "a"; "b"; " ";
+  [| "["; "]"; "("; ")"; "]("; "%"; "%`"; "{"; "}"; "\\"; "a"; "b"; " ";
      "$"; "`"; "<"; ":"; "*"; "_"; "!"; "^"; "\""; "="; "."; "#"; "-";
      "[a]("; "{.c}"; "{k=\""; ":a:"; "$`x`"; "\\("; "\\)"; "\\{"; "\\}" |]
 

@@ -19,7 +19,7 @@ EVERYTHING = """\
 A {=mark=} {+insert+} {-delete-} x^sup^ H~2~O `verb` :smile: $`x` $$`y`
 [link](http://e.x) [ref][r] ![img](i.png) [span]{.c} :tag[named] note[^n]
 <http://u.rl> <me@e.mail> `<b>`{=html} non\\ breaking 'single' "double"\\
-hard [[wiki|alias]] ![[embed]] %{ hole }
+hard [[wiki|alias]] ![[embed]] %`hole`
 
 > quote
 

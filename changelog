@@ -18,6 +18,8 @@ reference is at least a minor release.
 - `Reached.v`: states a run reaches, and that a blank line after them changes no block (`reached_blank_finish`)
 - a blank line at the end of the input changes no block when keys are off: `trailing_blank_line`
 - the same list uniformity for a list closed by a blank and a following line, when the last item does not end inside an attribute spec: `list_uniformity_shape_tail`
+- holes extension (`ext_holes`): `` %`e` ``, a code span with a `%` before it, is a `Hole` holding the span's content, read as math's `` $`e` `` is; a hole's text, for identifiers and labels, is its expression
+- the candidate stack holds link destinations only
 
 {syntax-reference-commit="d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7"}
 ### djot 2026-06-16
@@ -32,6 +34,8 @@ A new kernel is a new release of the package.
 
 ### [Unreleased]
 - `Doc.source_blocks`: the blocks without the identifiers derived from heading text, for `Doc.make` to give the same document
+- `Profile.with_ext_holes` and `Inline.Hole`: holes, `` %`e` ``
+- `Mapper.holes_as_raw`: each hole as a raw inline in format `hole`, which `` `e`{=hole} `` also reads as
 
 ### [0.1.0]
 - initial release, with kernel 0.1.0
@@ -41,6 +45,7 @@ A new kernel is a new release of the package.
 `djotv` in `py/`.  A new kernel is a new release of the package.
 
 ### [Unreleased]
+- `ast.ExtHole` and the `ext_holes` switch: holes, `` %`e` ``
 
 ### [0.1.0]
 - initial release, with kernel 0.1.0
