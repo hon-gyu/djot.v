@@ -679,34 +679,39 @@ does (`tagged_with_delimiters`) and is never taken back for a note
 **Ask.** Article template literals (Crichton and Krishnamurthi, "A Core
 Calculus for Documents", POPL 2024, section 3.2.3): djot as the literal,
 with holes for expressions. Specified in `theories/spec/holes.dj`; the
-reasoning is [[261007.plan.holes]]'s. D1 to D5, D9 and D10 were decided
-by a human in conversation (2026-10-07); D7, D8 and D11 were proposed by
-an agent and accepted in review the same day, and D6 was amended in that
-review. The entries are pinned by examples in `dev/check/Hole.v`.
+reasoning is [[261009.plan.backtick-holes]]'s, which respelled the
+brace form of [[261007.plan.holes]] (2026-10-09). E1 to E13 were agreed
+by a human in conversation (2026-10-09). The entries are pinned by
+examples in `dev/check/Hole.v`.
 
-**Baseline.** `off_in_djot`, read from our parser and listed in the plan;
-not yet checked against djot.js.
+**Baseline.** `off_in_djot`, read from our parser and checked against
+djot.js (2026-10-09): every row of the plan's baseline agrees.
 
-**Non-conservative.** The inline half: every `%{` outside verbatim
-contexts changes, and `%` followed by an attribute block (`a %{.c}`)
-loses its attributes. The setting is off in both named profiles. The
-block half (D10) is a convention on code blocks and changes no parse.
+**Non-conservative.** A `%` directly before a code span stops being
+text: `` a %`x` `` was `a %` and code. Nothing else changes, which
+`make check-holes` tests on random paragraphs, with two exceptions by
+design: a hole followed by `{` (E5) and a hole in a collapsed
+reference's text (E13). The setting is off in both named profiles. The
+block hole (E9) is a convention on raw blocks and changes no parse.
 
 | | decision | pinned by |
 | --- | --- | --- |
-| D1 | `%{e}`, a `Hole` inline node holding the decoded payload | `a_hole` |
-| D2 | the closer is the `}` that returns the brace depth to zero | `brace_depth` |
-| D3 | `%{` wins over an attribute block | `hole_not_attributes` |
-| D4 | a hole crosses a soft break, which is in its payload | `across_lines` |
-| D5 | one kind; `%*{` and `%?{` reserved, and read as today | (no example: nothing changes) |
-| D6 | an empty or blank payload is a hole, for the consumer to reject (amended in review, 2026-10-07) | `empty_holes` |
-| D7 | `\{`, `\}`, `\\` decode and do not count; other backslashes stay | `escapes` |
-| D8 | not an opener when escaped, or in a code span, destination or autolink | `not_an_opener` |
-| D9 | always closed; a closed hole wins over what it overlaps | `unclosed_is_text`, `closed_hole_wins`, `holes_and_verbatim` |
-| D10 | no block syntax: a code block in language `%` is a consumer convention | `theories/spec/holes.dj` |
-| D11 | HTML shows an unevaluated hole as `<code data-hole="">` | `theories/spec/holes.dj` |
+| E1 | `` %`e` ``: a `%` directly before a code span makes it a `Hole` holding the span's content | `a_hole` |
+| E2 | an unclosed hole runs to the end of the paragraph, crossing breaks, as a code span does | `unclosed_runs_on` |
+| E3 | no escapes: the payload is verbatim | `verbatim_payload` |
+| E4 | an empty payload is a hole, for the consumer to reject | `empty_holes` |
+| E5 | a raw format after a hole is text, as after math | `raw_suffix_is_text` |
+| E6 | attributes after a hole are the hole's | `hole_attributes` |
+| E7 | `\%` is text; `%{` is what it is with the setting off | `not_a_prefix` |
+| E8 | one kind; `%*` and `%?` read as with the setting off | `no_kinds` |
+| E9 | no block syntax: a raw block in format `hole` is a consumer convention | `theories/spec/holes.dj` |
+| E10 | the OCaml library maps a hole to a raw inline in format `hole` | `Mapper.holes_as_raw`, `ocaml/test/api.ml` |
+| E11 | HTML shows an unevaluated hole as `<code data-hole="">` | `theories/spec/holes.dj` |
+| E13 | a hole's text, for identifiers and labels, is its expression | `hole_text` |
 
-**Consequences pinned alongside.** A hole takes attributes like any
-inline (`hole_attributes`); its located range covers the sigil and both
-braces (`hole_located_ranges`); rendering a parsed document with holes
+**Consequences pinned alongside.** A hole has a code span's priority
+(`code_span_priority`); a `%` keeps its prefix inside a failed attribute
+spec, as a `$` does (`prefix_in_failed_spec`); places a `%` is not read
+(`not_an_opener`); its located range covers the `%` and both backtick
+runs (`hole_located_ranges`); rendering a parsed document with holes
 and parsing it again gives the same blocks (`holes_render_back`).
