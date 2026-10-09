@@ -467,6 +467,54 @@ function that removes these blocks after parsing, next to the
 recorded, and the HTML is the same either way.  With block attributes
 off (`battrs`), `{.x}` is paragraph text and nothing dangles.
 
+#### Review of the proposal (2026-10-08, by an agent, not reviewed by a human)
+
+Written after `Reached.v` and `list_uniformity_shape`
+([[261006.plan.list-content-uniformity]]), which met the same states
+from the proof side.
+
+For it:
+
+- The machinery around a blank left waiting exists because an attribute
+  line can end up part of nothing: the `Waits` fate, `stops_waiting`,
+  `list_settle`, the `PPend` arm of `blank_safe`.  Pending attributes
+  over an idle state are also one of the shapes `Reached.reached` has to
+  describe.  With the block emitted, a blank after pending attributes
+  closes something and emits it, as a blank does in every other state.
+- Every nonblank line of a container then lies inside some block, which
+  source locations and replace-in-place also want.
+
+To settle before building:
+
+1. A comment-only line, `{% note %}`, gives a block with no attributes.
+   What the source renderer prints for it is not said above.  `{}` loses
+   the comment; printing nothing breaks the round trip.  Either the
+   block keeps its source text or the canonical form is `{}`.
+2. Whether a dangling `{#x}` reserves `x` in the document pass
+   (duplicates, heading identifiers, link targets).  Suggested: no, it
+   attaches to nothing.  Today the question cannot arise.
+3. Stacked specs as one block put two source lines in one node.  Check
+   that located spans and replace-in-place want that; one block per line
+   is the other option.
+4. The end of a container with no blank (`- a` / `  {.x}` ending an
+   item) emits the block through `finish`, not `step`.  It needs a
+   pinned example of its own.
+
+What to expect of the theorems.  `run_safe` has two parts.  The block
+removes the reason for the end condition.  The per-line part
+(`pad_safe`) excludes a spec still open across a line boundary, which
+this proposal does not touch.  So the tightness row should shrink to
+"no spec open across lines", not to unconditional, unless the invariant
+is also made to follow an open spec.  `Tightness.state_ok` stops there
+because its preservation asks `pad_safe`; `Reached.step_reached` does
+not, and is where to start.  Probe before proving: neither claim has
+been checked.
+
+Order.  The AST and parser change first, with every existing theorem
+kept as stated; the tightness theorems after.  The wide part (a case in
+every match on `block`) is shallow.  The risk is in `Step.v` and the
+proofs over it.
+
 ## Status at a glance
 
 | Group | Cases | Status |

@@ -393,31 +393,6 @@ Proof.
   rewrite ends_list_key_close. destruct cur; reflexivity.
 Qed.
 
-(* A fence a line opens is at least three characters long, so a blank
-   never closes it. *)
-Lemma classify_fence_len : forall l f, classify l = KFence f -> 3 <= f_len f.
-Proof.
-  intros l f H. unfold classify in H.
-  destruct (is_blank l); [discriminate H|].
-  destruct (quote_prefix l); [discriminate H|].
-  destruct (heading_open l) as [[? ?]|]; [discriminate H|].
-  destruct (fence_open l) as [f'|] eqn:E.
-  - injection H as <-. unfold fence_open in E.
-    destruct (drop_leading_ws l) as [|c l']; [discriminate E|].
-    destruct (Ascii.eqb c "`" || Ascii.eqb c "~")%bool; [|discriminate E].
-    destruct (count_run c (String c l')) as [n r].
-    destruct (Nat.leb 3 n) eqn:Hn; [|discriminate E].
-    repeat match type of E with
-           | context [let (_, _) := ?x in _] => destruct x
-           | context [if ?b then _ else _] => destruct b
-           end; try discriminate E.
-    injection E as <-. cbn. apply Nat.leb_le. exact Hn.
-  - repeat match type of H with
-           | context [match ?x with _ => _ end] => destruct x
-           | context [if ?b then _ else _] => destruct b
-           end; discriminate H.
-Qed.
-
 (* What a nonblank line opens from idle.  `descend` is the parse of a
    container prefix's residue, which is shorter than the line. *)
 Lemma open_line_fresh : forall descend ind l,

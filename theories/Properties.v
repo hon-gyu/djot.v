@@ -120,7 +120,21 @@ Definition quote_uniform_holds : Prop :=
     (fun '(l, rest) => [l :: rest])
     (fun _ bss => mk (BlockQuote (concat bss))).
 
+(* `ok` asks only the shape of each item's first line. *)
 Definition list_uniform : Prop :=
+  container_uniform
+    (fun '(m0, _, L0, tail) =>
+       marker_ok m0 = true /\ items_shape_ok m0 ((m0, L0) :: tail) = true)
+    (fun '(m0, sp, L0, tail) =>
+       list_lines sp (map litem_lines ((m0, L0) :: tail)))
+    (fun '(m0, _, L0, tail) => map snd ((m0, L0) :: tail))
+    (fun '(m0, sp, L0, tail) =>
+       marker_list_checked m0 (list_scan_spacing sp (map snd ((m0, L0) :: tail)))
+         (map (fun it => mk_check (fst it)) ((m0, L0) :: tail))).
+
+(* What holds of a list with keys on, where a key an item leaves
+   holding a code block claims the next item's marker. *)
+Definition list_uniform_keyed : Prop :=
   container_uniform
     (fun '(m0, _, L0, tail) =>
        marker_ok m0 = true /\ items_ok m0 ((m0, L0) :: tail) = true)
@@ -132,6 +146,13 @@ Definition list_uniform : Prop :=
          (map (fun it => mk_check (fst it)) ((m0, L0) :: tail))).
 
 Definition definition_list_uniform : Prop :=
+  container_uniform
+    (fun '(_, lss) => lss <> [] /\ forallb (item_shape_ok colon) lss = true)
+    (fun '(sp, lss) => list_lines sp (map litem_lines (same_marker colon lss)))
+    (fun '(_, lss) => lss)
+    (fun '(sp, lss) bss => mk (DefinitionList (list_scan_spacing sp lss) (def_items bss))).
+
+Definition definition_list_uniform_keyed : Prop :=
   container_uniform
     (fun '(_, lss) => lss <> [] /\ forallb (item_ok colon) lss = true)
     (fun '(sp, lss) => list_lines sp (map litem_lines (same_marker colon lss)))
@@ -413,18 +434,29 @@ Next Obligation.
   destruct (o_callouts o); [reflexivity | discriminate H].
 Qed.
 
+Local Definition keyed_items_condition :=
+  "With keys on, for items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.".
+
 Program Definition p_list_uniformity : property := {|
   p_id := "list-uniformity";
   p_group := uniformity;
   p_statement := "Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.";
   p_implication := "Moving text into or out of a list item does not change its meaning.";
-  p_theorems := ["list_uniformity"; "ordered_uniformity"];
-  p_status := always (Conditional "For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.");
-  p_holds := at_profile list_uniform
+  p_theorems := ["list_uniformity_shape"; "list_uniformity_shape_tail";
+                 "ordered_uniformity_shape"; "list_uniformity"; "ordered_uniformity"];
+  p_status := fun o =>
+    if o_keyed o then Conditional keyed_items_condition else Proved;
+  p_holds := fun o =>
+    if o_keyed o then list_uniform_keyed (o_inline o) (bconfig_of o)
+    else list_uniform (o_inline o) (bconfig_of o)
 |}.
 Next Obligation.
-  intros [[[m0 sp] L0] tail] [Hm Hok]. rewrite map_map.
-  exact (list_uniformity m0 sp L0 tail Hm Hok).
+  destruct (o_keyed o) eqn:Ek.
+  - intros [[[m0 sp] L0] tail] [Hm Hok]. rewrite map_map.
+    exact (list_uniformity m0 sp L0 tail Hm Hok).
+  - intros [[[m0 sp] L0] tail] [Hm Hok]. rewrite map_map.
+    apply (list_uniformity_shape m0 sp L0 tail); [|exact Hm|exact Hok].
+    cbn. exact Ek.
 Qed.
 
 Program Definition p_definition_list_uniformity : property := {|
@@ -432,15 +464,24 @@ Program Definition p_definition_list_uniformity : property := {|
   p_group := uniformity;
   p_statement := "The same, for the items of a definition list.";
   p_implication := "Moving text into or out of a definition does not change its meaning.";
-  p_theorems := ["definition_list_uniformity"];
+  p_theorems := ["definition_list_uniformity_shape"; "definition_list_uniformity"];
   p_status := fun o =>
-    if o_deflists o then Conditional "For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line."
+    if o_deflists o
+    then if o_keyed o then Conditional keyed_items_condition else Proved
     else Inapplicable "Definition lists are off";
-  p_holds := at_profile definition_list_uniform
+  p_holds := fun o =>
+    if o_keyed o then definition_list_uniform_keyed (o_inline o) (bconfig_of o)
+    else definition_list_uniform (o_inline o) (bconfig_of o)
 |}.
 Next Obligation.
-  intros [sp lss] [Hne Hok]. apply definition_list_uniformity; [|exact Hne|exact Hok].
-  cbn. destruct (o_deflists o); [reflexivity | discriminate H].
+  assert (Hd : @bdeflists (bconfig_of o) = true).
+  { cbn. destruct (o_deflists o); [reflexivity|discriminate H]. }
+  destruct (o_keyed o) eqn:Ek.
+  - intros [sp lss] [Hne Hok].
+    exact (definition_list_uniformity sp lss Hd Hne Hok).
+  - intros [sp lss] [Hne Hok].
+    apply definition_list_uniformity_shape; [|exact Hd|exact Hne|exact Hok].
+    cbn. exact Ek.
 Qed.
 
 Program Definition p_div_uniformity : property := {|
