@@ -49,6 +49,7 @@
   ProfileChecks
   Properties
   Readable
+  RegionProto
   Render
   Reparse
   Spec
@@ -61,13 +62,13 @@
 
 (library
  (name djot)
- (modules :standard \ Fixtures Generate InlineGrammar)
+ (modules :standard \ Fixtures Generate InlineGrammar RegionProto)
  (flags
   (:standard -w -a)))
 
 (library
  (name djot_fixtures)
- (modules Fixtures Generate InlineGrammar)
+ (modules Fixtures Generate InlineGrammar RegionProto)
  (libraries djot)
  (flags
   (:standard -w -a -open Djot)))
