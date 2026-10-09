@@ -147,9 +147,9 @@ module Profile : sig
       Both spellings move together. *)
   val with_ext_tags : bool -> t -> t
 
-  (** Holes: [%{e}] reads as {!Inline.Hole}, an expression for the consumer to evaluate.
-      A code block whose language is [%] stays a {!Block.CodeBlock}; a consumer may
-      treat it as a block hole. *)
+  (** Holes: [%`e`], a code span with a [%] before it, reads as {!Inline.Hole}, an
+      expression for the consumer to evaluate. A raw block in format [hole] stays a raw
+      block; a consumer may treat it as a block hole. See {!Mapper.holes_as_raw}. *)
   val with_ext_holes : bool -> t -> t
 
   (** A setext heading: a paragraph underlined with [=] (level 1) or two or more [-]
@@ -316,8 +316,8 @@ module Inline : sig
     | Ext_wikilink of bool * string * string option
     (** An extension: [Ext_wikilink (embed, target, alias)], both strings as written. *)
     | Hole of string
-    (** An extension ({!Profile.with_ext_holes}): [%{e}], the expression between the
-        braces with its escapes decoded.  The parser never reads it. *)
+    (** An extension ({!Profile.with_ext_holes}): [%`e`], the expression read as the
+        code span's content is.  The parser never reads it. *)
 
   (** The text a heading identifier is derived from. *)
   val to_plain_text : t node list -> string
@@ -809,6 +809,11 @@ module Mapper : sig
       The result is not tied to any text: an edit of the {!Source} the document came from
       gives the parse of the edited text, without the map. *)
   val map_doc : t -> Doc.t -> Doc.t
+
+  (** Each {!Inline.Hole} [e] as [RawInline ("hole", e)], which is also what [`e`{=hole}]
+      reads as. A consumer that evaluates holes then has one shape inline, a raw inline
+      in format [hole], as it has one for blocks, a raw block in that format. *)
+  val holes_as_raw : t
 end
 
 module Folder : sig

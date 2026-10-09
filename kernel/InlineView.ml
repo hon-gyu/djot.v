@@ -626,80 +626,10 @@ let raw_text fmt s =
 
     ('=', ((^) fmt (one rbrace))))))
 
-(** val hole_text : string -> string **)
-
-let rec hole_text = (fun s ->
-     if not (String.contains s '\\') then s else
-     let n = String.length s in
-     let b = Buffer.create n and i = ref 0 in
-     while !i < n do
-       let c = s.[!i] in
-       if c = '\\' && !i + 1 < n
-          && (let d = s.[!i + 1] in d = '{' || d = '}' || d = '\\')
-       then (Buffer.add_char b s.[!i + 1]; i := !i + 2)
-       else (Buffer.add_char b c; incr i)
-     done;
-     Buffer.contents b)
-
-(** val hole_src : string -> string **)
-
-let rec hole_src s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun c rest ->
-    if (||) ((=) c lbrace) ((=) c rbrace)
-    then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (bslash,
-           ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (c, (hole_src rest))))
-    else if is_bslash c
-         then ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                 (fun _ ->
-                 (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                 (bslash,
-                 ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                 (c, ""))))
-                 (fun d _ ->
-                 if (||) ((||) ((=) d lbrace) ((=) d rbrace)) (is_bslash d)
-                 then (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                        (bslash,
-                        ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                        (c, (hole_src rest))))
-                 else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                        (c, (hole_src rest)))
-                 rest)
-         else (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                (c, (hole_src rest)))
-    s
-
 (** val hole_spell : string -> string **)
 
 let hole_spell s =
-  (^) (one percent) ((^) (one lbrace) ((^) (hole_src s) (one rbrace)))
+  (^) (one percent) (verb_text s)
 
 type cinline =
 | CIStr of string

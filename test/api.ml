@@ -208,3 +208,30 @@ let () =
     Source.to_string (Source.replace_lines s ~first:1 ~last:0 "top") = "top\none\n\ntwo\n");
   assert (Html.of_doc (Source.doc s') = Html.of_doc (Doc.of_string "one\n\nthree"))
 ;;
+
+(* A hole as a raw inline in format `hole`, which is what `` `e`{=hole} ``
+   reads as. *)
+let () =
+  let profile = Profile.with_ext_holes true Profile.djot in
+  let d = Doc.of_string ~profile "a %`x` b\n" in
+  assert (Html.of_doc d = "<p>a <code data-hole=\"\">x</code> b</p>\n");
+  let raw = function
+    | Node (_, _, Inline.RawInline ("hole", s)) -> [ s ]
+    | _ -> []
+  in
+  let raws d =
+    List.concat_map
+      (fun n ->
+         Folder.fold_block
+           (Folder.make
+              ~inline:(fun _ acc n ->
+                match raw n with [] -> Folder.default | r -> Folder.ret (acc @ r))
+              ())
+           []
+           n)
+      (Doc.blocks d)
+  in
+  let d' = Mapper.map_doc Mapper.holes_as_raw d in
+  assert (raws d' = [ "x" ]);
+  assert (raws d' = raws (Doc.of_string ~profile "a `x`{=hole} b\n"))
+;;

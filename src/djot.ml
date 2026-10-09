@@ -189,7 +189,7 @@ module Profile = struct
     inline "ext_tags" "::: name and :name[...]" (fun t -> t.dc_tags) with_inline_tags
   ;;
 
-  let ext_holes = inline "ext_holes" "%{e}" (fun t -> t.dc_holes) with_holes
+  let ext_holes = inline "ext_holes" "%`e`" (fun t -> t.dc_holes) with_holes
 
   let tables : Switch.t =
     { name = "tables"
@@ -1444,6 +1444,14 @@ module Mapper = struct
     let pos = if Option.is_some d.lines then K.Ast.located_pos else K.Ast.semantic_pos in
     let bs = map_blocks m (K.Render.doc_source_blocks d.kernel) in
     { d with kernel = K.Document.doc_pass pos (K.Document.unsection bs) }
+  ;;
+
+  let holes_as_raw =
+    make
+      ~inline:(fun _ -> function
+        | Node (p, a, Inline.Hole s) -> ret (Node (p, a, Inline.RawInline ("hole", s)))
+        | _ -> default)
+      ()
   ;;
 end
 

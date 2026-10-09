@@ -206,6 +206,7 @@ type vkind =
 | VVerb
 | VMath of math_style
 | VMaybeDollarMath of string
+| VHole
 
 val vnode : vkind -> string -> inline
 
@@ -236,7 +237,6 @@ type 'buf iscan_g =
 | ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
 | IRaw of 'buf * string * ostate
 | IPercent of 'buf * char option * ostate
-| IHole of int * bool * 'buf * 'buf * 'buf iscan_g * ostate
 
 val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool
 
@@ -372,14 +372,6 @@ val ipercent_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   'a1 -> char option -> ostate -> 'a1 iscan_g
 
-val ihole_close :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
-  ostate -> 'a1 iscan_g
-
-val ihole_step :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> int -> bool
-  -> 'a1 -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1 iscan_g
-
 val iresolve :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
   iscan_g -> 'a1 iscan_g
@@ -446,36 +438,29 @@ val ddecode_from : bool -> string -> string
 
 val ddecode : string -> string
 
-type 'buf ckind =
+type ckind =
 | CDest of inlines * bool * span * ostate
-| CHole of 'buf * ostate
 
-type 'buf cframe = { cf_kind : 'buf ckind; cf_level : int; cf_under :
-                     'buf; cf_dtop : int option; cf_htop : int option }
+type 'buf cframe = { cf_kind : ckind; cf_level : int; cf_under : 'buf }
 
-type 'buf sscan = { s_frames : 'buf cframe list; s_dtop : int option;
-                    s_htop : int option; s_parens : int; s_braces : int;
-                    s_esc : bool; s_seg : 'buf; s_cur : 'buf iscan_g }
+type 'buf sscan = { s_frames : 'buf cframe list; s_parens : int; s_esc :
+                    bool; s_seg : 'buf; s_cur : 'buf iscan_g }
 
 val slift : 'a1 coq_TextOps -> 'a1 iscan_g -> 'a1 sscan
 
-val sat_level : int option -> int -> bool
+val stop_level : 'a1 cframe list -> int option
 
 val sabove : int option -> int -> bool
 
 val scount : bool -> char -> char -> char -> int -> int
 
-val spop :
-  'a1 coq_TextOps -> bool -> 'a1 cframe list -> string list -> (('a1
-  cframe * 'a1 cframe list) * string) option
-
 val speel :
-  'a1 coq_TextOps -> 'a1 cframe list -> int option -> int option -> int -> int
-  -> bool -> 'a1 -> 'a1 iscan_g -> 'a1 sscan
+  'a1 coq_TextOps -> 'a1 cframe list -> int -> bool -> 'a1 -> 'a1 iscan_g ->
+  'a1 sscan
 
 val sframe_close :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 ckind -> string
-  -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> ckind -> string ->
+  'a1 iscan_g
 
 val sstep_at :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->

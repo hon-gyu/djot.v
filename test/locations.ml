@@ -58,7 +58,7 @@ let () =
     "p [[a|b]] ![[c]] q";
   Outline.show ~profile:(Profile.with_ext_dollar_math true Profile.djot) "a $x$ b";
   Outline.show ~profile:(Profile.with_ext_tags true Profile.djot) "p :kbd[a] q";
-  Outline.show ~profile:(Profile.with_ext_holes true Profile.djot) "p %{ {x} } q"
+  Outline.show ~profile:(Profile.with_ext_holes true Profile.djot) "p %`{x}` q"
 ;;
 
 (* A callout's title and a key's label are located like any other
