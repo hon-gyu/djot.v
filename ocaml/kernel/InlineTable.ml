@@ -703,6 +703,7 @@ let rec reference_text il =
    | SoftBreak -> nl
    | HardBreak -> nl
    | Ext_wikilink (_, t, al) -> wiki_display t al
+   | Hole s -> s
    | _ -> "")
 
 (** val reference_inlines_text : inlines -> string **)

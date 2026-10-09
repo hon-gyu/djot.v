@@ -286,8 +286,8 @@ class ExtWikilink(Node):
 
 @dataclass(slots=True, repr=False)
 class ExtHole(Node):
-    """An extension: `%{e}`, the expression between the braces with its
-    escapes decoded, for the consumer to evaluate."""
+    """An extension: ``%`e` ``, a code span with a `%` before it, whose
+    content is the expression, for the consumer to evaluate."""
 
     tag: ClassVar[str] = "ext_hole"
     text: str

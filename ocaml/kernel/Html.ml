@@ -136,19 +136,20 @@ let rec plain_text il =
    | Superscript ns -> go ns
    | Subscript ns -> go ns
    | Verbatim s -> s
+   | Symbol _ -> ""
    | Math (_, s) -> s
    | Link (ns, _) -> go ns
    | Image (ns, _) -> go ns
    | Span (_, ns) -> go ns
+   | FootnoteReference _ -> ""
    | UrlLink s -> s
    | EmailLink s -> s
    | RawInline (_, s) -> s
    | NonBreakingSpace -> " "
    | Quoted (_, ns) -> go ns
-   | SoftBreak -> nl
-   | HardBreak -> nl
    | Ext_wikilink (_, t, al) -> wiki_display t al
-   | _ -> "")
+   | Hole s -> s
+   | _ -> nl)
 
 (** val plain_texts : inline node list -> string **)
 

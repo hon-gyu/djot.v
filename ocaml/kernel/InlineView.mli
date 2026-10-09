@@ -138,10 +138,6 @@ val raw_stop : char -> bool
 
 val raw_text : string -> string -> string
 
-val hole_text : string -> string
-
-val hole_src : string -> string
-
 val hole_spell : string -> string
 
 type cinline =
