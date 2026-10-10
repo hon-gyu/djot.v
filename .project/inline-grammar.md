@@ -39,8 +39,10 @@ lexer has already settled what each token *may* do:
 - `[` may open, and `]` may close when `(` or `[` follows it; any other
   `]` is text;
 - a verbatim, a backtick run and the bytes to the next run of its
-  length or to the paragraph's end, is one token;
-- verbatims, escapes, breaks and other bytes are text.
+  length or to the paragraph's end, is one token, with any dollars
+  before it (math) and a raw spec after it; so is an autolink candidate
+  and a symbol;
+- these, escapes, breaks and other bytes are text.
 
 The grammar decides what each token does.
 

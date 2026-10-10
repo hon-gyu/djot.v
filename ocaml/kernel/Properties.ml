@@ -301,7 +301,7 @@ let p_inline_precedence =
     "Overlapping delimiters have one meaning, which can be worked out by hand.";
     p_theorems = ("para_inlines_valid" :: ("valid_unique" :: [])); p_status =
     (always (Conditional
-      "For emphasis-like delimiters, links, backslash escapes and plain text. Smart quotes, spans and images are not covered.")) }
+      "For emphasis-like delimiters, links, backslash escapes, code spans, math, raw inline, autolinks, symbols and plain text. Smart quotes, spans and images are not covered.")) }
 
 (** val all : property list **)
 
