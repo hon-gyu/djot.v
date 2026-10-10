@@ -29,6 +29,10 @@ val auto_go : string -> string * char option
 
 val auto_clean : string -> bool
 
+val symbol_run : string -> int
+
+val colon_ok : string -> bool
+
 val raw_ahead : dtable -> string -> bool
 
 val follow_ok : dtable -> char -> string -> bool
@@ -47,6 +51,7 @@ type token =
 | TVerb of int * int * string * bool * string option
 | TDollars of int
 | TAuto of string * bool
+| TSymbol of string
 
 val ws_run : string -> string
 
@@ -61,6 +66,8 @@ val verb_tok : dtable -> int -> string -> token * int
 val dollar_run : string -> int
 
 val auto_tok : string -> token * int
+
+val sym_tok : string -> token * int
 
 val dollar_tok : dtable -> string -> token * int
 

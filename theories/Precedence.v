@@ -36,8 +36,8 @@ Definition bare_opens (k : dstyle) : bool :=
   match dsyntax_of k with DBare => true | _ => false end.
 
 (* The bytes a line is drawn from: the characters of those rows, the
-   braces, the brackets, the backtick, `<`, and bytes that no row and no
-   other syntax claims, the parens among them.  A paren is not a row's character
+   braces, the brackets, the backtick, `<`, `:` while tags are off, and
+   bytes that no row and no other syntax claims, the parens among them.  A paren is not a row's character
    here, since a destination counts parens.  The newline ends the
    line; the `$` is drawn on while dollar math is off, and a hole's `%`
    is not drawn on while holes are on. *)
@@ -45,6 +45,7 @@ Definition in_alphabet (c : ascii) : bool :=
   (negb (Ascii.eqb c nl_char)
    && (Ascii.eqb c lbrace || Ascii.eqb c rbrace || Ascii.eqb c lbrack
        || Ascii.eqb c rbrack || is_tick c || Ascii.eqb c lt
+       || (Ascii.eqb c ":"%char && negb tags_enabled)
        || (Ascii.eqb c dollar && negb dollar_math_enabled)
        || (negb (dreserved c) && negb (holes_enabled && Ascii.eqb c percent)))
    && negb (Ascii.eqb c hyphen)
@@ -102,6 +103,21 @@ Fixpoint auto_clean (s : string) : bool :=
   | String c r => if auto_stop c then true else (negb (is_bslash c) && auto_clean r)%bool
   end.
 
+(* The run of symbol characters a string begins with. *)
+Fixpoint symbol_run (s : string) : nat :=
+  match s with
+  | String c r => if symbol_char c then S (symbol_run r) else 0
+  | EmptyString => 0
+  end.
+
+(* Whether what follows a `:` decides at once: no symbol character, or a
+   run of them closed by a `:` (Y1). *)
+Definition colon_ok (s : string) : bool :=
+  match symbol_run s with
+  | O => true
+  | k => starts_with ":"%char (sdrop k s)
+  end.
+
 (* Whether a `{` after a backtick begins a raw spec that closes. *)
 Definition raw_ahead (s : string) : bool :=
   (raw_inline_enabled && match raw_spec s with Some _ => true | None => false end)%bool.
@@ -110,13 +126,15 @@ Definition raw_ahead (s : string) : bool :=
    begins an attribute spec, and so does one after a `]`; one after a
    backtick is drawn on only as a raw spec that closes; a `[` before a `^`
    begins a footnote reference and before a `[` a wikilink; an autolink
-   candidate holds no backslash. *)
+   candidate holds no backslash; and a `:` either begins a symbol or is
+   text on the spot. *)
 Definition follow_ok (c : ascii) (rest : string) : bool :=
   ((negb (Ascii.eqb c lbrace) || starts_row rest)
    && negb (Ascii.eqb c lbrack && (starts_with lbrack rest || starts_with hat rest))
    && negb (Ascii.eqb c rbrack && starts_with lbrace rest)
    && negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest))
-   && negb (Ascii.eqb c lt && negb (auto_clean rest)))%bool.
+   && negb (Ascii.eqb c lt && negb (auto_clean rest))
+   && negb (Ascii.eqb c ":"%char && negb (colon_ok rest)))%bool.
 
 (* A backslash escapes the byte after it, whatever that byte is but the
    newline, so the escaped byte is not drawn on the alphabet (O2, O3).
@@ -164,7 +182,10 @@ Fixpoint over_alphabet (s : string) : bool :=
    A `<` begins an autolink candidate (A1 to A3), which runs to the byte
    that ends it (`auto_stop`).  It is a link when that byte is a `>` and
    the region is an address (`ok`); otherwise the `<` and the region are
-   text and the byte that ended it is read on its own. *)
+   text and the byte that ended it is read on its own.
+
+   A `:`, a nonempty run of symbol characters and a `:` are a symbol
+   (`TSymbol`, Y1); any other `:` is text. *)
 Inductive token : Type :=
   | TText (c : ascii)
   | TBreak
@@ -176,7 +197,8 @@ Inductive token : Type :=
   | THard (ws : string)
   | TVerb (pre n : nat) (body : string) (closed : bool) (raw : option string)
   | TDollars (k : nat)
-  | TAuto (src : string) (ok : bool).
+  | TAuto (src : string) (ok : bool)
+  | TSymbol (alias : string).
 
 (* The whitespace a string begins with. *)
 Fixpoint ws_run (s : string) : string :=
@@ -235,6 +257,13 @@ Definition auto_tok (s : string) : token * nat :=
   then (TAuto src true, S (S (String.length src)))
   else (TAuto src false, S (String.length src)).
 
+(* A symbol that `s` begins with, past its `:`, or the `:` as text. *)
+Definition sym_tok (s : string) : token * nat :=
+  let k := symbol_run s in
+  if (Nat.ltb 0 k && starts_with ":"%char (sdrop k s))%bool
+  then (TSymbol (substring 0 k s), S (S k))
+  else (TText ":"%char, 1).
+
 (* A run of dollars that `s` begins with: the math it prefixes, or text. *)
 Definition dollar_tok (s : string) : token * nat :=
   let k := dollar_run s in
@@ -271,6 +300,7 @@ Definition next_tok (prev : option ascii) (s : string) : option (token * nat) :=
          else if is_tick c then verb_tok 0 s
          else if Ascii.eqb c dollar then dollar_tok s
          else if Ascii.eqb c lt then auto_tok rest
+         else if Ascii.eqb c ":"%char then sym_tok rest
          else if Ascii.eqb c lbrack then (TOpen, 1)
          else if Ascii.eqb c rbrack then
            (if starts_with lparen rest then TClose true
@@ -697,6 +727,25 @@ Proof.
   destruct (_ && _)%bool; do 3 eexists; reflexivity.
 Qed.
 
+Lemma symbol_run_le : forall s, symbol_run s <= String.length s.
+Proof. induction s as [|c s IH]; cbn; [lia|]. destruct (symbol_char c); cbn; lia. Qed.
+
+Lemma sym_tok_len : forall r t l, sym_tok r = (t, l) -> 0 < l <= S (String.length r).
+Proof.
+  intros r t l H. unfold sym_tok in H. pose proof (symbol_run_le r) as Le.
+  destruct (Nat.ltb 0 (symbol_run r) && starts_with ":"%char (sdrop (symbol_run r) r))%bool
+    eqn:E; injection H as <- <-; [|lia].
+  apply andb_true_iff in E as [_ E].
+  destruct (sdrop (symbol_run r) r) as [|c r'] eqn:Es; [discriminate|].
+  pose proof (sdrop_length (symbol_run r) r) as L. rewrite Es in L. cbn in L. lia.
+Qed.
+
+Lemma sym_tok_shape : forall r,
+  (exists a l, sym_tok r = (TSymbol a, l)) \/ sym_tok r = (TText ":"%char, 1).
+Proof.
+  intros r. unfold sym_tok. destruct (_ && _)%bool; [left; eauto|right; reflexivity].
+Qed.
+
 Lemma next_tok_len : forall prev s t l,
   next_tok prev s = Some (t, l) -> 0 < l <= String.length s.
 Proof.
@@ -734,7 +783,9 @@ Proof.
     | match goal with Hd : Ascii.eqb ?x dollar = true |- _ =>
         exact (dollar_tok_len _ _ t l Hd H) end
     | match goal with Hd : Ascii.eqb ?x lt = true |- _ =>
-        exact (auto_tok_len _ t l H) end ].
+        exact (auto_tok_len _ t l H) end
+    | match goal with Hd : Ascii.eqb ?x ":"%char = true |- _ =>
+        exact (sym_tok_len _ t l H) end ].
 Qed.
 
 Lemma tok_at_len : forall s p t l,
@@ -779,6 +830,9 @@ Proof.
   intros s p b l H. unfold tok_at, next_tok, dollar_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
+  | context [sym_tok ?a] =>
+      let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
+      cbn iota beta in H
   | context [auto_tok ?a] =>
       let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
       cbn iota beta in H
@@ -795,6 +849,9 @@ Proof.
   intros s p k l H. unfold tok_at, next_tok, dollar_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
+  | context [sym_tok ?a] =>
+      let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
+      cbn iota beta in H
   | context [auto_tok ?a] =>
       let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
       cbn iota beta in H
@@ -1056,7 +1113,7 @@ Definition ropen (i : nat) (k : key) (op : bool) (st : rstate) : rstate :=
 
 Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
   match t with
-  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ _ | TDollars _ | TAuto _ _ => st
+  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ _ | TDollars _ | TAuto _ _ | TSymbol _ => st
   | TOpen => ropen i KBracket true st
   | TDelim k mr op cl =>
       match (if cl then pick (KDelim k mr) (rs_live st) else PNone) with
@@ -1582,7 +1639,7 @@ Proof.
     - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
     - intros k Hk. congruence. }
   (* text, a break and the escapes neither open nor close *)
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok]; try (apply Text; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa]; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Hop : open_key s n = if op then Some K else None)
@@ -1685,7 +1742,7 @@ Proof.
             /\ (rs_os (ropen i k op st') = os \/ rs_os (ropen i k op st') = i :: os)).
   { intros k [|] st' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
       split; [left|right|left|left]; reflexivity. }
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok]; try (split; left; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa]; try (split; left; reflexivity).
   - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
       [destruct (Nat.ltb (tok_end s p) i)| |];
       try (apply Ro; reflexivity); try (split; left; reflexivity).
@@ -1835,6 +1892,7 @@ Definition tok_text (t : token) : string :=
        ++ raw_text raw)%string
   | TDollars k => chars dollar k
   | TAuto src ok => (String lt src ++ if ok then one gt else EmptyString)%string
+  | TSymbol a => (String ":"%char a ++ one ":"%char)%string
   end.
 
 (* A run escaped by a backslash is a non-breaking space and the rest of
@@ -1960,6 +2018,7 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
       temit (mk (verb_node pre raw body)) fs' top'
   | TDollars _ => temit_str (tok_text t) fs top
   | TAuto src ok => if ok then temit (mk (auto_node src)) fs top else temit_str (tok_text t) fs top
+  | TSymbol a => temit (mk (Symbol a)) fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
   | TDelim k _ _ _ =>
       if is_opener m i then ((TKDelim k, []) :: fs, top)
