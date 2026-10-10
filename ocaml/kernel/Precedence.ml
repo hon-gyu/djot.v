@@ -71,15 +71,85 @@ let starts_with c s =
     (fun d _ -> (=) d c)
     s
 
+(** val fmt_go : string -> string option **)
+
+let rec fmt_go s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> None)
+    (fun c r ->
+    if (=) c rbrace
+    then Some ""
+    else if (||) (raw_stop c) ((=) c nl_char)
+         then None
+         else option_map (fun x ->
+                (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                (c, x)) (fmt_go r))
+    s
+
+(** val raw_spec : string -> string option **)
+
+let raw_spec s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> None)
+    (fun b s0 ->
+    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+      (fun _ -> None)
+      (fun e r ->
+      if (&&) ((=) b lbrace) ((=) e eqchar)
+      then (match fmt_go r with
+            | Some s1 ->
+              ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+                 (fun _ -> None)
+                 (fun c f -> Some
+                 ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                 (c, f)))
+                 s1)
+            | None -> None)
+      else None)
+      s0)
+    s
+
+(** val raw_ahead : dtable -> string -> bool **)
+
+let raw_ahead t s =
+  (&&) (raw_inline_enabled t)
+    (match raw_spec s with
+     | Some _ -> true
+     | None -> false)
+
 (** val follow_ok : dtable -> char -> string -> bool **)
 
 let follow_ok t c rest =
   (&&)
-    ((&&) ((||) (negb ((=) c lbrace)) (starts_row t rest))
-      (negb
-        ((&&) ((=) c lbrack)
-          ((||) (starts_with lbrack rest) (starts_with hat rest)))))
-    (negb ((&&) ((||) ((=) c rbrack) (is_tick c)) (starts_with lbrace rest)))
+    ((&&)
+      ((&&) ((||) (negb ((=) c lbrace)) (starts_row t rest))
+        (negb
+          ((&&) ((=) c lbrack)
+            ((||) (starts_with lbrack rest) (starts_with hat rest)))))
+      (negb ((&&) ((=) c rbrack) (starts_with lbrace rest))))
+    (negb
+      ((&&) ((&&) (is_tick c) (starts_with lbrace rest))
+        (negb (raw_ahead t rest))))
 
 (** val over_alphabet : dtable -> string -> bool **)
 
@@ -101,7 +171,9 @@ let rec over_alphabet t s =
             (fun d rest' ->
             (&&)
               ((&&) (negb ((=) d nl_char))
-                (negb ((&&) (is_tick d) (starts_with lbrace rest'))))
+                (negb
+                  ((&&) ((&&) (is_tick d) (starts_with lbrace rest'))
+                    (negb (raw_ahead t rest')))))
               (over_alphabet t rest'))
             rest)
     else (&&) ((&&) (in_alphabet t c) (follow_ok t c rest))
@@ -117,7 +189,7 @@ type token =
 | TEsc of char
 | TEscWs of string
 | THard of string
-| TVerb of int * int * string * bool
+| TVerb of int * int * string * bool * string option
 | TDollars of int
 
 (** val ws_run : string -> string **)
@@ -194,12 +266,20 @@ let rec verb_go n run s =
               (Stdlib.succ l)), cl))
     s
 
-(** val verb_tok : int -> string -> token * int **)
+(** val verb_tok : dtable -> int -> string -> token * int **)
 
-let verb_tok pre s =
+let verb_tok t pre s =
   let n = tick_run s in
   let (p, closed) = verb_go n 0 (sdrop n s) in
-  let (body, used) = p in ((TVerb (pre, n, body, closed)), (( + ) n used))
+  let (body, used) = p in
+  (match if (&&) ((&&) closed (( = ) pre 0)) (raw_inline_enabled t)
+         then raw_spec (sdrop (( + ) n used) s)
+         else None with
+   | Some f ->
+     ((TVerb (pre, n, body, closed, (Some f))),
+       (( + ) (( + ) n used) (Stdlib.succ (Stdlib.succ (Stdlib.succ
+         (String.length f))))))
+   | None -> ((TVerb (pre, n, body, closed, None)), (( + ) n used)))
 
 (** val dollar_run : string -> int **)
 
@@ -219,7 +299,7 @@ let dollar_tok t s =
   let k = dollar_run s in
   let rest = sdrop k s in
   if (&&) (math_enabled t) (starts_with tick rest)
-  then let (t0, l) = verb_tok k rest in (t0, (( + ) k l))
+  then let (t0, l) = verb_tok t k rest in (t0, (( + ) k l))
   else ((TDollars k), k)
 
 (** val at_rbrace : char option -> bool **)
@@ -257,7 +337,7 @@ let next_tok t prev s =
                        else ((TEsc d), (Stdlib.succ (Stdlib.succ 0))))
                        rest)
           else if is_tick c
-               then verb_tok 0 s
+               then verb_tok t 0 s
                else if (=) c dollar
                     then dollar_tok t s
                     else if (=) c lbrack
@@ -588,6 +668,21 @@ let esc_text c =
 
          (bslash, (one c))
 
+(** val raw_text : string option -> string **)
+
+let raw_text = function
+| Some f ->
+  (^)
+    ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (lbrace,
+    ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (eqchar, f)))) (one rbrace)
+| None -> ""
+
 (** val tok_text : dtable -> token -> string **)
 
 let tok_text t = function
@@ -616,9 +711,10 @@ let tok_text t = function
   (fun (c, s) -> String.make 1 c ^ s)
 
     (bslash, ws)
-| TVerb (pre, n, body, closed) ->
+| TVerb (pre, n, body, closed, raw) ->
   (^) (chars dollar pre)
-    ((^) (ticks n) ((^) body (if closed then ticks n else "")))
+    ((^) (ticks n)
+      ((^) body ((^) (if closed then ticks n else "") (raw_text raw))))
 | TDollars k -> chars dollar k
 
 (** val nbsp_rest : string -> string option **)
@@ -769,17 +865,20 @@ let is_hard = function
 | THard _ -> true
 | _ -> false
 
-(** val verb_node : int -> string -> inline **)
+(** val verb_node : int -> string option -> string -> inline **)
 
-let verb_node pre body =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> Verbatim (trim_verb body))
-    (fun n ->
-    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-      (fun _ -> Math (InlineMath, (trim_verb body)))
-      (fun _ -> Math (DisplayMath, (trim_verb body)))
-      n)
-    pre
+let verb_node pre raw body =
+  match raw with
+  | Some f -> RawInline (f, (trim_verb body))
+  | None ->
+    ((fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+       (fun _ -> Verbatim (trim_verb body))
+       (fun n ->
+       (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+         (fun _ -> Math (InlineMath, (trim_verb body)))
+         (fun _ -> Math (DisplayMath, (trim_verb body)))
+         n)
+       pre)
 
 (** val tstep :
     dtable -> string -> matching -> int -> token -> bool -> tframes -> inlines
@@ -833,14 +932,14 @@ let tstep t s m i t0 hard fs top =
        if nonempty_str rest then temit_str rest fs' top' else (fs', top')
      | None -> temit_str (tok_text t t0) fs top)
   | THard _ -> let (fs', top') = ttrim fs top in temit (mk HardBreak) fs' top'
-  | TVerb (pre, _, body, _) ->
+  | TVerb (pre, _, body, _, raw) ->
     let (fs', top') =
       if ( < ) (Stdlib.succ (Stdlib.succ 0)) pre
       then temit_str (chars dollar (sub pre (Stdlib.succ (Stdlib.succ 0)))) fs
              top
       else (fs, top)
     in
-    temit (mk (verb_node pre body)) fs' top'
+    temit (mk (verb_node pre raw body)) fs' top'
   | _ -> temit_str (tok_text t t0) fs top
 
 (** val tgo :

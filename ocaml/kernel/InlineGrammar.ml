@@ -113,7 +113,7 @@ let rec level t fuel s p live forb prev barred =
                                 after m os
                                   (level t fuel' s (( + ) e le) live forb None
                                     barred)
-                              | TVerb (_, _, _, _) ->
+                              | TVerb (_, _, _, _, _) ->
                                 after m os
                                   (level t fuel' s (( + ) e le) live forb None
                                     barred)

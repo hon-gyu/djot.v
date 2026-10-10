@@ -19,6 +19,12 @@ val starts_row : dtable -> string -> bool
 
 val starts_with : char -> string -> bool
 
+val fmt_go : string -> string option
+
+val raw_spec : string -> string option
+
+val raw_ahead : dtable -> string -> bool
+
 val follow_ok : dtable -> char -> string -> bool
 
 val over_alphabet : dtable -> string -> bool
@@ -32,7 +38,7 @@ type token =
 | TEsc of char
 | TEscWs of string
 | THard of string
-| TVerb of int * int * string * bool
+| TVerb of int * int * string * bool * string option
 | TDollars of int
 
 val ws_run : string -> string
@@ -43,7 +49,7 @@ val tick_run : string -> int
 
 val verb_go : int -> int -> string -> (string * int) * bool
 
-val verb_tok : int -> string -> token * int
+val verb_tok : dtable -> int -> string -> token * int
 
 val dollar_run : string -> int
 
@@ -122,6 +128,8 @@ val str_snoc : string -> inlines -> inlines
 
 val esc_text : char -> string
 
+val raw_text : string option -> string
+
 val tok_text : dtable -> token -> string
 
 val nbsp_rest : string -> string option
@@ -152,7 +160,7 @@ val temit_all : inlines -> tframes -> inlines -> tframes * inlines
 
 val is_hard : token -> bool
 
-val verb_node : int -> string -> inline
+val verb_node : int -> string option -> string -> inline
 
 val tstep :
   dtable -> string -> matching -> int -> token -> bool -> tframes -> inlines
