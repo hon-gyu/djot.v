@@ -35,9 +35,12 @@ let in_alphabet t c =
         ((||)
           ((||)
             ((||)
-              ((||) ((||) ((||) ((=) c lbrace) ((=) c rbrace)) ((=) c lbrack))
-                ((=) c rbrack))
-              (is_tick c))
+              ((||)
+                ((||)
+                  ((||) ((||) ((=) c lbrace) ((=) c rbrace)) ((=) c lbrack))
+                  ((=) c rbrack))
+                (is_tick c))
+              ((=) c lt))
             ((&&) ((=) c dollar) (negb (dollar_math_enabled t))))
           ((&&) (negb (dreserved c))
             (negb ((&&) (holes_enabled t) ((=) c percent))))))
@@ -129,6 +132,43 @@ let raw_spec s =
       s0)
     s
 
+(** val auto_stop : char -> bool **)
+
+let auto_stop c =
+  (||) ((||) ((||) ((=) c gt) (is_ws c)) ((=) c lt)) ((=) c nl_char)
+
+(** val auto_go : string -> string * char option **)
+
+let rec auto_go s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> ("", None))
+    (fun c r ->
+    if auto_stop c
+    then ("", (Some c))
+    else let (src, stop) = auto_go r in
+         (((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+         (c, src)), stop))
+    s
+
+(** val auto_clean : string -> bool **)
+
+let rec auto_clean s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> true)
+    (fun c r ->
+    if auto_stop c then true else (&&) (negb (is_bslash c)) (auto_clean r))
+    s
+
 (** val raw_ahead : dtable -> string -> bool **)
 
 let raw_ahead t s =
@@ -142,14 +182,16 @@ let raw_ahead t s =
 let follow_ok t c rest =
   (&&)
     ((&&)
-      ((&&) ((||) (negb ((=) c lbrace)) (starts_row t rest))
-        (negb
-          ((&&) ((=) c lbrack)
-            ((||) (starts_with lbrack rest) (starts_with hat rest)))))
-      (negb ((&&) ((=) c rbrack) (starts_with lbrace rest))))
-    (negb
-      ((&&) ((&&) (is_tick c) (starts_with lbrace rest))
-        (negb (raw_ahead t rest))))
+      ((&&)
+        ((&&) ((||) (negb ((=) c lbrace)) (starts_row t rest))
+          (negb
+            ((&&) ((=) c lbrack)
+              ((||) (starts_with lbrack rest) (starts_with hat rest)))))
+        (negb ((&&) ((=) c rbrack) (starts_with lbrace rest))))
+      (negb
+        ((&&) ((&&) (is_tick c) (starts_with lbrace rest))
+          (negb (raw_ahead t rest)))))
+    (negb ((&&) ((=) c lt) (negb (auto_clean rest))))
 
 (** val over_alphabet : dtable -> string -> bool **)
 
@@ -191,6 +233,7 @@ type token =
 | THard of string
 | TVerb of int * int * string * bool * string option
 | TDollars of int
+| TAuto of string * bool
 
 (** val ws_run : string -> string **)
 
@@ -293,6 +336,19 @@ let rec dollar_run s =
     (fun c r -> if (=) c dollar then Stdlib.succ (dollar_run r) else 0)
     s
 
+(** val auto_tok : string -> token * int **)
+
+let auto_tok s =
+  let (src, stop) = auto_go s in
+  if (&&)
+       ((&&) (match stop with
+              | Some c -> (=) c gt
+              | None -> false)
+         (auto_body_ok src))
+       (auto_kind_ok src)
+  then ((TAuto (src, true)), (Stdlib.succ (Stdlib.succ (String.length src))))
+  else ((TAuto (src, false)), (Stdlib.succ (String.length src)))
+
 (** val dollar_tok : dtable -> string -> token * int **)
 
 let dollar_tok t s =
@@ -340,57 +396,65 @@ let next_tok t prev s =
                then verb_tok t 0 s
                else if (=) c dollar
                     then dollar_tok t s
-                    else if (=) c lbrack
-                         then (TOpen, (Stdlib.succ 0))
-                         else if (=) c rbrack
-                              then ((if starts_with lparen rest
-                                     then TClose true
-                                     else if starts_with lbrack rest
-                                          then TClose false
-                                          else TText c),
-                                     (Stdlib.succ 0))
-                              else if (=) c lbrace
-                                   then (match (* If this appears, you're using String internals. Please don't *)
+                    else if (=) c lt
+                         then auto_tok rest
+                         else if (=) c lbrack
+                              then (TOpen, (Stdlib.succ 0))
+                              else if (=) c rbrack
+                                   then ((if starts_with lparen rest
+                                          then TClose true
+                                          else if starts_with lbrack rest
+                                               then TClose false
+                                               else TText c),
+                                          (Stdlib.succ 0))
+                                   else if (=) c lbrace
+                                        then (match (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-                                                 (fun _ -> None)
-                                                 (fun d _ ->
-                                                 dstyle_of t d)
-                                                 rest with
-                                         | Some k ->
-                                           if (fun s1 s2 ->
+                                                      (fun _ ->
+                                                      None)
+                                                      (fun d _ ->
+                                                      dstyle_of t d)
+                                                      rest with
+                                              | Some k ->
+                                                if (fun s1 s2 ->
      let l1 = String.length s1 and l2 = String.length s2 in
      l1 <= l2 && String.sub s2 0 l1 = s1)
-                                                (dtoken t k) rest
-                                           then ((TDelim (k, true, true,
-                                                  false)), (Stdlib.succ
-                                                  (dwidth t k)))
-                                           else ((TText c), (Stdlib.succ 0))
-                                         | None ->
-                                           ((TText c), (Stdlib.succ 0)))
-                                   else (match dstyle_of t c with
-                                         | Some k ->
-                                           if (fun s1 s2 ->
-     let l1 = String.length s1 and l2 = String.length s2 in
-     l1 <= l2 && String.sub s2 0 l1 = s1)
-                                                (dtoken t k) s
-                                           then if at_rbrace
-                                                     (get (dwidth t k) s)
-                                                then ((TDelim (k, true, false,
-                                                       true)), (Stdlib.succ
+                                                     (dtoken t k) rest
+                                                then ((TDelim (k, true, true,
+                                                       false)), (Stdlib.succ
                                                        (dwidth t k)))
-                                                else ((TDelim (k, false,
-                                                       ((&&) (bare_opens t k)
-                                                         (nonspace_at
-                                                           (get (dwidth t k)
-                                                             s))),
-                                                       (nonspace_at prev))),
-                                                       (dwidth t k))
-                                           else ((TText c), (Stdlib.succ 0))
-                                         | None ->
-                                           ((TText c), (Stdlib.succ 0)))))
+                                                else ((TText c), (Stdlib.succ
+                                                       0))
+                                              | None ->
+                                                ((TText c), (Stdlib.succ 0)))
+                                        else (match dstyle_of t c with
+                                              | Some k ->
+                                                if (fun s1 s2 ->
+     let l1 = String.length s1 and l2 = String.length s2 in
+     l1 <= l2 && String.sub s2 0 l1 = s1)
+                                                     (dtoken t k) s
+                                                then if at_rbrace
+                                                          (get (dwidth t k) s)
+                                                     then ((TDelim (k, true,
+                                                            false, true)),
+                                                            (Stdlib.succ
+                                                            (dwidth t k)))
+                                                     else ((TDelim (k, false,
+                                                            ((&&)
+                                                              (bare_opens t k)
+                                                              (nonspace_at
+                                                                (get
+                                                                  (dwidth t k)
+                                                                  s))),
+                                                            (nonspace_at prev))),
+                                                            (dwidth t k))
+                                                else ((TText c), (Stdlib.succ
+                                                       0))
+                                              | None ->
+                                                ((TText c), (Stdlib.succ 0)))))
     s
 
 (** val before : string -> int -> char option **)
@@ -716,6 +780,12 @@ let tok_text t = function
     ((^) (ticks n)
       ((^) body ((^) (if closed then ticks n else "") (raw_text raw))))
 | TDollars k -> chars dollar k
+| TAuto (src, ok) ->
+  (^)
+    ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (lt, src)) (if ok then one gt else "")
 
 (** val nbsp_rest : string -> string option **)
 
@@ -940,6 +1010,10 @@ let tstep t s m i t0 hard fs top =
       else (fs, top)
     in
     temit (mk (verb_node pre raw body)) fs' top'
+  | TAuto (src, ok) ->
+    if ok
+    then temit (mk (auto_node src)) fs top
+    else temit_str (tok_text t t0) fs top
   | _ -> temit_str (tok_text t t0) fs top
 
 (** val tgo :

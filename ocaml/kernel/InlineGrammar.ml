@@ -120,6 +120,10 @@ let rec level t fuel s p live forb prev barred =
                               | TDollars _ ->
                                 after m os
                                   (level t fuel' s (( + ) e le) live forb None
+                                    barred)
+                              | TAuto (_, _) ->
+                                after m os
+                                  (level t fuel' s (( + ) e le) live forb None
                                     barred))
                         else []
                       | None -> [])
