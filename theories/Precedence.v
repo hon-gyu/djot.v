@@ -39,11 +39,13 @@ Definition bare_opens (k : dstyle) : bool :=
    braces, the brackets, the backtick, and bytes that no row and no other
    syntax claims, the parens among them.  A paren is not a row's character
    here, since a destination counts parens.  The newline ends the
-   line, and a hole's `%` is not drawn on while holes are on. *)
+   line; the `$` is drawn on while dollar math is off, and a hole's `%`
+   is not drawn on while holes are on. *)
 Definition in_alphabet (c : ascii) : bool :=
   (negb (Ascii.eqb c nl_char)
    && (Ascii.eqb c lbrace || Ascii.eqb c rbrace || Ascii.eqb c lbrack
        || Ascii.eqb c rbrack || is_tick c
+       || (Ascii.eqb c dollar && negb dollar_math_enabled)
        || (negb (dreserved c) && negb (holes_enabled && Ascii.eqb c percent)))
    && negb (Ascii.eqb c hyphen)
    && match dstyle_of c with
@@ -101,7 +103,11 @@ Fixpoint over_alphabet (s : string) : bool :=
 
    A run of `n` backticks opens a verbatim (V1), which runs to the next
    run of exactly `n` (`closed`) or to the paragraph's end; its body is
-   every byte between, backslashes and newlines included (V2, V4). *)
+   every byte between, backslashes and newlines included (V2, V4).  While
+   math is on, a run of `pre` dollars right before it is part of it
+   (MA1): one makes inline math, more make display math, and the dollars
+   before the last two are text.  Any other run of dollars is text
+   (`TDollars`). *)
 Inductive token : Type :=
   | TText (c : ascii)
   | TBreak
@@ -111,7 +117,8 @@ Inductive token : Type :=
   | TEsc (c : ascii)
   | TEscWs (ws : string)
   | THard (ws : string)
-  | TVerb (n : nat) (body : string) (closed : bool).
+  | TVerb (pre n : nat) (body : string) (closed : bool)
+  | TDollars (k : nat).
 
 (* The whitespace a string begins with. *)
 Fixpoint ws_run (s : string) : string :=
@@ -145,10 +152,25 @@ Fixpoint verb_go (n run : nat) (s : string) : string * nat * bool :=
       else let '(b, l, cl) := verb_go n 0 rest in ((ticks run ++ String c b)%string, S l, cl)
   end.
 
-(* A verbatim that `s` begins with, and its length. *)
-Definition verb_tok (s : string) : token * nat :=
+(* A verbatim that `s` begins with, after `pre` dollars, and its length
+   without them. *)
+Definition verb_tok (pre : nat) (s : string) : token * nat :=
   let n := tick_run s in
-  let '(body, used, closed) := verb_go n 0 (sdrop n s) in (TVerb n body closed, n + used).
+  let '(body, used, closed) := verb_go n 0 (sdrop n s) in (TVerb pre n body closed, n + used).
+
+Fixpoint dollar_run (s : string) : nat :=
+  match s with
+  | String c r => if Ascii.eqb c dollar then S (dollar_run r) else 0
+  | EmptyString => 0
+  end.
+
+(* A run of dollars that `s` begins with: the math it prefixes, or text. *)
+Definition dollar_tok (s : string) : token * nat :=
+  let k := dollar_run s in
+  let rest := sdrop k s in
+  if (math_enabled && starts_with tick rest)%bool
+  then let '(t, l) := verb_tok k rest in (t, k + l)
+  else (TDollars k, k).
 
 Definition at_rbrace (p : option ascii) : bool :=
   match p with Some b => Ascii.eqb b rbrace | None => false end.
@@ -175,7 +197,8 @@ Definition next_tok (prev : option ascii) (s : string) : option (token * nat) :=
                     else (TEsc d, 2)
                 | EmptyString => (THard EmptyString, 1)
                 end
-         else if is_tick c then verb_tok s
+         else if is_tick c then verb_tok 0 s
+         else if Ascii.eqb c dollar then dollar_tok s
          else if Ascii.eqb c lbrack then (TOpen, 1)
          else if Ascii.eqb c rbrack then
            (if starts_with lparen rest then TClose true
@@ -511,15 +534,36 @@ Qed.
 Lemma tick_run_le : forall s, tick_run s <= String.length s.
 Proof. induction s as [|c s IH]; cbn; [lia|]. destruct (is_tick c); cbn; lia. Qed.
 
-Lemma verb_tok_len : forall c rest t l,
-  is_tick c = true -> verb_tok (String c rest) = (t, l) -> 0 < l <= S (String.length rest).
+Lemma verb_tok_len : forall pre s t l,
+  starts_with tick s = true -> verb_tok pre s = (t, l) -> 0 < l <= String.length s.
 Proof.
-  intros c rest t l Hc H. unfold verb_tok in H.
-  pose proof (verb_go_len (sdrop (tick_run (String c rest)) (String c rest))
-                (tick_run (String c rest)) 0) as G.
+  intros pre s t l Hc H. unfold verb_tok in H.
+  pose proof (verb_go_len (sdrop (tick_run s) s) (tick_run s) 0) as G.
   rewrite sdrop_length in G.
-  pose proof (tick_run_le (String c rest)) as Tr. cbn [tick_run] in *. rewrite Hc in *.
+  pose proof (tick_run_le s) as Tr.
+  destruct s as [|c rest]; [discriminate|]. cbn [starts_with] in Hc.
+  cbn [tick_run] in *. unfold is_tick in *. rewrite Hc in *.
   destruct (verb_go _ 0 _) as [[b u] cl]. injection H as <- <-. cbn in *. lia.
+Qed.
+
+Lemma dollar_run_le : forall s, dollar_run s <= String.length s.
+Proof. induction s as [|c s IH]; cbn; [lia|]. destruct (Ascii.eqb c dollar); cbn; lia. Qed.
+
+Lemma dollar_tok_len : forall c rest t l,
+  Ascii.eqb c dollar = true -> dollar_tok (String c rest) = (t, l) ->
+  0 < l <= S (String.length rest).
+Proof.
+  intros c rest t l Hc H. unfold dollar_tok in H.
+  pose proof (dollar_run_le (String c rest)) as Dr.
+  pose proof (sdrop_length (dollar_run (String c rest)) (String c rest)) as Ls.
+  cbn [dollar_run String.length] in *. rewrite Hc in *.
+  destruct (math_enabled && starts_with tick (sdrop (S (dollar_run rest)) (String c rest)))%bool
+    eqn:E.
+  - apply andb_true_iff in E as [_ E].
+    destruct (verb_tok (S (dollar_run rest)) (sdrop (S (dollar_run rest)) (String c rest)))
+      as [t0 l0] eqn:Ev.
+    pose proof (verb_tok_len _ _ _ _ E Ev) as L0. injection H as <- <-. lia.
+  - injection H as <- <-. lia.
 Qed.
 
 Lemma next_tok_len : forall prev s t l,
@@ -554,7 +598,10 @@ Proof.
         specialize (G k Hg); specialize (Wn k); lia end
     | match goal with Hp : prefix (dtoken ?k) _ = true |- _ =>
         specialize (P2 k Hp); specialize (Wn k); lia end
-    | match goal with Ht : is_tick ?x = true |- _ => exact (verb_tok_len _ _ t l Ht H) end ].
+    | match goal with Ht : is_tick ?x = true |- _ =>
+        pose proof (verb_tok_len 0 (String x rest) t l Ht H); cbn [String.length] in *; lia end
+    | match goal with Hd : Ascii.eqb ?x dollar = true |- _ =>
+        exact (dollar_tok_len _ _ t l Hd H) end ].
 Qed.
 
 Lemma tok_at_len : forall s p t l,
@@ -596,11 +643,24 @@ Qed.
 
 Lemma tok_at_close : forall s p b l, tok_at s p = Some (TClose b, l) -> l = 1.
 Proof.
-  intros s p b l H. unfold tok_at, next_tok, verb_tok in H.
+  intros s p b l H. unfold tok_at, next_tok, dollar_tok, verb_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
+  | context [verb_go ?a ?b ?c] => destruct (verb_go a b c) as [[? ?] ?]; cbn iota beta in H
   | (if ?b then _ else _) = _ => destruct b
   | (match ?x with _ => _ end) = _ => destruct x
+  end; congruence.
+Qed.
+
+Lemma tok_at_dollars : forall s p k l, tok_at s p = Some (TDollars k, l) -> l = k.
+Proof.
+  intros s p k l H. unfold tok_at, next_tok, dollar_tok, verb_tok in H.
+  destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
+  repeat match type of H with
+  | context [verb_go ?a ?b ?c] => destruct (verb_go a b c) as [[? ?] ?]; cbn iota beta in H
+  | (if ?b then _ else _) = _ => destruct b
+  | (match ?x with _ => _ end) = _ => destruct x
+  | context [if ?b then _ else _] => destruct b
   end; congruence.
 Qed.
 
@@ -853,7 +913,7 @@ Definition ropen (i : nat) (k : key) (op : bool) (st : rstate) : rstate :=
 
 Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
   match t with
-  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ => st
+  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ | TDollars _ => st
   | TOpen => ropen i KBracket true st
   | TDelim k mr op cl =>
       match (if cl then pick (KDelim k mr) (rs_live st) else PNone) with
@@ -1379,7 +1439,7 @@ Proof.
     - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
     - intros k Hk. congruence. }
   (* text, a break and the escapes neither open nor close *)
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vn vb vc]; try (apply Text; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc|dk]; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Hop : open_key s n = if op then Some K else None)
@@ -1482,7 +1542,7 @@ Proof.
             /\ (rs_os (ropen i k op st') = os \/ rs_os (ropen i k op st') = i :: os)).
   { intros k [|] st' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
       split; [left|right|left|left]; reflexivity. }
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vn vb vc]; try (split; left; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc|dk]; try (split; left; reflexivity).
   - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
       [destruct (Nat.ltb (tok_end s p) i)| |];
       try (apply Ro; reflexivity); try (split; left; reflexivity).
@@ -1621,7 +1681,9 @@ Definition tok_text (t : token) : string :=
   | TEsc c => String bslash (one c)
   | TEscWs ws => String bslash ws
   | THard ws => String bslash ws
-  | TVerb n body closed => (ticks n ++ body ++ if closed then ticks n else EmptyString)%string
+  | TVerb pre n body closed =>
+      (chars dollar pre ++ ticks n ++ body ++ if closed then ticks n else EmptyString)%string
+  | TDollars k => chars dollar k
   end.
 
 (* A run escaped by a backslash is a non-breaking space and the rest of
@@ -1715,6 +1777,14 @@ Fixpoint temit_all (ns : inlines) (fs : tframes) (top : inlines)
 
 Definition is_hard (t : token) : bool := match t with THard _ => true | _ => false end.
 
+(* The node of a verbatim with `pre` dollars before it. *)
+Definition verb_node (pre : nat) (body : string) : inline :=
+  match pre with
+  | 0 => Verbatim (trim_verb body)
+  | 1 => Math InlineMath (trim_verb body)
+  | _ => Math DisplayMath (trim_verb body)
+  end.
+
 (* One token of the chain; `hard` says the token before it was a hard
    break, which a break right after is part of.  A reference label that
    never ends is text, brackets and all, to the paragraph's end. *)
@@ -1731,7 +1801,11 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
       | None => temit_str (tok_text t) fs top
       end
   | THard _ => let '(fs', top') := ttrim fs top in temit (mk HardBreak) fs' top'
-  | TVerb _ body _ => temit (mk (Verbatim (trim_verb body))) fs top
+  | TVerb pre _ body _ =>
+      let '(fs', top') := if Nat.ltb 2 pre then temit_str (chars dollar (pre - 2)) fs top
+                          else (fs, top) in
+      temit (mk (verb_node pre body)) fs' top'
+  | TDollars _ => temit_str (tok_text t) fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
   | TDelim k _ _ _ =>
       if is_opener m i then ((TKDelim k, []) :: fs, top)
