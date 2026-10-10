@@ -31,23 +31,6 @@ let chunks_text =
   { tnil = []; tpush = chunks_push; tof = (chunks_push []); tval =
     chunks_value; tnonempty = (existsb nonempty_str) }
 
-(** val strip_pad : string -> string **)
-
-let strip_pad s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> s)
-    (fun c rest -> if (&&) ((=) c ' ') (starts_tick rest) then rest else s)
-    s
-
-(** val trim_verb : string -> string **)
-
-let trim_verb s =
-  rev_string (strip_pad (rev_string (strip_pad s)))
-
 type oitem =
 | OIn of inline node
 | OMark of attr * span * spot option

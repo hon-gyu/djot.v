@@ -21,10 +21,6 @@ val chunks_value : chunks -> string
 
 val chunks_text : chunks coq_TextOps
 
-val strip_pad : string -> string
-
-val trim_verb : string -> string
-
 type oitem =
 | OIn of inline node
 | OMark of attr * span * spot option
