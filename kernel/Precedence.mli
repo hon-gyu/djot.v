@@ -32,7 +32,8 @@ type token =
 | TEsc of char
 | TEscWs of string
 | THard of string
-| TVerb of int * string * bool
+| TVerb of int * int * string * bool
+| TDollars of int
 
 val ws_run : string -> string
 
@@ -42,7 +43,11 @@ val tick_run : string -> int
 
 val verb_go : int -> int -> string -> (string * int) * bool
 
-val verb_tok : string -> token * int
+val verb_tok : int -> string -> token * int
+
+val dollar_run : string -> int
+
+val dollar_tok : dtable -> string -> token * int
 
 val at_rbrace : char option -> bool
 
@@ -146,6 +151,8 @@ val ttrim : tframes -> inlines -> tframes * inlines
 val temit_all : inlines -> tframes -> inlines -> tframes * inlines
 
 val is_hard : token -> bool
+
+val verb_node : int -> string -> inline
 
 val tstep :
   dtable -> string -> matching -> int -> token -> bool -> tframes -> inlines
