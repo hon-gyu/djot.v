@@ -1,7 +1,7 @@
 (* ai-disclosure: autonomous *)
 
 (* The reference's precedence rules for delimiters and brackets (syntax
-   reference, "Precedence"), stated as a reading of a paragraph's tokens
+   reference, "Precedence"), stated as a reading of a paragraph's bytes
    and independent of the scanner: the tokens, the readings the rules
    allow, the proof that exactly one exists, and the tree it describes.
    `InlinePrecedence.v` proves the scanner builds that tree. *)
@@ -65,8 +65,8 @@ Definition follow_ok (c : ascii) (rest : string) : bool :=
    && negb (Ascii.eqb c lbrack && (starts_with lbrack rest || starts_with hat rest))
    && negb (Ascii.eqb c rbrack && starts_with lbrace rest))%bool.
 
-(* A backslash escapes the byte after it, whatever that byte is, so the
-   escaped byte is not drawn on the alphabet (O2, O3). *)
+(* A backslash escapes the byte after it, whatever that byte is but the
+   newline, so the escaped byte is not drawn on the alphabet (O2, O3). *)
 Fixpoint over_alphabet (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -74,17 +74,17 @@ Fixpoint over_alphabet (s : string) : bool :=
       if is_bslash c
       then match rest with
            | EmptyString => true
-           | String _ rest' => over_alphabet rest'
+           | String d rest' => negb (Ascii.eqb d nl_char) && over_alphabet rest'
            end
       else (in_alphabet c && follow_ok c rest && over_alphabet rest)%bool
   end.
 
 (* A text token is one byte, so that every token is nonempty.  A marked
-   token is an opener `{_` or a closer `_}`, never both.  A break is the
-   end of a paragraph's line: a soft break in the tree, and whitespace to
-   the delimiters on either side of it.  `TOpen` is a `[`, and `TClose` a
-   `]` followed by `(`, which begins a destination (`dest`), or by `[`,
-   which begins a reference label; a `]` before anything else is text.
+   token is an opener `{_` or a closer `_}`, never both.  A break is a
+   newline: a soft break in the tree, and whitespace to the delimiters on
+   either side of it.  `TOpen` is a `[`, and `TClose` a `]` followed by
+   `(`, which begins a destination (`dest`), or by `[`, which begins a
+   reference label; a `]` before anything else is text.
 
    A backslash and what follows it are an escape (O2 to O5): before
    whitespace that runs to the end of the line, a hard break (`THard`,
@@ -110,99 +110,107 @@ Fixpoint ws_run (s : string) : string :=
   | EmptyString => EmptyString
   end.
 
+(* The bytes before the first newline. *)
+Fixpoint line_rest (s : string) : string :=
+  match s with
+  | String c rest => if Ascii.eqb c nl_char then EmptyString else String c (line_rest rest)
+  | EmptyString => EmptyString
+  end.
+
 Definition at_rbrace (p : option ascii) : bool :=
   match p with Some b => Ascii.eqb b rbrace | None => false end.
 
-(* A run of a row's character is cut, left to right, into tokens of the
-   row's width, and a remainder shorter than that is text.  A token with
-   `{` before it is a marked opener, and one with `}` after it a marked
-   closer (P3).  A bare token may open when its row may be written bare
-   and the byte after it is not whitespace, and may close when the byte
-   before it is not whitespace (M2).  `prev` is the byte before `s`, and
-   `skip` counts the bytes of a token already emitted that are still to
-   be read. *)
-Fixpoint lex (prev : option ascii) (skip : nat) (s : string) : list token :=
+(* The token `s` begins with, and its length; `prev` is the byte before
+   `s`.  A run of a row's character is cut, left to right, into tokens of
+   the row's width, and a remainder shorter than that is text.  A token
+   with `{` before it is a marked opener, and one with `}` after it a
+   marked closer (P3).  A bare token may open when its row may be written
+   bare and the byte after it is not whitespace, and may close when the
+   byte before it is not whitespace (M2). *)
+Definition next_tok (prev : option ascii) (s : string) : option (token * nat) :=
   match s with
-  | EmptyString => []
+  | EmptyString => None
   | String c rest =>
-      match skip with
-      | S n => lex (Some c) n rest
-      | O =>
-          if is_bslash c then
-            (if is_blank rest then THard rest
-             else match rest with
-                  | String d _ => if is_ws d then TEscWs (ws_run rest) else TEsc d
-                  | EmptyString => THard EmptyString
-                  end)
-              :: lex (Some c)
-                   (if is_blank rest then String.length rest
-                    else match rest with
-                         | String d _ => if is_ws d then String.length (ws_run rest) else 1
-                         | EmptyString => 0
-                         end) rest
-          else if Ascii.eqb c lbrack then TOpen :: lex (Some c) 0 rest
-          else if Ascii.eqb c rbrack then
-            (if starts_with lparen rest then TClose true
-             else if starts_with lbrack rest then TClose false
-             else TText c) :: lex (Some c) 0 rest
-          else if Ascii.eqb c lbrace then
-            match (match rest with
-                   | String d _ => dstyle_of d
-                   | EmptyString => None
-                   end) with
-            | Some k =>
-                if prefix (dtoken k) rest
-                then TDelim k true true false :: lex (Some c) (dwidth k) rest
-                else TText c :: lex (Some c) 0 rest
-            | None => TText c :: lex (Some c) 0 rest
-            end
-          else match dstyle_of c with
-          | Some k =>
-              if prefix (dtoken k) s
-              then if at_rbrace (get (dwidth k) s)
-                   then TDelim k true false true :: lex (Some c) (dwidth k) rest
-                   else TDelim k false
+      Some
+        (if Ascii.eqb c nl_char then (TBreak, 1)
+         else if is_bslash c then
+           if is_blank (line_rest rest)
+           then (THard (line_rest rest), S (String.length (line_rest rest)))
+           else match rest with
+                | String d _ =>
+                    if is_ws d then (TEscWs (ws_run rest), S (String.length (ws_run rest)))
+                    else (TEsc d, 2)
+                | EmptyString => (THard EmptyString, 1)
+                end
+         else if Ascii.eqb c lbrack then (TOpen, 1)
+         else if Ascii.eqb c rbrack then
+           (if starts_with lparen rest then TClose true
+            else if starts_with lbrack rest then TClose false
+            else TText c, 1)
+         else if Ascii.eqb c lbrace then
+           match (match rest with
+                  | String d _ => dstyle_of d
+                  | EmptyString => None
+                  end) with
+           | Some k =>
+               if prefix (dtoken k) rest
+               then (TDelim k true true false, S (dwidth k))
+               else (TText c, 1)
+           | None => (TText c, 1)
+           end
+         else match dstyle_of c with
+         | Some k =>
+             if prefix (dtoken k) s
+             then if at_rbrace (get (dwidth k) s)
+                  then (TDelim k true false true, S (dwidth k))
+                  else (TDelim k false
                           (bare_opens k && nonspace_at (get (dwidth k) s))
-                          (nonspace_at prev)
-                        :: lex (Some c) (pred (dwidth k)) rest
-              else TText c :: lex (Some c) 0 rest
-          | None => TText c :: lex (Some c) 0 rest
-          end
-      end
+                          (nonspace_at prev), dwidth k)
+             else (TText c, 1)
+         | None => (TText c, 1)
+         end)
   end.
 
-Definition tokens (s : string) : list token := lex None 0 s.
+Definition before (s : string) (p : nat) : option ascii :=
+  match p with O => None | S q => get q s end.
 
-(* A paragraph's lines, with a break between two of them.  Each line is
-   lexed alone, so a token at a line's end has nothing after it and one
-   at a line's start nothing before it; the last line is read without
-   its trailing whitespace, as the paragraph's inlines are. *)
-Fixpoint para_tokens (ls : list string) : list token :=
+(* The token at byte `p`, and its length. *)
+Definition tok_at (s : string) (p : nat) : option (token * nat) :=
+  next_tok (before s p) (sdrop p s).
+
+Definition tok_of (s : string) (p : nat) : option token :=
+  option_map fst (tok_at s p).
+
+(* A paragraph's lines, a newline between two of them, the last read
+   without its trailing whitespace, as the paragraph's inlines are. *)
+Fixpoint para_string (ls : list string) : string :=
   match ls with
-  | [] => []
-  | [x] => tokens (strip_trailing_ws x)
-  | x :: rest => (tokens x ++ TBreak :: para_tokens rest)%list
+  | [] => EmptyString
+  | [x] => strip_trailing_ws x
+  | x :: rest => (x ++ String nl_char (para_string rest))%string
   end.
 
 (*
 Readings
 ========
 
-A reading says which role each token takes: a list of pairs of token
-positions, `(i, j)` pairing the opener at `i` with the closer at `j`,
-and the list of the tokens that act as openers.  An opener and a closer
+A reading says which role each token takes: a list of pairs of byte
+offsets, `(i, j)` pairing the opener at `i` with the closer at `j`, and
+the list of the tokens that act as openers.  An opener and a closer
 pair when they have the same key: a delimiter's style and marking
 ("explicitly marked closers can only match explicitly marked openers",
 P4), or the bracket.
 
 A `]` that pairs closes its bracket, and what follows is a region of
 the link syntax: a destination runs to the `)` that balances its `(`,
-and a reference label to the next `]`.  A region is source, so nothing
-in it opens or closes, and so is a label that no `]` ends.  A
-destination with no balancing `)` is not: the rest of the paragraph is
-read as usual, except that a closer there may not reach an opener from
-before the destination, and a closer that would reach one but for that
-is text (djot.js, `inline.ts:150-158`). *)
+and a reference label to the next `]`.  A region is source, and so is
+a label that no `]` ends: the reading's tokens are a chain from the
+first byte, each followed by the next or, after a `]` that pairs, by
+the byte after its region.  A destination with no balancing `)` is not
+a region: the rest of the paragraph is read as usual, except that a
+closer there may not reach an opener from before the destination, and
+a closer that would reach one but for that is text (djot.js,
+`inline.ts:150-158`). *)
 
 Definition matching : Type := list (nat * nat).
 
@@ -233,39 +241,73 @@ Definition closes_as (t : token) : option key :=
   | _ => None
   end.
 
-Definition open_key (ts : list token) (i : nat) : option key :=
-  match nth_error ts i with Some t => opens_as t | None => None end.
+Definition open_key (s : string) (i : nat) : option key :=
+  match tok_of s i with Some t => opens_as t | None => None end.
 
-Definition close_key (ts : list token) (j : nat) : option key :=
-  match nth_error ts j with Some t => closes_as t | None => None end.
+Definition close_key (s : string) (j : nat) : option key :=
+  match tok_of s j with Some t => closes_as t | None => None end.
 
-(* The `)` that balances an open `(`, `i` being the position of the
-   first of `ts`. *)
-Fixpoint paren_close (depth i : nat) (ts : list token) : option nat :=
-  match ts with
-  | [] => None
-  | TText c :: rest =>
-      if Ascii.eqb c lparen then paren_close (S depth) (S i) rest
+(* The byte after the token at `p`. *)
+Definition tok_end (s : string) (p : nat) : nat :=
+  match tok_at s p with Some (_, l) => p + l | None => p end.
+
+(* The `)` that balances an open `(`, `i` being the offset of the first
+   byte of `s`.  An escaped byte counts no paren. *)
+Fixpoint dest_close (esc : bool) (depth i : nat) (s : string) : option nat :=
+  match s with
+  | EmptyString => None
+  | String c rest =>
+      if esc then dest_close false depth (S i) rest
+      else if is_bslash c then dest_close true depth (S i) rest
+      else if Ascii.eqb c lparen then dest_close false (S depth) (S i) rest
       else if Ascii.eqb c rparen
-      then match depth with O => Some i | S d => paren_close d (S i) rest end
-      else paren_close depth (S i) rest
-  | _ :: rest => paren_close depth (S i) rest
+      then match depth with O => Some i | S d => dest_close false d (S i) rest end
+      else dest_close false depth (S i) rest
   end.
 
-Fixpoint rbrack_at (i : nat) (ts : list token) : option nat :=
-  match ts with
-  | [] => None
-  | TText c :: rest => if Ascii.eqb c rbrack then Some i else rbrack_at (S i) rest
-  | TClose _ :: _ => Some i
-  | _ :: rest => rbrack_at (S i) rest
+(* The first `]` not escaped. *)
+Fixpoint label_close (esc : bool) (i : nat) (s : string) : option nat :=
+  match s with
+  | EmptyString => None
+  | String c rest =>
+      if esc then label_close false (S i) rest
+      else if is_bslash c then label_close true (S i) rest
+      else if Ascii.eqb c rbrack then Some i
+      else label_close false (S i) rest
   end.
 
-(* Where the region after a closing `]` at `d` ends.  The token after the
-   `]` is the region's `(` or `[`, so the region's text begins two
-   tokens on. *)
-Definition region_end (ts : list token) (d : nat) (dest : bool) : option nat :=
-  if dest then paren_close 0 (S (S d)) (skipn (S (S d)) ts)
-  else rbrack_at (S (S d)) (skipn (S (S d)) ts).
+(* Where the region after a closing `]` at `d` ends.  The byte after the
+   `]` is the region's `(` or `[`, so its text begins two bytes on. *)
+Definition region_end (s : string) (d : nat) (dest : bool) : option nat :=
+  if dest then dest_close false 0 (S (S d)) (sdrop (S (S d)) s)
+  else label_close false (S (S d)) (sdrop (S (S d)) s).
+
+Definition is_opener (m : matching) (i : nat) : bool :=
+  existsb (fun e => Nat.eqb (fst e) i) m.
+
+Definition is_closer (m : matching) (j : nat) : bool :=
+  existsb (fun e => Nat.eqb (snd e) j) m.
+
+(* Where a reading goes after a `]` that pairs: past its region; past
+   the `]` when a destination does not close; nowhere when a label does
+   not. *)
+Definition resume (s : string) (d : nat) (dest : bool) : option nat :=
+  match region_end s d dest with
+  | Some e => Some (S e)
+  | None => if dest then Some (S d) else None
+  end.
+
+Definition chain_next (s : string) (m : matching) (p : nat) : option nat :=
+  match tok_at s p with
+  | Some (TClose b, l) => if is_closer m p then resume s p b else Some (p + l)
+  | Some (_, l) => Some (p + l)
+  | None => None
+  end.
+
+(* The tokens a reading reads. *)
+Inductive chain (s : string) (m : matching) : nat -> Prop :=
+  | chain_start : chain s m 0
+  | chain_step : forall p q, chain s m p -> chain_next s m p = Some q -> chain s m q.
 
 Definition closes (m : matching) (j : nat) : Prop := exists i, In (i, j) m.
 
@@ -278,54 +320,50 @@ Definition dead (m : matching) (j p : nat) : Prop :=
   (exists j', j' < j /\ In (p, j') m)
   \/ (exists i' j', j' < j /\ In (i', j') m /\ i' < p < j').
 
-(* Inside a region. *)
-Definition inert (ts : list token) (m : matching) (t : nat) : Prop :=
-  exists p d b, In (p, d) m /\ nth_error ts d = Some (TClose b) /\ d < t
-    /\ match region_end ts d b with Some e => t <= e | None => b = false end.
-
 (* Before a destination that does not close, seen from after it. *)
-Definition behind (ts : list token) (m : matching) (j q : nat) : Prop :=
-  exists p d, In (p, d) m /\ nth_error ts d = Some (TClose true)
-    /\ region_end ts d true = None /\ q < d < j.
+Definition behind (s : string) (m : matching) (j q : nat) : Prop :=
+  exists p d, In (p, d) m /\ tok_of s d = Some (TClose true)
+    /\ region_end s d true = None /\ q < d < j.
 
 Definition reading : Type := (matching * list nat)%type.
 
 (* An opener still open at `j`, the destinations aside. *)
-Definition cand (ts : list token) (m : matching) (os : list nat)
+Definition cand (s : string) (m : matching) (os : list nat)
   (j q : nat) (k : key) : Prop :=
-  In q os /\ q < j /\ open_key ts q = Some k /\ ~ closes m q /\ ~ dead m j q.
+  In q os /\ q < j /\ open_key s q = Some k /\ ~ closes m q /\ ~ dead m j q.
 
-Definition live (ts : list token) (m : matching) (os : list nat)
+Definition live (s : string) (m : matching) (os : list nat)
   (j q : nat) (k : key) : Prop :=
-  cand ts m os j q k /\ ~ behind ts m j q.
+  cand s m os j q k /\ ~ behind s m j q.
 
 (* "When there are multiple openers that might be matched with a given
    closer, the closest one is used." *)
-Definition closest_live (ts : list token) (m : matching) (os : list nat)
+Definition closest_live (s : string) (m : matching) (os : list nat)
   (j : nat) (k : key) (p : nat) : Prop :=
-  live ts m os j p k /\ forall q, live ts m os j q k -> q <= p.
+  live s m os j p k /\ forall q, live s m os j q k -> q <= p.
 
 (* A closer that only a destination keeps from its opener. *)
-Definition barred (ts : list token) (m : matching) (os : list nat)
+Definition barred (s : string) (m : matching) (os : list nat)
   (j : nat) (k : key) : Prop :=
-  (forall q, ~ live ts m os j q k) /\ exists q, cand ts m os j q k.
+  (forall q, ~ live s m os j q k) /\ exists q, cand s m os j q k.
 
-(* The readings the rules allow.  A pair is a closer and the closest live
-   opener of its key, with something between them for a delimiter.  A
-   closer left unmatched has no live opener of its key but a delimiter
-   right before it, with nothing to enclose: `__a` pairs nothing, and the
-   second `_` opens in its turn.  A token acts as an opener when it may
-   open, is not in a region, does not close, and is not barred. *)
-Definition valid (ts : list token) (r : reading) : Prop :=
+(* The readings the rules allow.  A pair is a closer on the chain and the
+   closest live opener of its key, with something between them for a
+   delimiter.  A closer on the chain left unmatched has no live opener
+   of its key but a delimiter right before it, with nothing to enclose:
+   `__a` pairs nothing, and the second `_` opens in its turn.  A token
+   acts as an opener when it may open, is on the chain, does not close,
+   and is not barred. *)
+Definition valid (s : string) (r : reading) : Prop :=
   let '(m, os) := r in
   (forall i j, In (i, j) m ->
-     exists k, close_key ts j = Some k /\ ~ inert ts m j
-       /\ closest_live ts m os j k i /\ (needs_content k = true -> S i < j))
-  /\ (forall j k, close_key ts j = Some k -> ~ inert ts m j -> ~ closes m j ->
-        forall p, closest_live ts m os j k p -> needs_content k = true /\ S p = j)
+     exists k, close_key s j = Some k /\ chain s m j
+       /\ closest_live s m os j k i /\ (needs_content k = true -> tok_end s i < j))
+  /\ (forall j k, close_key s j = Some k -> chain s m j -> ~ closes m j ->
+        forall p, closest_live s m os j k p -> needs_content k = true /\ tok_end s p = j)
   /\ (forall q, In q os <->
-        (exists k, open_key ts q = Some k) /\ ~ inert ts m q /\ ~ closes m q
-        /\ forall k, close_key ts q = Some k -> ~ barred ts m os q k).
+        (exists k, open_key s q = Some k) /\ chain s m q /\ ~ closes m q
+        /\ forall k, close_key s q = Some k -> ~ barred s m os q k).
 
 (*
 Uniqueness
@@ -333,8 +371,8 @@ Uniqueness
 
 At most one reading is valid, so the rules determine it and `valid`, not
 `ref_read` below, is the specification.  The roles are settled in the
-order of the tokens: whether a token closes or opens reads only the
-pairs that closed before it and the openers before it. *)
+order of the bytes: whether a token is on the chain, closes or opens
+reads only the pairs that closed before it and the openers before it. *)
 
 Lemma key_eq_iff : forall a b, key_eq a b = true <-> a = b.
 Proof.
@@ -347,15 +385,38 @@ Qed.
 Lemma key_eq_refl : forall a, key_eq a a = true.
 Proof. intros a. apply key_eq_iff. reflexivity. Qed.
 
-Lemma close_key_fun : forall ts j k k',
-  close_key ts j = Some k -> close_key ts j = Some k' -> k = k'.
-Proof. intros ts j k k' H1 H2. rewrite H1 in H2. injection H2 as E. exact E. Qed.
+Lemma close_key_fun : forall s j k k',
+  close_key s j = Some k -> close_key s j = Some k' -> k = k'.
+Proof. intros s j k k' H1 H2. rewrite H1 in H2. injection H2 as E. exact E. Qed.
 
-Lemma closest_live_fun : forall ts m os j k p q,
-  closest_live ts m os j k p -> closest_live ts m os j k q -> p = q.
+Lemma closest_live_fun : forall s m os j k p q,
+  closest_live s m os j k p -> closest_live s m os j k q -> p = q.
 Proof.
-  intros ts m os j k p q [Hp Mp] [Hq Mq].
+  intros s m os j k p q [Hp Mp] [Hq Mq].
   specialize (Mp q Hq). specialize (Mq p Hp). lia.
+Qed.
+
+Lemma is_opener_iff : forall m i, is_opener m i = true <-> exists j, In (i, j) m.
+Proof.
+  intros m i. unfold is_opener. rewrite existsb_exists. split.
+  - intros ([a b] & Hin & E). apply Nat.eqb_eq in E. cbn in E. subst a.
+    exists b. exact Hin.
+  - intros [j Hin]. exists (i, j). split; [exact Hin|apply Nat.eqb_refl].
+Qed.
+
+Lemma is_closer_iff : forall m j, is_closer m j = true <-> closes m j.
+Proof.
+  intros m j. unfold is_closer, closes. rewrite existsb_exists. split.
+  - intros ([a b] & Hin & E). apply Nat.eqb_eq in E. cbn in E. subst b.
+    exists a. exact Hin.
+  - intros [i Hin]. exists (i, j). split; [exact Hin|apply Nat.eqb_refl].
+Qed.
+
+Lemma closes_dec : forall m j, {closes m j} + {~ closes m j}.
+Proof.
+  intros m j. destruct (is_closer m j) eqn:D.
+  - left. apply is_closer_iff, D.
+  - right. intros H. apply is_closer_iff in H. congruence.
 Qed.
 
 (* Two readings that agree before `n`. *)
@@ -372,8 +433,162 @@ Proof.
   - intros q Hq. symmetry. apply Ho, Hq.
 Qed.
 
+(*
+Bounds
+------
+*)
+
+Lemma length_chars : forall c n, String.length (chars c n) = n.
+Proof. intros c n. induction n as [|n IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
+
+Lemma prefix_length : forall a s, prefix a s = true -> String.length a <= String.length s.
+Proof.
+  induction a as [|x a IH]; intros s H; cbn; [lia|].
+  destruct s as [|y s]; [discriminate|]. cbn [prefix] in H.
+  destruct (ascii_dec x y); [|discriminate]. cbn. specialize (IH s H). lia.
+Qed.
+
+Lemma get_lt : forall n s c, get n s = Some c -> n < String.length s.
+Proof.
+  induction n as [|n IH]; intros [|d s] c H; cbn in *; try discriminate; [lia|].
+  specialize (IH s c H). lia.
+Qed.
+
+Lemma ws_run_length : forall s, String.length (ws_run s) <= String.length s.
+Proof.
+  induction s as [|c s IH]; cbn; [lia|]. destruct (is_ws c); cbn; lia.
+Qed.
+
+Lemma line_rest_length : forall s, String.length (line_rest s) <= String.length s.
+Proof.
+  induction s as [|c s IH]; cbn; [lia|]. destruct (Ascii.eqb c nl_char); cbn; lia.
+Qed.
+
+Lemma next_tok_len : forall prev s t l,
+  next_tok prev s = Some (t, l) -> 0 < l <= String.length s.
+Proof.
+  intros prev s t l H. destruct s as [|c rest] eqn:Es; [discriminate|].
+  pose proof dwidth_nonzero as Wn.
+  assert (P1 : forall k, prefix (dtoken k) rest = true -> dwidth k <= String.length rest).
+  { intros k Hp. apply prefix_length in Hp. unfold dtoken in Hp. rewrite length_chars in Hp.
+    exact Hp. }
+  assert (P2 : forall k, prefix (dtoken k) s = true -> dwidth k <= String.length s).
+  { intros k Hp. apply prefix_length in Hp. unfold dtoken in Hp. rewrite length_chars in Hp.
+    exact Hp. }
+  assert (G : forall k, at_rbrace (get (dwidth k) s) = true -> dwidth k < String.length s).
+  { intros k Hg. unfold at_rbrace in Hg. destruct (get (dwidth k) s) eqn:E; [|discriminate].
+    exact (get_lt _ _ _ E). }
+  rewrite <- Es in H. unfold next_tok in H. rewrite Es in H at 1.
+  injection H as H. rewrite <- Es. subst s. cbn [String.length] in *.
+  pose proof (line_rest_length rest). pose proof (ws_run_length rest).
+  repeat match type of H with
+  | (if ?b then _ else _) = _ => destruct b eqn:?
+  | (match ?x with _ => _ end) = _ => destruct x eqn:?
+  end;
+    injection H as <- <-; try lia.
+  all: try specialize (Wn d); first
+    [ cbn [ws_run] in H1; rewrite Heqb2 in H1 |- *; cbn [String.length] in *; lia
+    | cbn [String.length]; lia
+    | specialize (P1 d Heqb4); lia
+    | specialize (G d Heqb5); lia
+    | specialize (P2 d Heqb4); lia ].
+Qed.
+
+Lemma tok_at_len : forall s p t l,
+  tok_at s p = Some (t, l) -> 0 < l /\ p + l <= String.length s.
+Proof.
+  intros s p t l H. unfold tok_at in H. pose proof (next_tok_len _ _ _ _ H) as Hl.
+  rewrite sdrop_length in Hl. lia.
+Qed.
+
+Lemma dest_close_bound : forall s esc depth i e,
+  dest_close esc depth i s = Some e -> i <= e < i + String.length s.
+Proof.
+  induction s as [|c s IH]; intros esc depth i e H; [discriminate|].
+  cbn [dest_close] in H. cbn [String.length].
+  destruct esc; [apply IH in H; lia|].
+  destruct (is_bslash c); [apply IH in H; lia|].
+  destruct (Ascii.eqb c lparen); [apply IH in H; lia|].
+  destruct (Ascii.eqb c rparen); [|apply IH in H; lia].
+  destruct depth; [injection H as <-; lia|apply IH in H; lia].
+Qed.
+
+Lemma label_close_bound : forall s esc i e,
+  label_close esc i s = Some e -> i <= e < i + String.length s.
+Proof.
+  induction s as [|c s IH]; intros esc i e H; [discriminate|].
+  cbn [label_close] in H. cbn [String.length].
+  destruct esc; [apply IH in H; lia|].
+  destruct (is_bslash c); [apply IH in H; lia|].
+  destruct (Ascii.eqb c rbrack); [injection H as <-; lia|apply IH in H; lia].
+Qed.
+
+Lemma region_end_bound : forall s d b e,
+  region_end s d b = Some e -> S (S d) <= e < String.length s.
+Proof.
+  intros s d [|] e H; unfold region_end in H;
+    [apply dest_close_bound in H|apply label_close_bound in H];
+    rewrite sdrop_length in H; lia.
+Qed.
+
+Lemma tok_at_close : forall s p b l, tok_at s p = Some (TClose b, l) -> l = 1.
+Proof.
+  intros s p b l H. unfold tok_at, next_tok in H.
+  destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
+  repeat match type of H with
+  | (if ?b then _ else _) = _ => destruct b
+  | (match ?x with _ => _ end) = _ => destruct x
+  end; congruence.
+Qed.
+
+Lemma chain_next_bound : forall s m p q,
+  chain_next s m p = Some q -> p < q <= String.length s.
+Proof.
+  intros s m p q H. unfold chain_next in H.
+  destruct (tok_at s p) as [[t l]|] eqn:E; [|discriminate].
+  pose proof (tok_at_len s p t l E) as Hl.
+  destruct t; try (injection H as <-; lia).
+  destruct (is_closer m p); [|injection H as <-; lia].
+  unfold resume in H. destruct (region_end s p dest) as [e|] eqn:R.
+  - injection H as <-. apply region_end_bound in R. lia.
+  - pose proof (tok_at_close s p dest l E) as ->.
+    destruct dest; [injection H as <-; lia|discriminate].
+Qed.
+
+(* The chain is one sequence: between two of its points, the next point
+   after the first. *)
+Lemma chain_between : forall s m a p,
+  chain s m p -> chain s m a -> p < a ->
+  exists q, chain_next s m p = Some q /\ q <= a.
+Proof.
+  intros s m a. induction a as [a IH] using lt_wf_ind. intros p Hp Ha Hlt.
+  inversion Ha as [E|p' a' Hp' Hn E]; [lia|subst a'].
+  pose proof (chain_next_bound s m p' a Hn) as Hb.
+  destruct (lt_eq_lt_dec p p') as [[Hl|<-]|Hl].
+  - destruct (IH p' ltac:(lia) p Hp Hp' Hl) as (q & Hq & Hqa).
+    exists q. split; [exact Hq|lia].
+  - exists a. split; [exact Hn|lia].
+  - destruct (IH p ltac:(lia) p' Hp' Hp Hl) as (q & Hq & Hqa).
+    rewrite Hn in Hq. injection Hq as <-. lia.
+Qed.
+
+Lemma chain_none : forall s m p a,
+  chain s m p -> chain_next s m p = None -> chain s m a -> a <= p.
+Proof.
+  intros s m p a Hp Hn Ha. destruct (le_lt_dec a p) as [H|H]; [exact H|].
+  destruct (chain_between s m a p Hp Ha H) as (q & Hq & _). congruence.
+Qed.
+
+Lemma chain_gap : forall s m p q a,
+  chain s m p -> chain_next s m p = Some q -> p < a < q -> ~ chain s m a.
+Proof.
+  intros s m p q a Hp Hn Ha Hc.
+  destruct (chain_between s m a p Hp Hc ltac:(lia)) as (q' & Hq & Hle).
+  rewrite Hn in Hq. injection Hq as <-. lia.
+Qed.
+
 Section Agree.
-Variables (ts : list token) (m1 m2 : matching) (os1 os2 : list nat) (n : nat).
+Variables (s : string) (m1 m2 : matching) (os1 os2 : list nat) (n : nat).
 Hypothesis A : agree m1 os1 m2 os2 n.
 
 Lemma dead_agree : forall j p, j <= n -> dead m1 j p -> dead m2 j p.
@@ -383,14 +598,7 @@ Proof.
   - right. exists i', j'. split; [exact Hj'|]. split; [apply Hm; [lia|exact H]|exact Hb].
 Qed.
 
-Lemma inert_agree : forall t, t <= n -> inert ts m1 t -> inert ts m2 t.
-Proof.
-  destruct A as [Hm _]. intros t Ht (p & d & b & H & Hd & Hlt & He).
-  exists p, d, b. split; [apply Hm; [lia|exact H]|]. split; [exact Hd|].
-  split; [exact Hlt|exact He].
-Qed.
-
-Lemma behind_agree : forall j q, j <= n -> behind ts m1 j q -> behind ts m2 j q.
+Lemma behind_agree : forall j q, j <= n -> behind s m1 j q -> behind s m2 j q.
 Proof.
   destruct A as [Hm _]. intros j q Hj (p & d & H & Hd & He & Hlt).
   exists p, d. split; [apply Hm; [lia|exact H]|]. split; [exact Hd|].
@@ -404,11 +612,29 @@ Qed.
 
 End Agree.
 
-Lemma cand_agree : forall ts m1 os1 m2 os2 n j q k,
-  agree m1 os1 m2 os2 n -> j <= n ->
-  cand ts m1 os1 j q k -> cand ts m2 os2 j q k.
+Lemma closer_agree : forall m1 os1 m2 os2 n q,
+  agree m1 os1 m2 os2 n -> q < n -> is_closer m1 q = is_closer m2 q.
 Proof.
-  intros ts m1 os1 m2 os2 n j q k A Hj (Hin & Hq & Ho & Hc & Hd).
+  intros m1 os1 m2 os2 n q A Hq. apply Bool.eq_true_iff_eq. rewrite !is_closer_iff.
+  split; [apply (closes_agree m1 m2 os1 os2 n A q Hq)|].
+  apply (closes_agree m2 m1 os2 os1 n (agree_sym _ _ _ _ _ A) q Hq).
+Qed.
+
+Lemma chain_agree : forall s m1 os1 m2 os2 n t,
+  agree m1 os1 m2 os2 n -> t <= n -> chain s m1 t -> chain s m2 t.
+Proof.
+  intros s m1 os1 m2 os2 n t A Ht H. induction H as [|p q Hp IH Hn]; [constructor|].
+  pose proof (chain_next_bound s m1 p q Hn) as Hb.
+  apply (chain_step s m2 p q); [apply IH; lia|].
+  rewrite <- Hn. unfold chain_next.
+  rewrite (closer_agree m1 os1 m2 os2 n p A ltac:(lia)). reflexivity.
+Qed.
+
+Lemma cand_agree : forall s m1 os1 m2 os2 n j q k,
+  agree m1 os1 m2 os2 n -> j <= n ->
+  cand s m1 os1 j q k -> cand s m2 os2 j q k.
+Proof.
+  intros s m1 os1 m2 os2 n j q k A Hj (Hin & Hq & Ho & Hc & Hd).
   pose proof (agree_sym _ _ _ _ _ A) as A'.
   split; [apply (proj2 A); [lia|exact Hin]|]. split; [exact Hq|].
   split; [exact Ho|]. split.
@@ -416,98 +642,83 @@ Proof.
   - intros H. apply Hd. apply (dead_agree m2 m1 os2 os1 n A' j q Hj H).
 Qed.
 
-Lemma live_agree : forall ts m1 os1 m2 os2 n j q k,
+Lemma live_agree : forall s m1 os1 m2 os2 n j q k,
   agree m1 os1 m2 os2 n -> j <= n ->
-  live ts m1 os1 j q k -> live ts m2 os2 j q k.
+  live s m1 os1 j q k -> live s m2 os2 j q k.
 Proof.
-  intros ts m1 os1 m2 os2 n j q k A Hj [Hc Hb].
+  intros s m1 os1 m2 os2 n j q k A Hj [Hc Hb].
   pose proof (agree_sym _ _ _ _ _ A) as A'.
-  split; [exact (cand_agree ts m1 os1 m2 os2 n j q k A Hj Hc)|].
-  intros H. apply Hb. exact (behind_agree ts m2 m1 os2 os1 n A' j q Hj H).
+  split; [exact (cand_agree s m1 os1 m2 os2 n j q k A Hj Hc)|].
+  intros H. apply Hb. exact (behind_agree s m2 m1 os2 os1 n A' j q Hj H).
 Qed.
 
-Lemma closest_live_agree : forall ts m1 os1 m2 os2 n j k p,
+Lemma closest_live_agree : forall s m1 os1 m2 os2 n j k p,
   agree m1 os1 m2 os2 n -> j <= n ->
-  closest_live ts m1 os1 j k p -> closest_live ts m2 os2 j k p.
+  closest_live s m1 os1 j k p -> closest_live s m2 os2 j k p.
 Proof.
-  intros ts m1 os1 m2 os2 n j k p A Hj [Hp Mp].
+  intros s m1 os1 m2 os2 n j k p A Hj [Hp Mp].
   pose proof (agree_sym _ _ _ _ _ A) as A'.
-  split; [exact (live_agree ts m1 os1 m2 os2 n j p k A Hj Hp)|].
-  intros q Hq. apply Mp. exact (live_agree ts m2 os2 m1 os1 n j q k A' Hj Hq).
+  split; [exact (live_agree s m1 os1 m2 os2 n j p k A Hj Hp)|].
+  intros q Hq. apply Mp. exact (live_agree s m2 os2 m1 os1 n j q k A' Hj Hq).
 Qed.
 
-Lemma barred_agree : forall ts m1 os1 m2 os2 n j k,
+Lemma barred_agree : forall s m1 os1 m2 os2 n j k,
   agree m1 os1 m2 os2 n -> j <= n ->
-  barred ts m1 os1 j k -> barred ts m2 os2 j k.
+  barred s m1 os1 j k -> barred s m2 os2 j k.
 Proof.
-  intros ts m1 os1 m2 os2 n j k A Hj [Hn (q & Hq)].
+  intros s m1 os1 m2 os2 n j k A Hj [Hn (q & Hq)].
   pose proof (agree_sym _ _ _ _ _ A) as A'.
   split.
-  - intros q' Hq'. apply (Hn q'). exact (live_agree ts m2 os2 m1 os1 n j q' k A' Hj Hq').
-  - exists q. exact (cand_agree ts m1 os1 m2 os2 n j q k A Hj Hq).
+  - intros q' Hq'. apply (Hn q'). exact (live_agree s m2 os2 m1 os1 n j q' k A' Hj Hq').
+  - exists q. exact (cand_agree s m1 os1 m2 os2 n j q k A Hj Hq).
 Qed.
 
-Lemma closes_dec : forall m j, {closes m j} + {~ closes m j}.
-Proof.
-  intros m j.
-  destruct (existsb (fun e => Nat.eqb (snd e) j) m) eqn:D.
-  - left. apply existsb_exists in D as ([i j'] & Hin & Hj).
-    apply Nat.eqb_eq in Hj. cbn in Hj. subst j'. exists i. exact Hin.
-  - right. intros [i Hin].
-    assert (existsb (fun e => Nat.eqb (snd e) j) m = true) as C.
-    { apply existsb_exists. exists (i, j). split; [exact Hin|].
-      apply Nat.eqb_refl. }
-    rewrite D in C. discriminate.
-Qed.
-
-Local Lemma valid_pairs_at : forall ts m1 os1 m2 os2 n,
-  valid ts (m1, os1) -> valid ts (m2, os2) -> agree m1 os1 m2 os2 n ->
+Local Lemma valid_pairs_at : forall s m1 os1 m2 os2 n,
+  valid s (m1, os1) -> valid s (m2, os2) -> agree m1 os1 m2 os2 n ->
   forall i, In (i, n) m1 -> In (i, n) m2.
 Proof.
-  intros ts m1 os1 m2 os2 n [P1 _] [P2 [U2 _]] A i H.
-  destruct (P1 i n H) as (k & Hk & Hni & Hcl & Hne).
-  apply (closest_live_agree ts m1 os1 m2 os2 n n k i A (le_n n)) in Hcl.
-  assert (Hni2 : ~ inert ts m2 n).
-  { intros Hi. apply Hni.
-    exact (inert_agree ts m2 m1 os2 os1 n (agree_sym _ _ _ _ _ A) n (le_n n) Hi). }
+  intros s m1 os1 m2 os2 n [P1 _] [P2 [U2 _]] A i H.
+  destruct (P1 i n H) as (k & Hk & Hch & Hcl & Hne).
+  apply (closest_live_agree s m1 os1 m2 os2 n n k i A (le_n n)) in Hcl.
+  pose proof (chain_agree s m1 os1 m2 os2 n n A (le_n n) Hch) as Hch2.
   destruct (closes_dec m2 n) as [[i' Hi']|Hn].
   - destruct (P2 i' n Hi') as (k' & Hk' & _ & Hcl' & _).
-    rewrite <- (close_key_fun ts n k k' Hk Hk') in Hcl'.
-    rewrite (closest_live_fun ts m2 os2 n k i i' Hcl Hcl'). exact Hi'.
-  - destruct (U2 n k Hk Hni2 Hn i Hcl) as [Hc E].
+    rewrite <- (close_key_fun s n k k' Hk Hk') in Hcl'.
+    rewrite (closest_live_fun s m2 os2 n k i i' Hcl Hcl'). exact Hi'.
+  - destruct (U2 n k Hk Hch2 Hn i Hcl) as [Hc E].
     specialize (Hne Hc). lia.
 Qed.
 
-Local Lemma valid_os_at : forall ts m1 os1 m2 os2 n,
-  valid ts (m1, os1) -> valid ts (m2, os2) -> agree m1 os1 m2 os2 n ->
+Local Lemma valid_os_at : forall s m1 os1 m2 os2 n,
+  valid s (m1, os1) -> valid s (m2, os2) -> agree m1 os1 m2 os2 n ->
   (forall i, In (i, n) m1 <-> In (i, n) m2) ->
   In n os1 -> In n os2.
 Proof.
-  intros ts m1 os1 m2 os2 n [_ [_ O1]] [_ [_ O2]] A Hn H.
+  intros s m1 os1 m2 os2 n [_ [_ O1]] [_ [_ O2]] A Hn H.
   pose proof (agree_sym _ _ _ _ _ A) as A'.
-  apply O1 in H as (Ho & Hni & Hc & Hb). apply O2.
+  apply O1 in H as (Ho & Hch & Hc & Hb). apply O2.
   split; [exact Ho|]. split; [|split].
-  - intros Hi. apply Hni. exact (inert_agree ts m2 m1 os2 os1 n A' n (le_n n) Hi).
+  - exact (chain_agree s m1 os1 m2 os2 n n A (le_n n) Hch).
   - intros [i Hi]. apply Hc. exists i. apply Hn, Hi.
   - intros k Hk Hbar. apply (Hb k Hk).
-    exact (barred_agree ts m2 os2 m1 os1 n n k A' (le_n n) Hbar).
+    exact (barred_agree s m2 os2 m1 os1 n n k A' (le_n n) Hbar).
 Qed.
 
-Theorem valid_unique : forall ts m1 os1 m2 os2,
-  valid ts (m1, os1) -> valid ts (m2, os2) ->
+Theorem valid_unique : forall s m1 os1 m2 os2,
+  valid s (m1, os1) -> valid s (m2, os2) ->
   (forall i j, In (i, j) m1 <-> In (i, j) m2) /\ (forall q, In q os1 <-> In q os2).
 Proof.
-  intros ts m1 os1 m2 os2 V1 V2.
+  intros s m1 os1 m2 os2 V1 V2.
   assert (Step : forall n, agree m1 os1 m2 os2 n ->
             (forall i, In (i, n) m1 <-> In (i, n) m2) /\ (In n os1 <-> In n os2)).
   { intros n A.
     assert (Hp : forall i, In (i, n) m1 <-> In (i, n) m2).
     { intros i. split.
-      - apply (valid_pairs_at ts m1 os1 m2 os2 n V1 V2 A).
-      - apply (valid_pairs_at ts m2 os2 m1 os1 n V2 V1 (agree_sym _ _ _ _ _ A)). }
+      - apply (valid_pairs_at s m1 os1 m2 os2 n V1 V2 A).
+      - apply (valid_pairs_at s m2 os2 m1 os1 n V2 V1 (agree_sym _ _ _ _ _ A)). }
     split; [exact Hp|]. split.
-    - apply (valid_os_at ts m1 os1 m2 os2 n V1 V2 A Hp).
-    - apply (valid_os_at ts m2 os2 m1 os1 n V2 V1 (agree_sym _ _ _ _ _ A)).
+    - apply (valid_os_at s m1 os1 m2 os2 n V1 V2 A Hp).
+    - apply (valid_os_at s m2 os2 m1 os1 n V2 V1 (agree_sym _ _ _ _ _ A)).
       intros i. symmetry. apply Hp. }
   assert (All : forall n, agree m1 os1 m2 os2 n).
   { induction n as [|n IH]; [split; intros; lia|].
@@ -523,15 +734,15 @@ Qed.
 
 (* "Containers can't overlap": a pair that opens inside another closes
    inside it. *)
-Theorem valid_nested : forall ts m os i j i' j',
-  valid ts (m, os) -> In (i, j) m -> In (i', j') m -> i < i' < j -> j' < j.
+Theorem valid_nested : forall s m os i j i' j',
+  valid s (m, os) -> In (i, j) m -> In (i', j') m -> i < i' < j -> j' < j.
 Proof.
-  intros ts m os i j i' j' [P _] H H' Hb.
+  intros s m os i j i' j' [P _] H H' Hb.
   destruct (P i j H) as (k & Hk & _ & Hcl & _).
   destruct (P i' j' H') as (k' & Hk' & _ & Hcl' & _).
   destruct (lt_eq_lt_dec j' j) as [[Hlt|Heq]|Hgt]; [exact Hlt| |].
-  - subst j'. pose proof (close_key_fun ts j k k' Hk Hk') as <-.
-    pose proof (closest_live_fun ts m os j k i i' Hcl Hcl'). lia.
+  - subst j'. pose proof (close_key_fun s j k k' Hk Hk') as <-.
+    pose proof (closest_live_fun s m os j k i i' Hcl Hcl'). lia.
   - exfalso. destruct Hcl' as [((_ & _ & _ & _ & Hd) & _) _].
     apply Hd. right. exists i, j. split; [exact Hgt|]. split; [exact H|exact Hb].
 Qed.
@@ -540,11 +751,10 @@ Qed.
 The reading, computed
 ---------------------
 
-Left to right, with the openers still open innermost first and a marker
-for each destination that does not close.  A closer takes the closest
-open opener of its key above every marker; with none there and one
-below a marker it is barred.  After a bracket's closer the region's end
-is known from the tokens, and the tokens up to it are skipped. *)
+Along the chain, with the openers still open innermost first and a
+marker for each destination that does not close.  A closer takes the
+closest open opener of its key above every marker; with none there and
+one below a marker it is barred. *)
 
 Inductive litem : Type := LOpen (p : nat) (k : key) | LBar (d : nat).
 
@@ -569,73 +779,67 @@ Fixpoint pick (k : key) (lv : list litem) : pick_res :=
   | LOpen p k' :: rest => if key_eq k k' then PFound p rest else pick k rest
   end.
 
-(* Whether the tokens from here on are in a region: no, up to and
-   including `e`, or to the end. *)
-Inductive rmode : Type := RNormal | RInert (e : option nat).
-
 Record rstate : Type := RState {
   rs_live : list litem;
   rs_pairs : matching;
-  rs_os : list nat;
-  rs_mode : rmode
+  rs_os : list nat
 }.
 
-Definition ropen (i : nat) (k : key) (op : bool) (s : rstate) : rstate :=
-  if op then RState (LOpen i k :: rs_live s) (rs_pairs s) (i :: rs_os s) (rs_mode s)
-  else s.
+Definition ropen (i : nat) (k : key) (op : bool) (st : rstate) : rstate :=
+  if op then RState (LOpen i k :: rs_live st) (rs_pairs st) (i :: rs_os st) else st.
 
-Definition rstep (ts : list token) (i : nat) (t : token) (s : rstate) : rstate :=
-  match rs_mode s with
-  | RInert (Some e) =>
-      if Nat.eqb i e then RState (rs_live s) (rs_pairs s) (rs_os s) RNormal else s
-  | RInert None => s
-  | RNormal =>
-      match t with
-      | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ => s
-      | TOpen => ropen i KBracket true s
-      | TDelim k mr op cl =>
-          match (if cl then pick (KDelim k mr) (rs_live s) else PNone) with
-          | PFound p below =>
-              if Nat.ltb (S p) i
-              then RState below ((p, i) :: rs_pairs s) (rs_os s) RNormal
-              else ropen i (KDelim k mr) op s
-          | PBarred => s
-          | PNone => ropen i (KDelim k mr) op s
+Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
+  match t with
+  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ => st
+  | TOpen => ropen i KBracket true st
+  | TDelim k mr op cl =>
+      match (if cl then pick (KDelim k mr) (rs_live st) else PNone) with
+      | PFound p below =>
+          if Nat.ltb (tok_end s p) i
+          then RState below ((p, i) :: rs_pairs st) (rs_os st)
+          else ropen i (KDelim k mr) op st
+      | PBarred => st
+      | PNone => ropen i (KDelim k mr) op st
+      end
+  | TClose b =>
+      match pick KBracket (rs_live st) with
+      | PFound p below =>
+          let pairs := (p, i) :: rs_pairs st in
+          match region_end s i b, b with
+          | None, true => RState (LBar i :: below) pairs (rs_os st)
+          | _, _ => RState below pairs (rs_os st)
           end
-      | TClose b =>
-          match pick KBracket (rs_live s) with
-          | PFound p below =>
-              let pairs := (p, i) :: rs_pairs s in
-              match region_end ts i b with
-              | Some e => RState below pairs (rs_os s) (RInert (Some e))
-              | None =>
-                  if b then RState (LBar i :: below) pairs (rs_os s) RNormal
-                  else RState below pairs (rs_os s) (RInert None)
-              end
-          | _ => s
+      | _ => st
+      end
+  end.
+
+Fixpoint rgo (s : string) (fuel p : nat) (st : rstate) : rstate :=
+  match fuel with
+  | O => st
+  | S f =>
+      match tok_of s p with
+      | None => st
+      | Some t =>
+          let st' := rstep s p t st in
+          match chain_next s (rs_pairs st') p with
+          | Some q => rgo s f q st'
+          | None => st'
           end
       end
   end.
 
-Fixpoint rrun (ts : list token) (i : nat) (rest : list token) (s : rstate) : rstate :=
-  match rest with
-  | [] => s
-  | t :: more => rrun ts (S i) more (rstep ts i t s)
-  end.
+Definition rstart : rstate := RState [] [] [].
 
-Definition rstart : rstate := RState [] [] [] RNormal.
-
-Definition ref_read (ts : list token) : reading :=
-  let s := rrun ts 0 ts rstart in (rs_pairs s, rs_os s).
+Definition ref_read (s : string) : reading :=
+  let st := rgo s (S (String.length s)) 0 rstart in (rs_pairs st, rs_os st).
 
 (*
 The computed reading is valid
 -----------------------------
 
-After the first `n` tokens the stack holds exactly the openers still
-open at `n` and a marker for each destination that does not close,
-innermost first; the mode says which tokens from `n` on are in a
-region; and every role so far obeys the rules.  A token's role reads
+At a byte `n` the stack holds exactly the openers still open at `n`
+and a marker for each destination that does not close, innermost
+first, and every role before `n` obeys the rules.  A token's role reads
 only what came before it, so extending the reading past `n` keeps the
 rules for the tokens before `n` (`agree`). *)
 
@@ -725,112 +929,97 @@ Proof.
     congruence.
 Qed.
 
-Definition bar (ts : list token) (m : matching) (d : nat) : Prop :=
-  exists p, In (p, d) m /\ nth_error ts d = Some (TClose true)
-    /\ region_end ts d true = None.
-
-Definition covers (md : rmode) (t : nat) : Prop :=
-  match md with
-  | RNormal => False
-  | RInert (Some e) => t <= e
-  | RInert None => True
-  end.
+Definition bar (s : string) (m : matching) (d : nat) : Prop :=
+  exists p, In (p, d) m /\ tok_of s d = Some (TClose true) /\ region_end s d true = None.
 
 (* The three rules of `valid`, one token at a time. *)
-Definition pair_ok (ts : list token) (m : matching) (os : list nat) (i j : nat)
-  : Prop :=
-  exists k, close_key ts j = Some k /\ ~ inert ts m j
-    /\ closest_live ts m os j k i /\ (needs_content k = true -> S i < j).
+Definition pair_ok (s : string) (m : matching) (os : list nat) (i j : nat) : Prop :=
+  exists k, close_key s j = Some k /\ chain s m j
+    /\ closest_live s m os j k i /\ (needs_content k = true -> tok_end s i < j).
 
-Definition unmatched_ok (ts : list token) (m : matching) (os : list nat) (j : nat)
-  : Prop :=
-  forall k, close_key ts j = Some k -> ~ inert ts m j -> ~ closes m j ->
-    forall p, closest_live ts m os j k p -> needs_content k = true /\ S p = j.
+Definition unmatched_ok (s : string) (m : matching) (os : list nat) (j : nat) : Prop :=
+  forall k, close_key s j = Some k -> chain s m j -> ~ closes m j ->
+    forall p, closest_live s m os j k p -> needs_content k = true /\ tok_end s p = j.
 
-Definition opener_ok (ts : list token) (m : matching) (os : list nat) (q : nat)
-  : Prop :=
+Definition opener_ok (s : string) (m : matching) (os : list nat) (q : nat) : Prop :=
   In q os <->
-    (exists k, open_key ts q = Some k) /\ ~ inert ts m q /\ ~ closes m q
-    /\ forall k, close_key ts q = Some k -> ~ barred ts m os q k.
+    (exists k, open_key s q = Some k) /\ chain s m q /\ ~ closes m q
+    /\ forall k, close_key s q = Some k -> ~ barred s m os q k.
 
-Record rinv (ts : list token) (n : nat) (s : rstate) : Prop := RInv {
-  ri_bound_pairs : forall i j, In (i, j) (rs_pairs s) -> j < n;
-  ri_bound_os : forall q, In q (rs_os s) -> q < n;
+Record rinv (s : string) (n : nat) (st : rstate) : Prop := RInv {
+  ri_bound_pairs : forall i j, In (i, j) (rs_pairs st) -> j < n;
+  ri_bound_os : forall q, In q (rs_os st) -> q < n;
   ri_cand : forall q k,
-    In (LOpen q k) (rs_live s) <-> cand ts (rs_pairs s) (rs_os s) n q k;
-  ri_bar : forall d, In (LBar d) (rs_live s) <-> bar ts (rs_pairs s) d;
-  ri_desc : ldesc (rs_live s);
-  ri_mode : forall t, n <= t -> (inert ts (rs_pairs s) t <-> covers (rs_mode s) t);
-  ri_mode_le : forall e, rs_mode s = RInert (Some e) -> n <= e;
-  ri_pairs : forall i j, In (i, j) (rs_pairs s) -> pair_ok ts (rs_pairs s) (rs_os s) i j;
-  ri_unmatched : forall j, j < n -> unmatched_ok ts (rs_pairs s) (rs_os s) j;
-  ri_os : forall q, q < n -> opener_ok ts (rs_pairs s) (rs_os s) q
+    In (LOpen q k) (rs_live st) <-> cand s (rs_pairs st) (rs_os st) n q k;
+  ri_bar : forall d, In (LBar d) (rs_live st) <-> bar s (rs_pairs st) d;
+  ri_desc : ldesc (rs_live st);
+  ri_pairs : forall i j, In (i, j) (rs_pairs st) -> pair_ok s (rs_pairs st) (rs_os st) i j;
+  ri_unmatched : forall j, j < n -> unmatched_ok s (rs_pairs st) (rs_os st) j;
+  ri_os : forall q, q < n -> opener_ok s (rs_pairs st) (rs_os st) q
 }.
 
 (* What a token's rules read is settled before it. *)
-Lemma pair_ok_agree : forall ts m os m' os' n i j,
-  agree m os m' os' n -> j <= n -> pair_ok ts m os i j -> pair_ok ts m' os' i j.
+Lemma pair_ok_agree : forall s m os m' os' n i j,
+  agree m os m' os' n -> j <= n -> pair_ok s m os i j -> pair_ok s m' os' i j.
 Proof.
-  intros ts m os m' os' n i j A Hj (k & Hk & Hi & Hc & Hn).
+  intros s m os m' os' n i j A Hj (k & Hk & Hc & Hl & Hn).
   exists k. split; [exact Hk|]. split; [|split; [|exact Hn]].
-  - intros H. apply Hi.
-    exact (inert_agree ts m' m os' os n (agree_sym _ _ _ _ _ A) j Hj H).
-  - exact (closest_live_agree ts m os m' os' n j k i A Hj Hc).
+  - exact (chain_agree s m os m' os' n j A Hj Hc).
+  - exact (closest_live_agree s m os m' os' n j k i A Hj Hl).
 Qed.
 
-Lemma unmatched_ok_agree : forall ts m os m' os' n j,
-  agree m os m' os' n -> j < n -> unmatched_ok ts m os j -> unmatched_ok ts m' os' j.
+Lemma unmatched_ok_agree : forall s m os m' os' n j,
+  agree m os m' os' n -> j < n -> unmatched_ok s m os j -> unmatched_ok s m' os' j.
 Proof.
-  intros ts m os m' os' n j A Hj U k Hk Hi Hc p Hp.
+  intros s m os m' os' n j A Hj U k Hk Hc Hnc p Hp.
   pose proof (agree_sym _ _ _ _ _ A) as A'.
   apply (U k Hk).
-  - intros H. apply Hi. exact (inert_agree ts m m' os os' n A j ltac:(lia) H).
-  - intros H. apply Hc. exact (closes_agree m m' os os' n A j Hj H).
-  - exact (closest_live_agree ts m' os' m os n j k p A' ltac:(lia) Hp).
+  - exact (chain_agree s m' os' m os n j A' ltac:(lia) Hc).
+  - intros H. apply Hnc. exact (closes_agree m m' os os' n A j Hj H).
+  - exact (closest_live_agree s m' os' m os n j k p A' ltac:(lia) Hp).
 Qed.
 
-Lemma opener_ok_agree : forall ts m os m' os' n q,
-  agree m os m' os' n -> q < n -> opener_ok ts m os q -> opener_ok ts m' os' q.
+Lemma opener_ok_agree : forall s m os m' os' n q,
+  agree m os m' os' n -> q < n -> opener_ok s m os q -> opener_ok s m' os' q.
 Proof.
-  intros ts m os m' os' n q A Hq O.
+  intros s m os m' os' n q A Hq O.
   pose proof (agree_sym _ _ _ _ _ A) as A'.
   unfold opener_ok in *. split.
-  - intros H. apply (proj2 A q Hq) in H. apply O in H as (Ho & Hi & Hc & Hb).
+  - intros H. apply (proj2 A q Hq) in H. apply O in H as (Ho & Hc & Hnc & Hb).
     split; [exact Ho|]. split; [|split].
-    + intros H. apply Hi. exact (inert_agree ts m' m os' os n A' q ltac:(lia) H).
-    + intros H. apply Hc. exact (closes_agree m' m os' os n A' q Hq H).
+    + exact (chain_agree s m os m' os' n q A ltac:(lia) Hc).
+    + intros H. apply Hnc. exact (closes_agree m' m os' os n A' q Hq H).
     + intros k Hk H. apply (Hb k Hk).
-      exact (barred_agree ts m' os' m os n q k A' ltac:(lia) H).
-  - intros (Ho & Hi & Hc & Hb). apply (proj2 A q Hq). apply O.
+      exact (barred_agree s m' os' m os n q k A' ltac:(lia) H).
+  - intros (Ho & Hc & Hnc & Hb). apply (proj2 A q Hq). apply O.
     split; [exact Ho|]. split; [|split].
-    + intros H. apply Hi. exact (inert_agree ts m m' os os' n A q ltac:(lia) H).
-    + intros H. apply Hc. exact (closes_agree m m' os os' n A q Hq H).
+    + exact (chain_agree s m' os' m os n q A' ltac:(lia) Hc).
+    + intros H. apply Hnc. exact (closes_agree m m' os os' n A q Hq H).
     + intros k Hk H. apply (Hb k Hk).
-      exact (barred_agree ts m os m' os' n q k A ltac:(lia) H).
+      exact (barred_agree s m os m' os' n q k A ltac:(lia) H).
 Qed.
 
 (* Under the invariant, liveness is read off the stack. *)
-Lemma live_stack : forall ts n s q k,
-  rinv ts n s ->
-  live ts (rs_pairs s) (rs_os s) n q k <-> In (LOpen q k) (rs_live s) /\ clear (rs_live s) q.
+Lemma live_stack : forall s n st q k,
+  rinv s n st ->
+  live s (rs_pairs st) (rs_os st) n q k <-> In (LOpen q k) (rs_live st) /\ clear (rs_live st) q.
 Proof.
-  intros ts n s q k I. unfold live. rewrite (ri_cand ts n s I). split.
+  intros s n st q k I. unfold live. rewrite (ri_cand s n st I). split.
   - intros [Hc Hb]. split; [exact Hc|]. intros d Hd.
     destruct (le_lt_dec d q) as [Hle|Hlt]; [exact Hle|]. exfalso. apply Hb.
-    apply (ri_bar ts n s I) in Hd as (p & Hp & Ht & He).
+    apply (ri_bar s n st I) in Hd as (p & Hp & Ht & He).
     exists p, d. split; [exact Hp|]. split; [exact Ht|]. split; [exact He|].
-    split; [exact Hlt|exact (ri_bound_pairs ts n s I p d Hp)].
+    split; [exact Hlt|exact (ri_bound_pairs s n st I p d Hp)].
   - intros [Hc Hcl]. split; [exact Hc|]. intros (p & d & Hp & Ht & He & Hq & _).
-    assert (In (LBar d) (rs_live s)) as Hd
-      by (apply (ri_bar ts n s I); exists p; auto).
+    assert (In (LBar d) (rs_live st)) as Hd
+      by (apply (ri_bar s n st I); exists p; auto).
     specialize (Hcl d Hd). lia.
 Qed.
 
-
-Local Lemma pairs_lt : forall ts n s i j,
-  rinv ts n s -> In (i, j) (rs_pairs s) -> i < j.
+Local Lemma pairs_lt : forall s n st i j,
+  rinv s n st -> In (i, j) (rs_pairs st) -> i < j.
 Proof.
-  intros ts n s i j I H. destruct (ri_pairs ts n s I i j H) as (_ & _ & _ & [[(_ & Hq & _) _] _] & _).
+  intros s n st i j I H. destruct (ri_pairs s n st I i j H) as (_ & _ & _ & [[(_ & Hq & _) _] _] & _).
   exact Hq.
 Qed.
 
@@ -847,14 +1036,14 @@ Proof.
 Qed.
 
 (* No pair closes at `n`. *)
-Local Lemma cand_succ : forall ts n s os' q k,
-  rinv ts n s -> (forall q', q' < n -> In q' os' <-> In q' (rs_os s)) ->
-  cand ts (rs_pairs s) os' (S n) q k
-  <-> cand ts (rs_pairs s) (rs_os s) n q k
-      \/ (q = n /\ In n os' /\ open_key ts n = Some k).
+Local Lemma cand_succ : forall s n st os' q k,
+  rinv s n st -> (forall q', q' < n -> In q' os' <-> In q' (rs_os st)) ->
+  cand s (rs_pairs st) os' (S n) q k
+  <-> cand s (rs_pairs st) (rs_os st) n q k
+      \/ (q = n /\ In n os' /\ open_key s n = Some k).
 Proof.
-  intros ts n s os' q k I Hos.
-  pose proof (ri_bound_pairs ts n s I) as B. pose proof (ri_bound_os ts n s I) as Bo. split.
+  intros s n st os' q k I Hos.
+  pose proof (ri_bound_pairs s n st I) as B. pose proof (ri_bound_os s n st I) as Bo. split.
   - intros (Hin & Hq & Ho & Hc & Hd). destruct (Nat.eq_dec q n) as [->|Hne].
     + right. split; [reflexivity|]. split; assumption.
     + left. split; [apply Hos; [lia|exact Hin]|]. split; [lia|]. split; [exact Ho|].
@@ -865,20 +1054,20 @@ Proof.
     + split; [exact Hin|]. split; [lia|]. split; [exact Ho|]. split.
       * intros [i Hi]. specialize (B _ _ Hi). lia.
       * intros [(j' & Hj & H)|(i' & j' & Hj & H & Hb)].
-        -- specialize (B _ _ H). pose proof (pairs_lt ts n s _ _ I H). lia.
+        -- specialize (B _ _ H). pose proof (pairs_lt s n st _ _ I H). lia.
         -- specialize (B _ _ H). lia.
 Qed.
 
 (* A pair closes at `n` with its opener `p` live. *)
-Local Lemma cand_pair : forall ts n s p q k,
-  rinv ts n s -> p < n ->
-  cand ts ((p, n) :: rs_pairs s) (rs_os s) (S n) q k
-  <-> cand ts (rs_pairs s) (rs_os s) n q k /\ q < p.
+Local Lemma cand_pair : forall s n st p q k,
+  rinv s n st -> p < n ->
+  cand s ((p, n) :: rs_pairs st) (rs_os st) (S n) q k
+  <-> cand s (rs_pairs st) (rs_os st) n q k /\ q < p.
 Proof.
-  intros ts n s p q k I Hpn.
-  pose proof (ri_bound_pairs ts n s I) as B. pose proof (ri_bound_os ts n s I) as Bo.
-  assert (Dead : dead ((p, n) :: rs_pairs s) (S n) q
-                 <-> dead (rs_pairs s) n q \/ q = p \/ p < q < n).
+  intros s n st p q k I Hpn.
+  pose proof (ri_bound_pairs s n st I) as B. pose proof (ri_bound_os s n st I) as Bo.
+  assert (Dead : dead ((p, n) :: rs_pairs st) (S n) q
+                 <-> dead (rs_pairs st) n q \/ q = p \/ p < q < n).
   { split.
     - intros [(j' & Hj & [E|H])|(i' & j' & Hj & [E|H] & Hb)].
       + injection E as -> ->. right. left. reflexivity.
@@ -904,84 +1093,58 @@ Proof.
     + rewrite Dead. intros [H|[H|H]]; [exact (Hd H)|lia|lia].
 Qed.
 
-Local Lemma inert_pair : forall ts m p n t,
-  (forall i j, In (i, j) m -> j < n) -> n < t ->
-  inert ts ((p, n) :: m) t
-  <-> inert ts m t
-      \/ (exists b, nth_error ts n = Some (TClose b)
-           /\ match region_end ts n b with Some e => t <= e | None => b = false end).
+(* A byte off the chain: nothing changes. *)
+Local Lemma rinv_skip : forall s n st,
+  rinv s n st -> ~ chain s (rs_pairs st) n -> rinv s (S n) st.
 Proof.
-  intros ts m p n t B Ht. split.
-  - intros (p' & d & b & [E|H] & Hd & Hlt & He).
-    + injection E as -> ->. right. exists b. split; assumption.
-    + left. exists p', d, b. auto.
-  - intros [(p' & d & b & H & Hd & Hlt & He)|(b & Hd & He)].
-    + exists p', d, b. split; [right; exact H|]. auto.
-    + exists p, n, b. split; [left; reflexivity|]. auto.
-Qed.
-
-Local Lemma inert_pair_at : forall ts m p n,
-  inert ts ((p, n) :: m) n <-> inert ts m n.
-Proof.
-  intros ts m p n. split.
-  - intros (p' & d & b & [E|H] & Hd & Hlt & He); [injection E as _ ->; lia|].
-    exists p', d, b. auto.
-  - intros (p' & d & b & H & Hd & Hlt & He). exists p', d, b.
-    split; [right; exact H|]. auto.
-Qed.
-
-(* A token in a region: nothing changes but the mode. *)
-Local Lemma rinv_skip : forall ts n s md',
-  rinv ts n s -> covers (rs_mode s) n ->
-  (forall t, S n <= t -> (covers (rs_mode s) t <-> covers md' t)) ->
-  (forall e, md' = RInert (Some e) -> S n <= e) ->
-  rinv ts (S n) (RState (rs_live s) (rs_pairs s) (rs_os s) md').
-Proof.
-  intros ts n s md' I Hc Hmd Hle.
-  assert (Hin : inert ts (rs_pairs s) n) by (apply (ri_mode ts n s I n (le_n n)), Hc).
-  assert (Hno : ~ In n (rs_os s)) by (intros H; specialize (ri_bound_os ts n s I n H); lia).
-  constructor; cbn [rs_live rs_pairs rs_os rs_mode].
-  - intros i j H. specialize (ri_bound_pairs ts n s I i j H). lia.
-  - intros q H. specialize (ri_bound_os ts n s I q H). lia.
-  - intros q k. rewrite (ri_cand ts n s I), (cand_succ ts n s (rs_os s) q k I (fun _ _ => iff_refl _)).
+  intros s n st I Hc.
+  assert (Hno : ~ In n (rs_os st)) by (intros H; specialize (ri_bound_os s n st I n H); lia).
+  constructor.
+  - intros i j H. specialize (ri_bound_pairs s n st I i j H). lia.
+  - intros q H. specialize (ri_bound_os s n st I q H). lia.
+  - intros q k. rewrite (ri_cand s n st I), (cand_succ s n st (rs_os st) q k I (fun _ _ => iff_refl _)).
     split; [intros H; left; exact H|intros [H|(_ & H & _)]; [exact H|contradiction]].
-  - exact (ri_bar ts n s I).
-  - exact (ri_desc ts n s I).
-  - intros t Ht. rewrite (ri_mode ts n s I t ltac:(lia)). apply Hmd, Ht.
-  - exact Hle.
-  - exact (ri_pairs ts n s I).
+  - exact (ri_bar s n st I).
+  - exact (ri_desc s n st I).
+  - exact (ri_pairs s n st I).
   - intros j Hj. destruct (Nat.eq_dec j n) as [->|Hne];
-      [|apply (ri_unmatched ts n s I); lia].
-    intros k _ Hni. contradiction.
+      [|apply (ri_unmatched s n st I); lia].
+    intros k _ Hch. contradiction.
   - intros q Hq. destruct (Nat.eq_dec q n) as [->|Hne];
-      [|apply (ri_os ts n s I); lia].
-    split; [contradiction|intros (_ & Hni & _); contradiction].
+      [|apply (ri_os s n st I); lia].
+    split; [contradiction|intros (_ & Hch & _); contradiction].
+Qed.
+
+Local Lemma rinv_skip_to : forall s a b st,
+  rinv s a st -> a <= b -> (forall j, a <= j < b -> ~ chain s (rs_pairs st) j) ->
+  rinv s b st.
+Proof.
+  intros s a b st I Hab. induction Hab as [|b Hab IH]; intros Hoff; [exact I|].
+  apply rinv_skip; [apply IH; intros j Hj; apply Hoff; lia|apply Hoff; lia].
 Qed.
 
 (* A token that closes nothing: it opens or it is text. *)
-Local Lemma rinv_noclose : forall ts n s op K,
-  rinv ts n s -> rs_mode s = RNormal ->
-  (op = true -> open_key ts n = Some K) ->
-  opener_ok ts (rs_pairs s) (if op then n :: rs_os s else rs_os s) n ->
-  unmatched_ok ts (rs_pairs s) (if op then n :: rs_os s else rs_os s) n ->
-  rinv ts (S n)
-    (RState (if op then LOpen n K :: rs_live s else rs_live s) (rs_pairs s)
-       (if op then n :: rs_os s else rs_os s) RNormal).
+Local Lemma rinv_noclose : forall s n st op K,
+  rinv s n st ->
+  (op = true -> open_key s n = Some K) ->
+  opener_ok s (rs_pairs st) (if op then n :: rs_os st else rs_os st) n ->
+  unmatched_ok s (rs_pairs st) (if op then n :: rs_os st else rs_os st) n ->
+  rinv s (S n)
+    (RState (if op then LOpen n K :: rs_live st else rs_live st) (rs_pairs st)
+       (if op then n :: rs_os st else rs_os st)).
 Proof.
-  intros ts n s op K I Hmd HK Ho Hu.
-  set (os' := if op then n :: rs_os s else rs_os s).
-  assert (Hos : forall q, q < n -> In q os' <-> In q (rs_os s)).
+  intros s n st op K I HK Ho Hu.
+  set (os' := if op then n :: rs_os st else rs_os st).
+  assert (Hos : forall q, q < n -> In q os' <-> In q (rs_os st)).
   { intros q Hq. unfold os'. destruct op; [|reflexivity]. cbn.
     split; [intros [E|H]; [lia|exact H]|intros H; right; exact H]. }
-  assert (A : agree (rs_pairs s) (rs_os s) (rs_pairs s) os' n).
+  assert (A : agree (rs_pairs st) (rs_os st) (rs_pairs st) os' n).
   { split; [intros; reflexivity|]. intros q Hq. symmetry. apply Hos, Hq. }
-  assert (Hni : ~ inert ts (rs_pairs s) n).
-  { intros H. apply (ri_mode ts n s I n (le_n n)) in H. rewrite Hmd in H. exact H. }
-  constructor; cbn [rs_live rs_pairs rs_os rs_mode]; fold os'.
-  - intros i j H. specialize (ri_bound_pairs ts n s I i j H). lia.
+  constructor; cbn [rs_live rs_pairs rs_os]; fold os'.
+  - intros i j H. specialize (ri_bound_pairs s n st I i j H). lia.
   - intros q H. unfold os' in H. destruct op; [destruct H as [<-|H]; [lia|]|];
-      specialize (ri_bound_os ts n s I q H); lia.
-  - intros q k. rewrite (cand_succ ts n s os' q k I Hos), <- (ri_cand ts n s I).
+      specialize (ri_bound_os s n st I q H); lia.
+  - intros q k. rewrite (cand_succ s n st os' q k I Hos), <- (ri_cand s n st I).
     unfold os'. destruct op.
     + specialize (HK eq_refl). cbn. split.
       * intros [E|H]; [injection E as <- <-; right; auto|left; exact H].
@@ -989,63 +1152,52 @@ Proof.
         rewrite HK in Ho'. injection Ho' as <-. left. reflexivity.
     + split; [intros H; left; exact H|].
       intros [H|(-> & Hin & _)]; [exact H|].
-      exfalso. specialize (ri_bound_os ts n s I n Hin). lia.
-  - intros d. destruct op; cbn; [|exact (ri_bar ts n s I d)].
-    rewrite <- (ri_bar ts n s I d). split; [intros [E|H]; [discriminate|exact H]|].
+      exfalso. specialize (ri_bound_os s n st I n Hin). lia.
+  - intros d. destruct op; cbn; [|exact (ri_bar s n st I d)].
+    rewrite <- (ri_bar s n st I d). split; [intros [E|H]; [discriminate|exact H]|].
     intros H; right; exact H.
-  - destruct op; [|exact (ri_desc ts n s I)]. constructor; [exact (ri_desc ts n s I)|].
+  - destruct op; [|exact (ri_desc s n st I)]. constructor; [exact (ri_desc s n st I)|].
     apply Forall_forall. intros [q k|d] Hx; cbn.
-    + apply (ri_cand ts n s I) in Hx as (_ & Hq & _). exact Hq.
-    + apply (ri_bar ts n s I) in Hx as (p & H & _). exact (ri_bound_pairs ts n s I p d H).
-  - intros t Ht. rewrite (ri_mode ts n s I t ltac:(lia)), Hmd. reflexivity.
-  - intros e E. discriminate E.
-  - intros i j H. apply (pair_ok_agree ts (rs_pairs s) (rs_os s) _ os' n i j A).
-    + exact (Nat.lt_le_incl _ _ (ri_bound_pairs ts n s I i j H)).
-    + exact (ri_pairs ts n s I i j H).
+    + apply (ri_cand s n st I) in Hx as (_ & Hq & _). exact Hq.
+    + apply (ri_bar s n st I) in Hx as (p & H & _). exact (ri_bound_pairs s n st I p d H).
+  - intros i j H. apply (pair_ok_agree s (rs_pairs st) (rs_os st) _ os' n i j A).
+    + exact (Nat.lt_le_incl _ _ (ri_bound_pairs s n st I i j H)).
+    + exact (ri_pairs s n st I i j H).
   - intros j Hj. destruct (Nat.eq_dec j n) as [->|Hne]; [exact Hu|].
-    apply (unmatched_ok_agree ts (rs_pairs s) (rs_os s) _ os' n j A); [lia|].
-    apply (ri_unmatched ts n s I). lia.
+    apply (unmatched_ok_agree s (rs_pairs st) (rs_os st) _ os' n j A); [lia|].
+    apply (ri_unmatched s n st I). lia.
   - intros q Hq. destruct (Nat.eq_dec q n) as [->|Hne]; [exact Ho|].
-    apply (opener_ok_agree ts (rs_pairs s) (rs_os s) _ os' n q A); [lia|].
-    apply (ri_os ts n s I). lia.
+    apply (opener_ok_agree s (rs_pairs st) (rs_os st) _ os' n q A); [lia|].
+    apply (ri_os s n st I). lia.
 Qed.
 
 (* A token that closes a pair with `p`. *)
-Local Lemma rinv_pair : forall ts n s p K lv' md',
-  rinv ts n s -> rs_mode s = RNormal ->
-  close_key ts n = Some K ->
-  closest_live ts (rs_pairs s) (rs_os s) n K p ->
-  (needs_content K = true -> S p < n) ->
-  (forall q k, In (LOpen q k) lv' <-> In (LOpen q k) (rs_live s) /\ q < p) ->
+Local Lemma rinv_pair : forall s n st p K lv',
+  rinv s n st -> chain s (rs_pairs st) n ->
+  close_key s n = Some K ->
+  closest_live s (rs_pairs st) (rs_os st) n K p ->
+  (needs_content K = true -> tok_end s p < n) ->
+  (forall q k, In (LOpen q k) lv' <-> In (LOpen q k) (rs_live st) /\ q < p) ->
   (forall d, In (LBar d) lv' <->
-     In (LBar d) (rs_live s)
-     \/ (d = n /\ nth_error ts n = Some (TClose true) /\ region_end ts n true = None)) ->
+     In (LBar d) (rs_live st)
+     \/ (d = n /\ tok_of s n = Some (TClose true) /\ region_end s n true = None)) ->
   ldesc lv' ->
-  (forall t, S n <= t ->
-     (covers md' t <->
-      exists b, nth_error ts n = Some (TClose b)
-        /\ match region_end ts n b with Some e => t <= e | None => b = false end)) ->
-  (forall e, md' = RInert (Some e) -> S n <= e) ->
-  rinv ts (S n) (RState lv' ((p, n) :: rs_pairs s) (rs_os s) md').
+  rinv s (S n) (RState lv' ((p, n) :: rs_pairs st) (rs_os st)).
 Proof.
-  intros ts n s p K lv' md' I Hmd HK Hcl Hne Hlv Hbar Hdesc Hmode Hle.
-  set (m' := (p, n) :: rs_pairs s).
-  pose proof (ri_bound_pairs ts n s I) as B.
+  intros s n st p K lv' I Hch HK Hcl Hne Hlv Hbar Hdesc.
+  set (m' := (p, n) :: rs_pairs st).
+  pose proof (ri_bound_pairs s n st I) as B.
   assert (Hpn : p < n) by (destruct Hcl as [((_ & Hp & _) & _) _]; exact Hp).
-  assert (A : agree (rs_pairs s) (rs_os s) m' (rs_os s) n).
+  assert (A : agree (rs_pairs st) (rs_os st) m' (rs_os st) n).
   { split; [|intros; reflexivity]. intros i j Hj. unfold m'. cbn. split.
     - intros H. right. exact H.
     - intros [E|H]; [injection E as _ ->; lia|exact H]. }
-  assert (Hni : ~ inert ts (rs_pairs s) n).
-  { intros H. apply (ri_mode ts n s I n (le_n n)) in H. rewrite Hmd in H. exact H. }
-  assert (Hcn : closes m' n) by (exists p; left; reflexivity).
-  assert (Hnos : ~ In n (rs_os s)) by (intros H; specialize (ri_bound_os ts n s I n H); lia).
-  constructor; cbn [rs_live rs_pairs rs_os rs_mode]; fold m'.
+  constructor; cbn [rs_live rs_pairs rs_os]; fold m'.
   - intros i j [E|H]; [injection E as _ <-; lia|specialize (B i j H); lia].
-  - intros q H. specialize (ri_bound_os ts n s I q H). lia.
-  - intros q k. unfold m'. rewrite Hlv, (cand_pair ts n s p q k I Hpn), (ri_cand ts n s I).
+  - intros q H. specialize (ri_bound_os s n st I q H). lia.
+  - intros q k. unfold m'. rewrite Hlv, (cand_pair s n st p q k I Hpn), (ri_cand s n st I).
     reflexivity.
-  - intros d. rewrite Hbar, (ri_bar ts n s I d). unfold bar. split.
+  - intros d. rewrite Hbar, (ri_bar s n st I d). unfold bar. split.
     + intros [(p' & H & Hd & He)|(-> & Hd & He)].
       * exists p'. split; [right; exact H|]. split; assumption.
       * exists p. split; [left; reflexivity|]. split; assumption.
@@ -1053,50 +1205,24 @@ Proof.
       * injection E as -> ->. right. auto.
       * left. exists p'. auto.
   - exact Hdesc.
-  - intros t Ht. unfold m'.
-    rewrite (inert_pair ts (rs_pairs s) p n t B ltac:(lia)), (Hmode t Ht).
-    rewrite (ri_mode ts n s I t ltac:(lia)), Hmd. cbn. tauto.
-  - exact Hle.
   - intros i j [E|H].
     + injection E as <- <-. exists K. split; [exact HK|]. split.
-      * unfold m'. rewrite inert_pair_at. exact Hni.
+      * exact (chain_agree s (rs_pairs st) (rs_os st) m' (rs_os st) n n A (le_n n) Hch).
       * split; [|exact Hne].
-        exact (closest_live_agree ts (rs_pairs s) (rs_os s) m' (rs_os s) n n K p A (le_n n) Hcl).
-    + apply (pair_ok_agree ts (rs_pairs s) (rs_os s) m' (rs_os s) n i j A).
+        exact (closest_live_agree s (rs_pairs st) (rs_os st) m' (rs_os st) n n K p A (le_n n) Hcl).
+    + apply (pair_ok_agree s (rs_pairs st) (rs_os st) m' (rs_os st) n i j A).
       * exact (Nat.lt_le_incl _ _ (B i j H)).
-      * exact (ri_pairs ts n s I i j H).
+      * exact (ri_pairs s n st I i j H).
   - intros j Hj. destruct (Nat.eq_dec j n) as [->|Hne'].
-    + intros k _ _ Hc. contradiction.
-    + apply (unmatched_ok_agree ts (rs_pairs s) (rs_os s) m' (rs_os s) n j A); [lia|].
-      apply (ri_unmatched ts n s I). lia.
+    + intros k _ _ Hc. exfalso. apply Hc. exists p. left. reflexivity.
+    + apply (unmatched_ok_agree s (rs_pairs st) (rs_os st) m' (rs_os st) n j A); [lia|].
+      apply (ri_unmatched s n st I). lia.
   - intros q Hq. destruct (Nat.eq_dec q n) as [->|Hne'].
-    + split; [contradiction|intros (_ & _ & Hc & _); contradiction].
-    + apply (opener_ok_agree ts (rs_pairs s) (rs_os s) m' (rs_os s) n q A); [lia|].
-      apply (ri_os ts n s I). lia.
-Qed.
-
-Local Lemma paren_close_ge : forall ts depth i e, paren_close depth i ts = Some e -> i <= e.
-Proof.
-  induction ts as [|t ts IH]; intros depth i e H; [discriminate|].
-  cbn [paren_close] in H.
-  destruct t; try (apply IH in H; lia).
-  destruct (Ascii.eqb c lparen); [apply IH in H; lia|].
-  destruct (Ascii.eqb c rparen); [|apply IH in H; lia].
-  destruct depth; [injection H as <-; lia|apply IH in H; lia].
-Qed.
-
-Local Lemma rbrack_at_ge : forall ts i e, rbrack_at i ts = Some e -> i <= e.
-Proof.
-  induction ts as [|t ts IH]; intros i e H; [discriminate|].
-  cbn [rbrack_at] in H.
-  destruct t; try (apply IH in H; lia); [|injection H as <-; lia].
-  destruct (Ascii.eqb c rbrack); [injection H as <-; lia|apply IH in H; lia].
-Qed.
-
-Local Lemma region_end_ge : forall ts d b e, region_end ts d b = Some e -> S (S d) <= e.
-Proof.
-  intros ts d [|] e H; unfold region_end in H;
-    [exact (paren_close_ge _ _ _ _ H)|exact (rbrack_at_ge _ _ _ H)].
+    + split.
+      * intros H. specialize (ri_bound_os s n st I n H). lia.
+      * intros (_ & _ & Hc & _). exfalso. apply Hc. exists p. left. reflexivity.
+    + apply (opener_ok_agree s (rs_pairs st) (rs_os st) m' (rs_os st) n q A); [lia|].
+      apply (ri_os s n st I). lia.
 Qed.
 
 Local Lemma ldesc_pos_inj : forall lv x y,
@@ -1110,20 +1236,20 @@ Proof.
 Qed.
 
 (* What a found opener leaves below it. *)
-Local Lemma pick_below : forall ts n s K p below,
-  rinv ts n s -> pick K (rs_live s) = PFound p below ->
-  closest_live ts (rs_pairs s) (rs_os s) n K p
-  /\ (forall q k, In (LOpen q k) below <-> In (LOpen q k) (rs_live s) /\ q < p)
-  /\ (forall d, In (LBar d) below <-> In (LBar d) (rs_live s))
+Local Lemma pick_below : forall s n st K p below,
+  rinv s n st -> pick K (rs_live st) = PFound p below ->
+  closest_live s (rs_pairs st) (rs_os st) n K p
+  /\ (forall q k, In (LOpen q k) below <-> In (LOpen q k) (rs_live st) /\ q < p)
+  /\ (forall d, In (LBar d) below <-> In (LBar d) (rs_live st))
   /\ ldesc below
   /\ (forall x, In x below -> lpos x < p).
 Proof.
-  intros ts n s K p below I P.
-  pose proof (ri_desc ts n s I) as D.
+  intros s n st K p below I P.
+  pose proof (ri_desc s n st I) as D.
   destruct (pick_found K _ p below D P) as (Hin & Hcl & Hmax & Hb & Db & Ha).
   split; [|split; [|split; [|split]]].
-  - split; [apply (live_stack ts n s p K I); split; assumption|].
-    intros q Hq. apply (live_stack ts n s q K I) in Hq as [Hq Hc]. exact (Hmax q Hq Hc).
+  - split; [apply (live_stack s n st p K I); split; assumption|].
+    intros q Hq. apply (live_stack s n st q K I) in Hq as [Hq Hc]. exact (Hmax q Hq Hc).
   - intros q k. rewrite Hb. reflexivity.
   - intros d. rewrite Hb. split; [intros [H _]; exact H|]. intros H. split; [exact H|].
     cbn. specialize (Hcl d H).
@@ -1133,71 +1259,59 @@ Proof.
   - intros x Hx. apply Hb in Hx as [_ Hx]. exact Hx.
 Qed.
 
-Local Lemma pick_not_live : forall ts n s K p,
-  rinv ts n s -> pick K (rs_live s) = PBarred \/ pick K (rs_live s) = PNone ->
-  ~ closest_live ts (rs_pairs s) (rs_os s) n K p.
+Local Lemma pick_not_live : forall s n st K p,
+  rinv s n st -> pick K (rs_live st) = PBarred \/ pick K (rs_live st) = PNone ->
+  ~ closest_live s (rs_pairs st) (rs_os st) n K p.
 Proof.
-  intros ts n s K p I P [Hp _]. apply (live_stack ts n s p K I) in Hp as [Hin Hc].
+  intros s n st K p I P [Hp _]. apply (live_stack s n st p K I) in Hp as [Hin Hc].
   destruct P as [P|P].
-  - destruct (pick_barred K _ (ri_desc ts n s I) P) as [Hn _]. exact (Hn p Hin Hc).
+  - destruct (pick_barred K _ (ri_desc s n st I) P) as [Hn _]. exact (Hn p Hin Hc).
   - exact (pick_none K _ P p Hin).
 Qed.
 
-Lemma rinv_step : forall ts n s t,
-  nth_error ts n = Some t -> rinv ts n s -> rinv ts (S n) (rstep ts n t s).
+Lemma rinv_step : forall s n st t,
+  tok_of s n = Some t -> rinv s n st -> chain s (rs_pairs st) n ->
+  rinv s (S n) (rstep s n t st).
 Proof.
-  intros ts n [lv m os md] t Hn I.
-  assert (Hok : open_key ts n = opens_as t) by (unfold open_key; rewrite Hn; reflexivity).
-  assert (Hck : close_key ts n = closes_as t) by (unfold close_key; rewrite Hn; reflexivity).
+  intros s n [lv m os] t Hn I Hch.
+  assert (Hok : open_key s n = opens_as t) by (unfold open_key; rewrite Hn; reflexivity).
+  assert (Hck : close_key s n = closes_as t) by (unfold close_key; rewrite Hn; reflexivity).
   assert (Hnc : ~ closes m n)
-    by (intros [i Hi]; specialize (ri_bound_pairs ts n _ I i n Hi); cbn in *; lia).
-  assert (Hnos : ~ In n os) by (intros H; specialize (ri_bound_os ts n _ I n H); cbn in *; lia).
-  unfold rstep; cbn [rs_mode rs_live rs_pairs rs_os].
-  destruct md as [|[e|]].
-  2: { pose proof (ri_mode_le ts n _ I e eq_refl) as Hle. cbn in Hle.
-       destruct (Nat.eqb n e) eqn:E.
-       - apply Nat.eqb_eq in E. subst e.
-         apply (rinv_skip ts n (RState lv m os (RInert (Some n))) RNormal I);
-           cbn; [lia| |intros e' E'; discriminate].
-         intros t' Ht'. split; [lia|intros []].
-       - apply Nat.eqb_neq in E.
-         apply (rinv_skip ts n (RState lv m os (RInert (Some e))) (RInert (Some e)) I);
-           cbn; [lia|tauto|intros e' E'; injection E' as <-; lia]. }
-  2: { apply (rinv_skip ts n (RState lv m os (RInert None)) (RInert None) I);
-         cbn; [exact Logic.I|tauto|intros e' E'; discriminate]. }
-  assert (Hni : ~ inert ts m n).
-  { intros H. apply (ri_mode ts n _ I n (le_n n)) in H. exact H. }
-  pose (s := RState lv m os RNormal).
+    by (intros [i Hi]; specialize (ri_bound_pairs s n _ I i n Hi); cbn in *; lia).
+  assert (Hnos : ~ In n os) by (intros H; specialize (ri_bound_os s n _ I n H); cbn in *; lia).
+  cbn [rs_pairs] in Hch.
+  unfold rstep; cbn [rs_live rs_pairs rs_os].
+  pose (st := RState lv m os).
   assert (NC : forall op K,
-            (op = true -> open_key ts n = Some K) ->
-            opener_ok ts m (if op then n :: os else os) n ->
-            unmatched_ok ts m (if op then n :: os else os) n ->
-            rinv ts (S n) (RState (if op then LOpen n K :: lv else lv) m
-                             (if op then n :: os else os) RNormal))
-    by (intros op K; exact (rinv_noclose ts n s op K I eq_refl)).
+            (op = true -> open_key s n = Some K) ->
+            opener_ok s m (if op then n :: os else os) n ->
+            unmatched_ok s m (if op then n :: os else os) n ->
+            rinv s (S n) (RState (if op then LOpen n K :: lv else lv) m
+                             (if op then n :: os else os)))
+    by (intros op K; exact (rinv_noclose s n st op K I)).
   assert (Aos : forall op : bool, agree m os m (if op then n :: os else os) n).
   { intros op. split; [intros; reflexivity|]. intros q Hq. destruct op; [|reflexivity]. cbn.
     split; [intros H; right; exact H|intros [E|H]; [lia|exact H]]. }
-  assert (OO : forall (op : bool) (K : key), open_key ts n = (if op then Some K else None) ->
-            (forall k, close_key ts n = Some k -> op = true -> ~ barred ts m os n k) ->
-            opener_ok ts m (if op then n :: os else os) n).
+  assert (OO : forall (op : bool) (K : key), open_key s n = (if op then Some K else None) ->
+            (forall k, close_key s n = Some k -> op = true -> ~ barred s m os n k) ->
+            opener_ok s m (if op then n :: os else os) n).
   { intros [|] K Ho Hb.
     - split; [intros _|intros _; left; reflexivity].
-      split; [exists K; exact Ho|]. split; [exact Hni|]. split; [exact Hnc|].
+      split; [exists K; exact Ho|]. split; [exact Hch|]. split; [exact Hnc|].
       intros k Hk Hbar. apply (Hb k Hk eq_refl).
-      exact (barred_agree ts m (n :: os) m os n n k (agree_sym _ _ _ _ _ (Aos true))
+      exact (barred_agree s m (n :: os) m os n n k (agree_sym _ _ _ _ _ (Aos true))
                (le_n n) Hbar).
     - split; [intros H; contradiction|intros [[k Hk] _]; congruence]. }
   assert (UN : forall (op : bool) K,
-            (forall p, ~ closest_live ts m os n K p) -> close_key ts n = Some K ->
-            unmatched_ok ts m (if op then n :: os else os) n).
+            (forall p, ~ closest_live s m os n K p) -> close_key s n = Some K ->
+            unmatched_ok s m (if op then n :: os else os) n).
   { intros op K Hn' HK k Hk _ _ p Hp. rewrite HK in Hk. injection Hk as <-.
     exfalso. apply (Hn' p).
-    exact (closest_live_agree ts m _ m os n n K p (agree_sym _ _ _ _ _ (Aos op)) (le_n n) Hp). }
+    exact (closest_live_agree s m _ m os n n K p (agree_sym _ _ _ _ _ (Aos op)) (le_n n) Hp). }
   assert (Nolive : forall K, pick K lv = PBarred \/ pick K lv = PNone ->
-            forall p, ~ closest_live ts m os n K p)
-    by (intros K P p; exact (pick_not_live ts n s K p I P)).
-  assert (Text : opens_as t = None -> closes_as t = None -> rinv ts (S n) s).
+            forall p, ~ closest_live s m os n K p)
+    by (intros K P p; exact (pick_not_live s n st K p I P)).
+  assert (Text : opens_as t = None -> closes_as t = None -> rinv s (S n) st).
   { intros Ho Hc. apply (NC false KBracket); [discriminate| |].
     - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
     - intros k Hk. congruence. }
@@ -1205,12 +1319,12 @@ Proof.
   destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
-    assert (Hop : open_key ts n = if op then Some K else None)
+    assert (Hop : open_key s n = if op then Some K else None)
       by (rewrite Hok; destruct op; reflexivity).
-    assert (Ropen : (forall k', close_key ts n = Some k' -> ~ barred ts m os n k') ->
-              (forall op' : bool, unmatched_ok ts m (if op' then n :: os else os) n) ->
-              rinv ts (S n) (ropen n K op s)).
-    { intros Hnb Hu. unfold ropen. destruct op; cbn [rs_live rs_pairs rs_os rs_mode].
+    assert (Ropen : (forall k', close_key s n = Some k' -> ~ barred s m os n k') ->
+              (forall op' : bool, unmatched_ok s m (if op' then n :: os else os) n) ->
+              rinv s (S n) (ropen n K op st)).
+    { intros Hnb Hu. unfold ropen. destruct op; cbn [rs_live rs_pairs rs_os].
       - apply (NC true K); [intros _; exact Hop|apply (OO true K Hop)|apply (Hu true)].
         intros k' Hk' _. exact (Hnb k' Hk').
       - apply (NC false K); [discriminate|apply (OO false K Hop)|apply (Hu false)].
@@ -1219,38 +1333,41 @@ Proof.
     2: { cbn. apply Ropen.
          - intros k' Hk'. rewrite Hck in Hk'. discriminate.
          - intros op' k' Hk'. rewrite Hck in Hk'. discriminate. }
-    assert (HK : close_key ts n = Some K) by (rewrite Hck; reflexivity).
+    assert (HK : close_key s n = Some K) by (rewrite Hck; reflexivity).
     destruct (pick K lv) as [p below| |] eqn:P.
-    + destruct (pick_below ts n s K p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
-      unfold s in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
-      assert (Hpn : p < n) by (destruct Hcl as [((_ & Hp & _) & _) _]; exact Hp).
-      destruct (Nat.ltb (S p) n) eqn:L.
+    + destruct (pick_below s n st K p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
+      unfold st in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
+      destruct (Nat.ltb (tok_end s p) n) eqn:L.
       * apply Nat.ltb_lt in L.
-        apply (rinv_pair ts n s p K below RNormal I eq_refl HK Hcl (fun _ => L) Hlv).
+        apply (rinv_pair s n st p K below I Hch HK Hcl (fun _ => L) Hlv).
         -- intros d. rewrite Hbar. split; [intros H; left; exact H|].
            intros [H|(_ & E & _)]; [exact H|congruence].
         -- exact Db.
-        -- intros t Ht. split; [intros []|intros (b & E & _); congruence].
-        -- intros e E. discriminate E.
       * apply Nat.ltb_ge in L. apply Ropen.
         -- intros k' Hk' [Hn' _]. rewrite HK in Hk'. injection Hk' as <-.
            exact (Hn' p (proj1 Hcl)).
         -- intros op' k' Hk' _ _ p' Hp'. rewrite HK in Hk'. injection Hk' as <-.
-           pose proof (closest_live_agree ts m _ m os n n K p'
+           pose proof (closest_live_agree s m _ m os n n K p'
                          (agree_sym _ _ _ _ _ (Aos op')) (le_n n) Hp') as Hp''.
-           rewrite <- (closest_live_fun ts m os n K p p' Hcl Hp'').
-           split; [reflexivity|lia].
+           rewrite <- (closest_live_fun s m os n K p p' Hcl Hp'').
+           split; [reflexivity|].
+           destruct Hcl as [[(Hin & Hpn & Hop' & _) _] _].
+           pose proof (proj1 (ri_os s n st I p Hpn) Hin) as (_ & Hchp & _).
+           destruct (chain_between s m n p Hchp Hch Hpn) as (q & Hq & Hqn).
+           unfold open_key, tok_of in Hop'. unfold tok_end in *. unfold chain_next in Hq.
+           destruct (tok_at s p) as [[tp lp]|]; [|discriminate].
+           destruct tp; try (injection Hq as <-; lia). discriminate Hop'.
     + (* barred: text *)
-      destruct (pick_barred K lv (ri_desc ts n s I) P) as [Hnl [q Hq]].
+      destruct (pick_barred K lv (ri_desc s n st I) P) as [Hnl [q Hq]].
       apply (NC false K); [discriminate| |apply (UN false K (Nolive K (or_introl P)) HK)].
       split; [intros H; contradiction|]. intros ([k' Hk'] & _ & _ & Hb).
       exfalso. apply (Hb K HK). split.
-      * intros q' Hq'. apply (live_stack ts n s q' K I) in Hq' as [Hin Hc].
+      * intros q' Hq'. apply (live_stack s n st q' K I) in Hq' as [Hin Hc].
         exact (Hnl q' Hin Hc).
-      * exists q. apply (ri_cand ts n s I). exact Hq.
+      * exists q. apply (ri_cand s n st I). exact Hq.
     + apply Ropen.
       * intros k' Hk' [_ (q & Hq)]. rewrite HK in Hk'. injection Hk' as <-.
-        apply (ri_cand ts n s I) in Hq. exact (pick_none K lv P q Hq).
+        apply (ri_cand s n st I) in Hq. exact (pick_none K lv P q Hq).
       * intros op'. apply (UN op' K (Nolive K (or_intror P)) HK).
   - (* a `[` *)
     apply (NC true KBracket); [intros _; rewrite Hok; reflexivity|apply (OO true KBracket)|].
@@ -1258,106 +1375,164 @@ Proof.
     + intros k Hk. rewrite Hck in Hk. discriminate.
     + intros k Hk. rewrite Hck in Hk. discriminate.
   - (* a `]` that may close *)
-    assert (HK : close_key ts n = Some KBracket) by (rewrite Hck; reflexivity).
+    assert (HK : close_key s n = Some KBracket) by (rewrite Hck; reflexivity).
     destruct (pick KBracket lv) as [p below| |] eqn:P.
     2,3: apply (NC false KBracket); [discriminate| |];
          [ split; [intros H; contradiction|intros ([k' Hk'] & _); rewrite Hok in Hk'; discriminate]
          | apply (UN false KBracket (Nolive KBracket ltac:(auto)) HK) ].
-    destruct (pick_below ts n s KBracket p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
-    unfold s in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
-    assert (Hpn : p < n) by (destruct Hcl as [((_ & Hp & _) & _) _]; exact Hp).
-    destruct (region_end ts n b) as [e|] eqn:R.
-    + apply (rinv_pair ts n s p KBracket below (RInert (Some e)) I eq_refl HK Hcl
+    destruct (pick_below s n st KBracket p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
+    unfold st in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
+    destruct (region_end s n b) as [e|] eqn:R; [|destruct b].
+    + apply (rinv_pair s n st p KBracket below I Hch HK Hcl
                (fun H => ltac:(discriminate H)) Hlv).
       * intros d. rewrite Hbar. split; [intros H; left; exact H|].
-        intros [H|(_ & E1 & E2)]; [exact H|]. rewrite Hn in E1.
-        injection E1 as ->. congruence.
+        intros [H|(_ & E1 & E)]; [exact H|]. rewrite Hn in E1. injection E1 as ->. congruence.
       * exact Db.
-      * intros t Ht. cbn. split.
-        -- intros H. exists b. split; [exact Hn|]. rewrite R. exact H.
-        -- intros (b' & E & H). rewrite Hn in E. injection E as <-. rewrite R in H. exact H.
-      * intros e' E. injection E as <-. pose proof (region_end_ge ts n b e R). lia.
-    + destruct b.
-      * apply (rinv_pair ts n s p KBracket (LBar n :: below) RNormal I eq_refl HK Hcl
-                 (fun H => ltac:(discriminate H))).
-        -- intros q k. cbn. rewrite <- Hlv. split; [intros [E|H]; [discriminate|exact H]|].
-           intros H. right. exact H.
-        -- intros d. cbn. rewrite Hbar. split.
-           ++ intros [E|H]; [injection E as <-; right; auto|left; exact H].
-           ++ intros [H|(-> & _ & _)]; [right; exact H|left; reflexivity].
-        -- constructor; [exact Db|]. apply Forall_forall. intros x Hx.
-           specialize (Hlt x Hx). cbn. lia.
-        -- intros t Ht. split; [intros []|].
-           intros (b' & E & H). rewrite Hn in E. injection E as <-. rewrite R in H.
-           discriminate H.
-        -- intros e' E. discriminate E.
-      * apply (rinv_pair ts n s p KBracket below (RInert None) I eq_refl HK Hcl
-                 (fun H => ltac:(discriminate H)) Hlv).
-        -- intros d. rewrite Hbar. split; [intros H; left; exact H|].
-           intros [H|(_ & E & _)]; [exact H|congruence].
-        -- exact Db.
-        -- intros t Ht. cbn. split; [intros _; exists false; split; [exact Hn|rewrite R; reflexivity]|].
-           intros _. exact Logic.I.
-        -- intros e' E. discriminate E.
+    + apply (rinv_pair s n st p KBracket (LBar n :: below) I Hch HK Hcl
+               (fun H => ltac:(discriminate H))).
+      * intros q k. cbn. rewrite <- Hlv. split; [intros [E|H]; [discriminate|exact H]|].
+        intros H. right. exact H.
+      * intros d. cbn. rewrite Hbar. split.
+        -- intros [E|H]; [injection E as <-; right; auto|left; exact H].
+        -- intros [H|(-> & _ & _)]; [right; exact H|left; reflexivity].
+      * constructor; [exact Db|]. apply Forall_forall. intros x Hx.
+        specialize (Hlt x Hx). cbn. destruct Hcl as [[(_ & Hp & _) _] _]. lia.
+    + apply (rinv_pair s n st p KBracket below I Hch HK Hcl
+               (fun H => ltac:(discriminate H)) Hlv).
+      * intros d. rewrite Hbar. split; [intros H; left; exact H|].
+        intros [H|(_ & E & _)]; [exact H|congruence].
+      * exact Db.
 Qed.
 
-Lemma rinv_run : forall ts pre suf s,
-  ts = (pre ++ suf)%list -> rinv ts (length pre) s ->
-  rinv ts (length ts) (rrun ts (length pre) suf s).
+(* A step adds at most a pair closing at the token and the token as an
+   opener. *)
+Lemma rstep_grows : forall s i t st,
+  (rs_pairs (rstep s i t st) = rs_pairs st
+   \/ exists p, rs_pairs (rstep s i t st) = (p, i) :: rs_pairs st)
+  /\ (rs_os (rstep s i t st) = rs_os st \/ rs_os (rstep s i t st) = i :: rs_os st).
 Proof.
-  intros ts pre suf. revert pre.
-  induction suf as [|t rest IH]; intros pre s E I; cbn [rrun].
-  - rewrite E, app_nil_r. rewrite E, app_nil_r in I. exact I.
-  - assert (Hn : nth_error ts (length pre) = Some t).
-    { rewrite E, nth_error_app2 by lia. rewrite Nat.sub_diag. reflexivity. }
-    specialize (IH (pre ++ [t])%list (rstep ts (length pre) t s)).
-    rewrite length_app in IH. cbn [length] in IH. rewrite Nat.add_1_r in IH.
-    apply IH; [rewrite E, <- app_assoc; reflexivity|].
-    apply rinv_step; [exact Hn|exact I].
+  intros s i t [lv m os]. unfold rstep. cbn [rs_live rs_pairs rs_os].
+  assert (Ro : forall k op st',
+            rs_pairs st' = m -> rs_os st' = os ->
+            (rs_pairs (ropen i k op st') = m
+             \/ exists p, rs_pairs (ropen i k op st') = (p, i) :: m)
+            /\ (rs_os (ropen i k op st') = os \/ rs_os (ropen i k op st') = i :: os)).
+  { intros k [|] st' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
+      split; [left|right|left|left]; reflexivity. }
+  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (split; left; reflexivity).
+  - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
+      [destruct (Nat.ltb (tok_end s p) i)| |];
+      try (apply Ro; reflexivity); try (split; left; reflexivity).
+    cbn. split; [right; exists p; reflexivity|left; reflexivity].
+  - apply Ro; reflexivity.
+  - destruct (pick KBracket lv) as [p below| |]; try (split; left; reflexivity).
+    destruct (region_end s i b), b; cbn;
+      (split; [right; exists p; reflexivity|left; reflexivity]).
 Qed.
 
-Lemma rinv_start : forall ts, rinv ts 0 rstart.
+(* Past the last token of the chain the invariant is the rules. *)
+Local Lemma rinv_valid : forall s n st,
+  rinv s n st ->
+  (forall j, n <= j -> chain s (rs_pairs st) j -> tok_of s j = None) ->
+  valid s (rs_pairs st, rs_os st).
 Proof.
-  intros ts. constructor; cbn [rs_live rs_pairs rs_os rs_mode rstart].
+  intros s n st I Hend.
+  split; [|split].
+  - exact (ri_pairs s n st I).
+  - intros j k Hk Hc. destruct (Nat.lt_ge_cases j n) as [Hj|Hj].
+    + exact (ri_unmatched s n st I j Hj k Hk Hc).
+    + unfold close_key in Hk. rewrite (Hend j Hj Hc) in Hk. discriminate.
+  - intros q. destruct (Nat.lt_ge_cases q n) as [Hq|Hq].
+    + exact (ri_os s n st I q Hq).
+    + split.
+      * intros H. specialize (ri_bound_os s n st I q H). lia.
+      * intros ([k Hk] & Hc & _). unfold open_key in Hk.
+        rewrite (Hend q Hq Hc) in Hk. discriminate.
+Qed.
+
+(* A step keeps the token on the chain; the invariant then holds at the
+   next token, or the rules hold if there is none. *)
+Lemma rinv_next : forall s n st t,
+  rinv s n st -> chain s (rs_pairs st) n -> tok_of s n = Some t ->
+  chain s (rs_pairs (rstep s n t st)) n
+  /\ match chain_next s (rs_pairs (rstep s n t st)) n with
+     | Some q => rinv s q (rstep s n t st) /\ chain s (rs_pairs (rstep s n t st)) q
+     | None => valid s (rs_pairs (rstep s n t st), rs_os (rstep s n t st))
+     end.
+Proof.
+  intros s n st t I Hch Ht.
+  set (st' := rstep s n t st).
+  pose proof (rinv_step s n st t Ht I Hch) as I'.
+  destruct (rstep_grows s n t st) as [Gp Go]; fold st' in Gp, Go.
+  assert (A : agree (rs_pairs st) (rs_os st) (rs_pairs st') (rs_os st') n).
+  { split.
+    - intros i j Hj. destruct Gp as [-> | [p ->]]; [reflexivity|]. cbn.
+      split; [intros H0; right; exact H0|intros [E|H0]; [injection E as _ ->; lia|exact H0]].
+    - intros q Hq. destruct Go as [-> | ->]; [reflexivity|]. cbn.
+      split; [intros H0; right; exact H0|intros [E|H0]; [lia|exact H0]]. }
+  assert (Hch' : chain s (rs_pairs st') n) by exact (chain_agree s _ _ _ _ n n A (le_n n) Hch).
+  split; [exact Hch'|].
+  destruct (chain_next s (rs_pairs st') n) as [q|] eqn:Hq.
+  - pose proof (chain_next_bound s _ n q Hq) as Hb. split.
+    + apply (rinv_skip_to s (S n) q st' I'); [lia|].
+      intros j Hj. exact (chain_gap s _ n q j Hch' Hq ltac:(lia)).
+    + exact (chain_step s _ n q Hch' Hq).
+  - apply (rinv_valid s (S n) st' I'). intros j Hj Hc.
+    pose proof (chain_none s _ n j Hch' Hq Hc). lia.
+Qed.
+
+(* Past the end of the paragraph. *)
+Lemma rinv_end : forall s n st,
+  rinv s n st -> chain s (rs_pairs st) n -> tok_of s n = None ->
+  valid s (rs_pairs st, rs_os st).
+Proof.
+  intros s n st I Hch Ht. apply (rinv_valid s n st I). intros j Hj Hc.
+  destruct (Nat.eq_dec j n) as [->|Hne]; [exact Ht|].
+  destruct (chain_between s _ j n Hch Hc ltac:(lia)) as (q & Hq & _).
+  unfold chain_next, tok_of in Hq, Ht. destruct (tok_at s n); [discriminate|].
+  discriminate.
+Qed.
+
+Local Lemma rgo_valid : forall s f n st,
+  rinv s n st -> chain s (rs_pairs st) n -> String.length s - n < f ->
+  valid s (rs_pairs (rgo s f n st), rs_os (rgo s f n st)).
+Proof.
+  intros s f. induction f as [|f IH]; intros n st I Hch Hf; [lia|].
+  cbn [rgo]. destruct (tok_of s n) as [t|] eqn:Ht; [|exact (rinv_end s n st I Hch Ht)].
+  destruct (rinv_next s n st t I Hch Ht) as [_ N].
+  destruct (chain_next s (rs_pairs (rstep s n t st)) n) as [q|] eqn:Hq; [|exact N].
+  pose proof (chain_next_bound s _ n q Hq). destruct N as [I' Hq'].
+  apply IH; [exact I'|exact Hq'|lia].
+Qed.
+
+Lemma rinv_start : forall s, rinv s 0 rstart.
+Proof.
+  intros s. constructor; cbn [rs_live rs_pairs rs_os rstart].
   - intros i j [].
   - intros q [].
   - intros q k. split; [intros []|intros ([] & _)].
   - intros d. split; [intros []|intros (p & [] & _)].
   - constructor.
-  - intros t _. split; [intros (p & d & b & [] & _)|intros []].
-  - intros e E. discriminate E.
   - intros i j [].
   - intros j H. lia.
   - intros q H. lia.
 Qed.
 
-Theorem ref_read_valid : forall ts, valid ts (ref_read ts).
+Theorem ref_read_valid : forall s, valid s (ref_read s).
 Proof.
-  intros ts. unfold ref_read.
-  pose proof (rinv_run ts [] ts _ eq_refl (rinv_start ts)) as I.
-  set (s := rrun ts 0 ts rstart) in *.
-  split; [|split].
-  - exact (ri_pairs ts _ s I).
-  - intros j k Hk. destruct (Nat.lt_ge_cases j (length ts)) as [Hj|Hj].
-    + exact (ri_unmatched ts _ s I j Hj k Hk).
-    + unfold close_key in Hk. rewrite (proj2 (nth_error_None ts j) Hj) in Hk.
-      discriminate.
-  - intros q. destruct (Nat.lt_ge_cases q (length ts)) as [Hq|Hq].
-    + exact (ri_os ts _ s I q Hq).
-    + split.
-      * intros H. specialize (ri_bound_os ts _ s I q H). lia.
-      * intros ([k Hk] & _). unfold open_key in Hk.
-        rewrite (proj2 (nth_error_None ts q) Hq) in Hk. discriminate.
+  intros s. unfold ref_read.
+  apply rgo_valid; [apply rinv_start|constructor|lia].
 Qed.
 
 (*
 The tree
 ========
 
-What a matching describes: each pair of delimiters becomes its row's
-node around the tokens between, a bracket pair with a region that ends
-becomes a link to the region's text, and every other token is text.
-Adjacent text is one `Str`, as the scanner writes it. *)
+What a matching describes, read along its chain: each pair of
+delimiters becomes its row's node around the tokens between, a bracket
+pair with a region that ends becomes a link to the region's text, and
+every other token is text.  Adjacent text is one `Str`, as the scanner
+writes it. *)
 
 Definition str_snoc (s : string) (out : inlines) : inlines :=
   match out with
@@ -1393,19 +1568,6 @@ Definition nbsp_rest (ws : string) : option string :=
   | EmptyString => None
   end.
 
-(* A token in a destination, which decodes an escape as text does and
-   keeps everything else as written. *)
-Definition tok_dest (t : token) : string :=
-  match t with
-  | TEsc c => esc_text c
-  | _ => tok_text t
-  end.
-
-(* What a token adds to a region's text: a reference label keeps it as
-   written. *)
-Definition tok_region (dest : bool) (t : token) : string :=
-  if dest then tok_dest t else tok_text t.
-
 (* "Spaces and tab characters before the backslash are ignored" (O4): a
    hard break trims the text right before it. *)
 Definition str_trim (out : inlines) : inlines :=
@@ -1418,19 +1580,28 @@ Definition str_trim (out : inlines) : inlines :=
   | _ => out
   end.
 
-(* A break right after a hard break is that break: no soft one follows. *)
-Definition after_hard (ts : list token) (i : nat) : bool :=
-  match i with
-  | O => false
-  | S j => match nth_error ts j with Some (THard _) => true | _ => false end
-  end.
-
 (* A destination is written without its line breaks. *)
 Fixpoint no_nl (s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c rest => if Ascii.eqb c nl_char then no_nl rest else String c (no_nl rest)
   end.
+
+(* A destination's bytes with their escapes decoded. *)
+Fixpoint dest_text (esc : bool) (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest =>
+      if esc then (esc_text c ++ dest_text false rest)%string
+      else if is_bslash c then dest_text true rest
+      else String c (dest_text false rest)
+  end.
+
+(* The text of the region after a `]` at `d` that ends at `e`, its `(` or
+   `[` aside. *)
+Definition region_text (s : string) (d e : nat) (dest : bool) : string :=
+  let txt := substring (S (S d)) (e - S (S d)) s in
+  if dest then dest_text false txt else txt.
 
 (* The link a bracket pair and its region make: to the destination, or
    to the label, which an empty label takes from the link text. *)
@@ -1478,95 +1649,68 @@ Fixpoint temit_all (ns : inlines) (fs : tframes) (top : inlines)
   | n :: rest => let '(fs', top') := temit n fs top in temit_all rest fs' top'
   end.
 
-Definition is_opener (m : matching) (i : nat) : bool :=
-  existsb (fun e => Nat.eqb (fst e) i) m.
+Definition is_hard (t : token) : bool := match t with THard _ => true | _ => false end.
 
-Definition is_closer (m : matching) (j : nat) : bool :=
-  existsb (fun e => Nat.eqb (snd e) j) m.
-
-(* After a bracket pair, a region's text is gathered up to its end; the
-   token that opens the region is not part of it. *)
-Inductive tmode : Type :=
-  | TMNormal
-  | TMRegion (dest : bool) (kids : inlines) (d : nat) (e : option nat) (txt : string).
-
-Definition tstate : Type := (tframes * inlines * tmode)%type.
-
-Definition tnormal (r : tframes * inlines) : tstate := (fst r, snd r, TMNormal).
-
-Definition tstep (ts : list token) (m : matching) (i : nat) (t : token)
-  (st : tstate) : tstate :=
-  let '(fs, top, md) := st in
-  match md with
-  | TMRegion b kids d e txt =>
-      if match e with Some e' => Nat.eqb i e' | None => false end
-      then tnormal (temit (mk (region_node b kids txt)) fs top)
-      else (fs, top, TMRegion b kids d e
-                       (if Nat.eqb i (S d) then txt else (txt ++ tok_region b t)%string))
-  | TMNormal =>
-      match t with
-      | TText _ => tnormal (temit_str (tok_text t) fs top)
-      | TEsc c => tnormal (temit_str (esc_text c) fs top)
-      | TEscWs ws =>
-          match nbsp_rest ws with
-          | Some rest =>
-              let '(fs', top') := temit (mk NonBreakingSpace) fs top in
-              tnormal (if nonempty_str rest then temit_str rest fs' top' else (fs', top'))
-          | None => tnormal (temit_str (tok_text t) fs top)
+(* One token of the chain; `hard` says the token before it was a hard
+   break, which a break right after is part of.  A reference label that
+   never ends is text, brackets and all, to the paragraph's end. *)
+Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
+  (fs : tframes) (top : inlines) : tframes * inlines :=
+  match t with
+  | TText _ => temit_str (tok_text t) fs top
+  | TEsc c => temit_str (esc_text c) fs top
+  | TEscWs ws =>
+      match nbsp_rest ws with
+      | Some rest =>
+          let '(fs', top') := temit (mk NonBreakingSpace) fs top in
+          if nonempty_str rest then temit_str rest fs' top' else (fs', top')
+      | None => temit_str (tok_text t) fs top
+      end
+  | THard _ => let '(fs', top') := ttrim fs top in temit (mk HardBreak) fs' top'
+  | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
+  | TDelim k _ _ _ =>
+      if is_opener m i then ((TKDelim k, []) :: fs, top)
+      else match is_closer m i, fs with
+           | true, (TKDelim k', acc) :: fs0 => temit (mk (dnode k' (List.rev acc))) fs0 top
+           | _, _ => temit_str (tok_text t) fs top
+           end
+  | TOpen =>
+      if is_opener m i then ((TKBracket, []) :: fs, top)
+      else temit_str (tok_text t) fs top
+  | TClose b =>
+      match is_closer m i, fs with
+      | true, (_, acc) :: fs0 =>
+          let kids := List.rev acc in
+          match region_end s i b with
+          | Some e => temit (mk (region_node b kids (region_text s i e b))) fs0 top
+          | None =>
+              temit_all (mk (Str (one lbrack)) :: kids
+                         ++ [mk (Str (one rbrack ++ if b then EmptyString else sdrop (S i) s))])%list
+                fs0 top
           end
-      | THard _ =>
-          let '(fs', top') := ttrim fs top in tnormal (temit (mk HardBreak) fs' top')
-      | TBreak =>
-          if after_hard ts i then (fs, top, TMNormal)
-          else tnormal (temit (mk SoftBreak) fs top)
-      | TDelim k _ _ _ =>
-          if is_opener m i then ((TKDelim k, []) :: fs, top, TMNormal)
-          else match is_closer m i, fs with
-               | true, (TKDelim k', acc) :: fs0 =>
-                   tnormal (temit (mk (dnode k' (List.rev acc))) fs0 top)
-               | _, _ => tnormal (temit_str (tok_text t) fs top)
-               end
-      | TOpen =>
-          if is_opener m i then ((TKBracket, []) :: fs, top, TMNormal)
-          else tnormal (temit_str (tok_text t) fs top)
-      | TClose b =>
-          match is_closer m i, fs with
-          | true, (_, acc) :: fs0 =>
-              let kids := List.rev acc in
-              match region_end ts i b with
-              | Some e => (fs0, top, TMRegion b kids i (Some e) EmptyString)
-              | None =>
-                  if b
-                  then tnormal (temit_all (mk (Str (one lbrack)) :: kids
-                                           ++ [mk (Str (one rbrack))])%list fs0 top)
-                  else (fs0, top, TMRegion false kids i None EmptyString)
-              end
-          | _, _ => tnormal (temit_str (tok_text t) fs top)
+      | _, _ => temit_str (tok_text t) fs top
+      end
+  end.
+
+Fixpoint tgo (s : string) (m : matching) (fuel i : nat) (hard : bool)
+  (fs : tframes) (top : inlines) : tframes * inlines :=
+  match fuel with
+  | O => (fs, top)
+  | S f =>
+      match tok_of s i with
+      | None => (fs, top)
+      | Some t =>
+          let '(fs', top') := tstep s m i t hard fs top in
+          match chain_next s m i with
+          | Some q => tgo s m f q (is_hard t) fs' top'
+          | None => (fs', top')
           end
       end
   end.
 
-Fixpoint tree_go (ts : list token) (m : matching) (i : nat) (rest : list token)
-  (st : tstate) : tstate :=
-  match rest with
-  | [] => st
-  | t :: more => tree_go ts m (S i) more (tstep ts m i t st)
-  end.
-
 (* A valid matching closes every pair it opens, so no frame is left at
-   the end; a reference label that never ended is text, brackets and
-   all. *)
-Definition tree_end (st : tstate) : inlines :=
-  let '(fs, top, md) := st in
-  match md with
-  | TMRegion b kids _ None txt =>
-      List.rev (snd (temit_all (mk (Str (one lbrack)) :: kids
-                                ++ [mk (Str (one rbrack ++ one lbrack ++ txt))])%list
-                       fs top))
-  | _ => List.rev top
-  end.
-
-Definition tree_of (ts : list token) (m : matching) : inlines :=
-  tree_end (tree_go ts m 0 ts ([], [], TMNormal)).
+   the end. *)
+Definition tree_of (s : string) (m : matching) : inlines :=
+  List.rev (snd (tgo s m (S (String.length s)) 0 false [] [])).
 
 End WithTable.

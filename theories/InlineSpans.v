@@ -48,13 +48,6 @@ Fixpoint wfind (W : list window) (k : nat) : option (nat * string) :=
   | (j, r0, w) :: rest => if Nat.eqb j k then Some (r0, w) else wfind rest k
   end.
 
-Fixpoint sdrop (n : nat) (s : string) : string :=
-  match n, s with
-  | O, _ => s
-  | S n', String _ s' => sdrop n' s'
-  | S _, EmptyString => EmptyString
-  end.
-
 (* The window's text from `p` on, when `p` is inside the window. *)
 Definition sfx (W : list window) (p : spot) : option string :=
   match wfind W (spot_line p) with
@@ -214,20 +207,6 @@ Reading the windows
 (* `s` is the text immediately before `p`, on its line. *)
 Definition ends_at (W : list window) (s : string) (p : spot) : Prop :=
   exists rest, sfx W (sleft (String.length s) p) = Some (s ++ rest)%string.
-
-Lemma sdrop_length : forall n s, String.length (sdrop n s) = String.length s - n.
-Proof.
-  induction n as [|n IH]; intros [|c s]; cbn; try reflexivity. apply IH.
-Qed.
-
-Lemma sdrop_sdrop : forall a b s, sdrop a (sdrop b s) = sdrop (b + a) s.
-Proof.
-  intros a b. revert a. induction b as [|b IH]; intros a [|c s]; cbn.
-  - reflexivity.
-  - reflexivity.
-  - destruct a; reflexivity.
-  - apply IH.
-Qed.
 
 Lemma sdrop_app : forall a b, sdrop (String.length a) (a ++ b) = b.
 Proof. induction a as [|c a IH]; intros b; [reflexivity|apply IH]. Qed.

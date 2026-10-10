@@ -1,7 +1,38 @@
 open Datatypes
+open InlineTable
 open List0
 open ListDef
 open Precedence
+
+(** val toks_from : dtable -> string -> int -> int -> (int * token) list **)
+
+let rec toks_from t s fuel p =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> [])
+    (fun f ->
+    match tok_at t s p with
+    | Some p0 -> let (t0, l) = p0 in (p, t0) :: (toks_from t s f (( + ) p l))
+    | None -> [])
+    fuel
+
+(** val para_toks : dtable -> string -> (int * token) list **)
+
+let para_toks t s =
+  toks_from t s (Stdlib.succ (String.length s)) 0
+
+(** val index_of : int -> int list -> int -> int option **)
+
+let rec index_of z offs i =
+  match offs with
+  | [] -> None
+  | o :: rest -> if ( = ) o z then Some i else index_of z rest (Stdlib.succ i)
+
+(** val region_ix : string -> int list -> int -> bool -> int option **)
+
+let region_ix s offs e b =
+  match region_end s (nth e offs 0) b with
+  | Some z -> index_of z offs 0
+  | None -> None
 
 type gparse = ((matching * int list) * int) * token list
 
@@ -25,10 +56,10 @@ let after m os rs =
     let (m', os') = y0 in ((((app m m'), (app os os')), j), r)) rs
 
 (** val seq :
-    int -> token list -> int -> token list -> key list -> key option -> key
-    option -> key list -> gparse list **)
+    int -> string -> int list -> token list -> int -> token list -> key list
+    -> key option -> key option -> key list -> gparse list **)
 
-let rec seq fuel ts i rest live forb prev barred =
+let rec seq fuel s offs ts i rest live forb prev barred =
   (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
     (fun _ -> [])
     (fun fuel' ->
@@ -36,14 +67,16 @@ let rec seq fuel ts i rest live forb prev barred =
     (match rest with
      | [] -> r0 :: []
      | t :: more ->
-       let text = seq fuel' ts (Stdlib.succ i) more live forb None barred in
+       let text =
+         seq fuel' s offs ts (Stdlib.succ i) more live forb None barred
+       in
        let opener = fun k ->
          let r3 =
            if kis k forb
            then []
            else after [] (i :: [])
-                  (seq fuel' ts (Stdlib.succ i) more (k :: live) forb (Some k)
-                    barred)
+                  (seq fuel' s offs ts (Stdlib.succ i) more (k :: live) forb
+                    (Some k) barred)
          in
          let closer_ahead = existsb (fun u -> kis k (closes_as u)) more in
          let pairs =
@@ -65,10 +98,10 @@ let rec seq fuel ts i rest live forb prev barred =
                              let os = i :: os1 in
                              (match tc with
                               | TClose b ->
-                                (match region_end ts e b with
+                                (match region_ix s offs e b with
                                  | Some z ->
                                    after m os
-                                     (seq fuel' ts (Stdlib.succ z)
+                                     (seq fuel' s offs ts (Stdlib.succ z)
                                        (skipn (Stdlib.succ z) ts) live forb
                                        None barred)
                                  | None ->
@@ -79,17 +112,18 @@ let rec seq fuel ts i rest live forb prev barred =
                                            | [] -> true
                                            | _ :: _ -> false))
                                           (after m os
-                                            (seq fuel' ts (Stdlib.succ e) r2
-                                              [] forb None (app live barred)))
+                                            (seq fuel' s offs ts (Stdlib.succ
+                                              e) r2 [] forb None
+                                              (app live barred)))
                                    else (((m, os), (length ts)), []) :: [])
                               | _ ->
                                 after m os
-                                  (seq fuel' ts (Stdlib.succ e) r2 live forb
-                                    None barred))
+                                  (seq fuel' s offs ts (Stdlib.succ e) r2 live
+                                    forb None barred))
                         else []
                       | None -> [])))
-                  (seq fuel' ts (Stdlib.succ i) more (k :: live) (Some k)
-                    (Some k) barred)
+                  (seq fuel' s offs ts (Stdlib.succ i) more (k :: live) (Some
+                    k) (Some k) barred)
          in
          app r3 pairs
        in
@@ -117,12 +151,21 @@ let rec seq fuel ts i rest live forb prev barred =
                      | None -> text))))
     fuel
 
-(** val grammar_read : token list -> (matching * int list) list **)
+(** val grammar_read : dtable -> string -> (matching * int list) list **)
 
-let grammar_read ts =
+let grammar_read t s =
+  let pts = para_toks t s in
+  let offs = map fst pts in
+  let ts = map snd pts in
+  let off = fun i -> nth i offs 0 in
   flat_map (fun pat ->
     let (y, r) = pat in
-    let (y0, _) = y in (match r with
-                        | [] -> y0 :: []
-                        | _ :: _ -> []))
-    (seq (Stdlib.succ (Stdlib.succ (length ts))) ts 0 ts [] None None [])
+    let (y0, _) = y in
+    let (m, os) = y0 in
+    (match r with
+     | [] ->
+       ((map (fun pat0 -> let (i, j) = pat0 in ((off i), (off j))) m),
+         (map off os)) :: []
+     | _ :: _ -> []))
+    (seq (Stdlib.succ (Stdlib.succ (length ts))) s offs ts 0 ts [] None None
+      [])

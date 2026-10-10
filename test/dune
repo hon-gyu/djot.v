@@ -7,8 +7,8 @@
  (libraries djot unix))
 
 (executables
- (names diff roundtrip escapes spans convert bench compare readme stack grammar holes regions)
- (modules diff roundtrip escapes spans convert bench compare readme stack grammar holes regions)
+ (names diff roundtrip escapes spans convert bench compare readme stack grammar holes)
+ (modules diff roundtrip escapes spans convert bench compare readme stack grammar holes)
  (libraries djot djot_fixtures djot_test unix))
 
 ; Writes theories/SpecExamples.v.  It links nothing, so that it does

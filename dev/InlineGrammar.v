@@ -14,7 +14,9 @@
    - `B`, the kinds barred by a destination that does not close: a closer
      of one is text.
 
-   Tokens and regions are the specification's (`lex`, `region_end`). *)
+   Tokens and regions are the specification's (`tok_at`, `region_end`),
+   the tokens read straight through the paragraph and indexed in order;
+   a parse's positions are turned into byte offsets at the end. *)
 
 From Stdlib Require Import String Ascii List Bool Arith.
 From DjotV Require Import Strings InlineTable Precedence.
@@ -27,6 +29,33 @@ Context {T : dtable}.
 Parses
 ======
 *)
+
+(* The paragraph's tokens and their offsets, with no region skipped. *)
+Fixpoint toks_from (s : string) (fuel p : nat) : list (nat * token) :=
+  match fuel with
+  | O => []
+  | S f =>
+      match tok_at s p with
+      | Some (t, l) => (p, t) :: toks_from s f (p + l)
+      | None => []
+      end
+  end.
+
+Definition para_toks (s : string) : list (nat * token) :=
+  toks_from s (S (String.length s)) 0.
+
+Fixpoint index_of (z : nat) (offs : list nat) (i : nat) : option nat :=
+  match offs with
+  | [] => None
+  | o :: rest => if Nat.eqb o z then Some i else index_of z rest (S i)
+  end.
+
+(* `region_end` on token indices. *)
+Definition region_ix (s : string) (offs : list nat) (e : nat) (b : bool) : option nat :=
+  match region_end s (nth e offs 0) b with
+  | Some z => index_of z offs 0
+  | None => None
+  end.
 
 (* A parse of a stretch of tokens: its pairs, its openers, and where it
    stopped, as a position and the tokens from there. *)
@@ -65,7 +94,7 @@ A token that may both open and close is a closer first (R2's condition
 and the rule that a live kind must close), an opener when it closes
 nothing; a barred one is neither. *)
 
-Fixpoint seq (fuel : nat) (ts : list token) (i : nat) (rest : list token)
+Fixpoint seq (fuel : nat) (s : string) (offs : list nat) (ts : list token) (i : nat) (rest : list token)
   (live : list key) (forb : option key) (prev : option key) (barred : list key)
   : list gparse :=
   match fuel with
@@ -75,12 +104,12 @@ Fixpoint seq (fuel : nat) (ts : list token) (i : nat) (rest : list token)
       match rest with
       | [] => [r0]
       | t :: more =>
-          let text := seq fuel' ts (S i) more live forb None barred in
+          let text := seq fuel' s offs ts (S i) more live forb None barred in
           (* R3 and R4 to R7, for an opener of `k` at `i`. *)
           let opener (k : key) : list gparse :=
             let r3 :=
               if kis k forb then []
-              else after [] [i] (seq fuel' ts (S i) more (k :: live) forb (Some k) barred) in
+              else after [] [i] (seq fuel' s offs ts (S i) more (k :: live) forb (Some k) barred) in
             (* Not a rule, a shortcut: with no closer of `k` ahead, R4 to
                R7 have nothing to end on.  Without it an unclosed opener
                costs a search of the rest of the paragraph, and a few of
@@ -101,27 +130,27 @@ Fixpoint seq (fuel : nat) (ts : list token) (i : nat) (rest : list token)
                              let os := (i :: os1)%list in
                              match tc with
                              | TClose b =>
-                                 match region_end ts e b with
+                                 match region_ix s offs e b with
                                  | Some z =>                                         (* R5 *)
                                      after m os
-                                       (seq fuel' ts (S z) (skipn (S z) ts) live forb None barred)
+                                       (seq fuel' s offs ts (S z) (skipn (S z) ts) live forb None barred)
                                  | None =>
                                      if b
                                      then                                            (* R6 *)
                                        filter (fun '(_, _, _, r) => match r with [] => true | _ => false end)
                                          (after m os
-                                            (seq fuel' ts (S e) r2 [] forb None (live ++ barred)))
+                                            (seq fuel' s offs ts (S e) r2 [] forb None (live ++ barred)))
                                      else [(m, os, length ts, [])]                   (* R7 *)
                                  end
                              | _ =>                                                  (* R4 *)
-                                 after m os (seq fuel' ts (S e) r2 live forb None barred)
+                                 after m os (seq fuel' s offs ts (S e) r2 live forb None barred)
                              end
                            else []
                        | None => []
                        end
                    | [] => []
                    end)
-                (seq fuel' ts (S i) more (k :: live) (Some k) (Some k) barred) in
+                (seq fuel' s offs ts (S i) more (k :: live) (Some k) (Some k) barred) in
             (r3 ++ pairs)%list in
           let as_opener :=
             match opens_as t with Some k => opener k | None => text end in
@@ -149,10 +178,18 @@ Fixpoint seq (fuel : nat) (ts : list token) (i : nat) (rest : list token)
       end
   end.
 
-(* The parses of a whole paragraph. *)
-Definition grammar_read (ts : list token) : list (matching * list nat) :=
+(* The parses of a whole paragraph, in byte offsets. *)
+Definition grammar_read (s : string) : list (matching * list nat) :=
+  let pts := para_toks s in
+  let offs := map fst pts in
+  let ts := map snd pts in
+  let off i := nth i offs 0 in
   flat_map
-    (fun '(m, os, _, r) => match r with [] => [(m, os)] | _ => [] end)
-    (seq (S (S (length ts))) ts 0 ts [] None None []).
+    (fun '(m, os, _, r) =>
+       match r with
+       | [] => [(map (fun '(i, j) => (off i, off j)) m, map off os)]
+       | _ => []
+       end)
+    (seq (S (S (length ts))) s offs ts 0 ts [] None None []).
 
 End WithTable.

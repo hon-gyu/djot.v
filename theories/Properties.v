@@ -252,8 +252,8 @@ Definition block_structure_first : Prop :=
 Definition inline_precedence : Prop :=
   forall ls m os,
     Forall (fun x => over_alphabet x = true) ls ->
-    valid (para_tokens ls) (m, os) ->
-    para_inlines ls = tree_of (para_tokens ls) m.
+    valid (para_string ls) (m, os) ->
+    para_inlines ls = tree_of (para_string ls) m.
 
 End Statements.
 
