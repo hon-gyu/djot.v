@@ -28,8 +28,10 @@ is a cheap way to find their shape before `valid` is extended.
 
 ## What it reads
 
-A paragraph's tokens (`lex`, `para_tokens`), not its bytes.  The lexer
-has already settled what each token *may* do:
+A paragraph's tokens (`tok_at`), read straight through the paragraph by
+`para_toks` in `dev/InlineGrammar.v`, not its bytes; a parse's
+positions are turned into byte offsets to compare with `ref_read`.  The
+lexer has already settled what each token *may* do:
 
 - a delimiter may open, close, or both (flanking, M2; braces, P3), and
   its kind is its style and whether it is braced (P4), so `{_` and `_`
