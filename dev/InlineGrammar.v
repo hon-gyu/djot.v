@@ -14,7 +14,9 @@
    - `B`, the kinds barred by a destination that does not close: a closer
      of one is text.
 
-   Tokens and regions are the specification's (`lex`, `region_end`). *)
+   Tokens and regions are the specification's (`tok_at`, `region_end`),
+   and a parse walks the paragraph by byte offset as a reading's chain
+   does: a token from where the last one ended, or from past a region. *)
 
 From Stdlib Require Import String Ascii List Bool Arith.
 From DjotV Require Import Strings InlineTable Precedence.
@@ -28,27 +30,32 @@ Parses
 ======
 *)
 
-(* A parse of a stretch of tokens: its pairs, its openers, and where it
-   stopped, as a position and the tokens from there. *)
-Definition gparse : Type := (matching * list nat * nat * list token)%type.
-
 Definition kmem (k : key) (ks : list key) : bool := existsb (key_eq k) ks.
 
 Definition kis (k : key) (o : option key) : bool :=
   match o with Some k' => key_eq k k' | None => false end.
 
+(* Whether a token at some offset from `p` on closes as `k`, whatever
+   the reading. *)
+Definition closer_from (s : string) (k : key) (p : nat) : bool :=
+  existsb (fun q => match tok_at s q with Some (u, _) => kis k (closes_as u) | None => false end)
+    (seq p (String.length s - p)).
+
+(* A parse of a stretch of the paragraph: its pairs, its openers, and the
+   offset where it stopped. *)
+Definition gparse : Type := (matching * list nat * nat)%type.
+
 (* Each parse of `rest` from `rest'`, its pairs and openers added. *)
 Local Definition after (m : matching) (os : list nat) (rs : list gparse) : list gparse :=
-  map (fun '(m', os', j, r) => ((m ++ m')%list, (os ++ os')%list, j, r)) rs.
+  map (fun '(m', os', j) => ((m ++ m')%list, (os ++ os')%list, j)) rs.
 
 (*
 The grammar
 ===========
 
-`seq` gives every parse of a level from token `i`, `rest` being the tokens
-from `i`.  A level stops (R0) at the end of the paragraph, or inside a
-pair at a closer of its kind; R4 to R7 then decide whether that closer
-pairs.
+`level` gives every parse of a level from offset `p`.  A level stops
+(R0) at the end of the paragraph, or inside a pair at a closer of its
+kind; R4 to R7 then decide whether that closer pairs.
 
   R0  ε
   R1  text                               Seq(S, F, -, B)
@@ -65,63 +72,61 @@ A token that may both open and close is a closer first (R2's condition
 and the rule that a live kind must close), an opener when it closes
 nothing; a barred one is neither. *)
 
-Fixpoint seq (fuel : nat) (ts : list token) (i : nat) (rest : list token)
+Fixpoint level (fuel : nat) (s : string) (p : nat)
   (live : list key) (forb : option key) (prev : option key) (barred : list key)
   : list gparse :=
   match fuel with
   | O => []
   | S fuel' =>
-      let r0 := ([], [], i, rest) in
-      match rest with
-      | [] => [r0]
-      | t :: more =>
-          let text := seq fuel' ts (S i) more live forb None barred in
-          (* R3 and R4 to R7, for an opener of `k` at `i`. *)
+      let r0 := ([], [], p) in
+      match tok_at s p with
+      | None => [r0]
+      | Some (t, l) =>
+          let q := p + l in
+          let text := level fuel' s q live forb None barred in
+          (* R3 and R4 to R7, for an opener of `k` at `p`. *)
           let opener (k : key) : list gparse :=
             let r3 :=
               if kis k forb then []
-              else after [] [i] (seq fuel' ts (S i) more (k :: live) forb (Some k) barred) in
+              else after [] [p] (level fuel' s q (k :: live) forb (Some k) barred) in
             (* Not a rule, a shortcut: with no closer of `k` ahead, R4 to
                R7 have nothing to end on.  Without it an unclosed opener
                costs a search of the rest of the paragraph, and a few of
                them make the enumeration exponential. *)
-            let closer_ahead :=
-              existsb (fun u => kis k (closes_as u)) more in
             let pairs :=
-              if negb closer_ahead then [] else
+              if negb (closer_from s k q) then [] else
               flat_map
-                (fun '(m1, os1, e, r1) =>
-                   match r1 with
-                   | tc :: r2 =>
+                (fun '(m1, os1, e) =>
+                   match tok_at s e with
+                   | Some (tc, le) =>
                        match closes_as tc with
                        | Some k' =>
-                           if key_eq k k' && (negb (needs_content k) || Nat.ltb (S i) e)
+                           if key_eq k k' && (negb (needs_content k) || Nat.ltb q e)
                            then
-                             let m := ((i, e) :: m1)%list in
-                             let os := (i :: os1)%list in
+                             let m := ((p, e) :: m1)%list in
+                             let os := (p :: os1)%list in
                              match tc with
                              | TClose b =>
-                                 match region_end ts e b with
+                                 match region_end s e b with
                                  | Some z =>                                         (* R5 *)
-                                     after m os
-                                       (seq fuel' ts (S z) (skipn (S z) ts) live forb None barred)
+                                     after m os (level fuel' s (S z) live forb None barred)
                                  | None =>
                                      if b
                                      then                                            (* R6 *)
-                                       filter (fun '(_, _, _, r) => match r with [] => true | _ => false end)
+                                       filter (fun '(_, _, r) => Nat.eqb r (String.length s))
                                          (after m os
-                                            (seq fuel' ts (S e) r2 [] forb None (live ++ barred)))
-                                     else [(m, os, length ts, [])]                   (* R7 *)
+                                            (level fuel' s (e + le) [] forb None (live ++ barred)))
+                                     else [(m, os, String.length s)]                 (* R7 *)
                                  end
                              | _ =>                                                  (* R4 *)
-                                 after m os (seq fuel' ts (S e) r2 live forb None barred)
+                                 after m os (level fuel' s (e + le) live forb None barred)
                              end
                            else []
                        | None => []
                        end
-                   | [] => []
+                   | None => []
                    end)
-                (seq fuel' ts (S i) more (k :: live) (Some k) (Some k) barred) in
+                (level fuel' s q (k :: live) (Some k) (Some k) barred) in
             (r3 ++ pairs)%list in
           let as_opener :=
             match opens_as t with Some k => opener k | None => text end in
@@ -150,9 +155,9 @@ Fixpoint seq (fuel : nat) (ts : list token) (i : nat) (rest : list token)
   end.
 
 (* The parses of a whole paragraph. *)
-Definition grammar_read (ts : list token) : list (matching * list nat) :=
+Definition grammar_read (s : string) : list (matching * list nat) :=
   flat_map
-    (fun '(m, os, _, r) => match r with [] => [(m, os)] | _ => [] end)
-    (seq (S (S (length ts))) ts 0 ts [] None None []).
+    (fun '(m, os, r) => if Nat.eqb r (String.length s) then [(m, os)] else [])
+    (level (S (S (String.length s))) s 0 [] None None []).
 
 End WithTable.

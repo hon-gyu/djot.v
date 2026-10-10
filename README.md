@@ -101,7 +101,7 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, which can be worked out by hand. | conditional: `para_inlines_valid`, `valid_unique`. For emphasis-like delimiters, links, backslash escapes and plain text. Smart quotes, spans and images are not covered. |
+| When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, which can be worked out by hand. | conditional: `para_inlines_valid`, `valid_unique`. For emphasis-like delimiters, links, backslash escapes, code spans, math, raw inline, autolinks, symbols and plain text. Smart quotes, spans and images are not covered. |
 
 <!-- /properties -->
 

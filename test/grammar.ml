@@ -20,13 +20,13 @@ module G = Djot_fixtures.InlineGrammar
 let table = Djot.Inline.djot_table
 
 (* Delimiters bare and braced, brackets with what may follow them,
-   parens for destinations, escapes, and text. *)
-let small = [| "_"; "*"; "{_"; "_}"; "["; "]"; "("; ")"; "a"; " "; "\\" |]
+   parens for destinations, escapes, backticks, and text. *)
+let small = [| "_"; "*"; "{_"; "_}"; "["; "]"; "("; ")"; "a"; " "; "\\"; "`" |]
 
 let pieces =
   [| "_"; "*"; "^"; "~"; "{_"; "_}"; "{*"; "*}"; "{="; "=}"; "{+"; "+}";
      "["; "]"; "]("; "]["; "("; ")"; "a"; "b"; " "; "\\"; "\\*"; "\\]";
-     "\\("; "[a]("; "[a][" |]
+     "\\("; "[a]("; "[a]["; "`"; "``"; "`a`"; "`*`"; "$"; "$`a`"; "$$`*`"; "`a`{=x}"; "{=" ; "<"; ">"; "<x@y>"; "<*a>"; ":"; ":a:"; ":_a_:"; "<h://x>" |]
 
 let sort_pairs m = List.sort compare m
 let sort_os os = List.sort_uniq compare os
@@ -37,10 +37,10 @@ let checked = ref 0
 let check l =
   if List.for_all (P.over_alphabet table) l then begin
     incr checked;
-    let ts = P.para_tokens table l in
-    let m, os = P.ref_read ts in
+    let ts = P.para_string l in
+    let m, os = P.ref_read table ts in
     let ok =
-      match G.grammar_read ts with
+      match G.grammar_read table ts with
       | [ (m', os') ] -> sort_pairs m = sort_pairs m' && sort_os os = sort_os os'
       | _ -> false
     in
@@ -48,7 +48,7 @@ let check l =
       incr bad;
       if !bad <= 5 then begin
         Printf.printf "--- %d parses:\n%s\n"
-          (List.length (G.grammar_read ts))
+          (List.length (G.grammar_read table ts))
           (String.concat "\n" (List.map (Printf.sprintf "  %S") l))
       end
     end

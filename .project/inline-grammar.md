@@ -28,15 +28,21 @@ is a cheap way to find their shape before `valid` is extended.
 
 ## What it reads
 
-A paragraph's tokens (`lex`, `para_tokens`), not its bytes.  The lexer
-has already settled what each token *may* do:
+A paragraph's tokens (`tok_at`), not its bytes.  `level` in
+`dev/InlineGrammar.v` walks them by byte offset as a reading's chain
+does: from where the last token ended, or from past a region.  The
+lexer has already settled what each token *may* do:
 
 - a delimiter may open, close, or both (flanking, M2; braces, P3), and
   its kind is its style and whether it is braced (P4), so `{_` and `_`
   never pair;
 - `[` may open, and `]` may close when `(` or `[` follows it; any other
   `]` is text;
-- escapes, breaks and other bytes are text.
+- a verbatim, a backtick run and the bytes to the next run of its
+  length or to the paragraph's end, is one token, with any dollars
+  before it (math) and a raw spec after it; so is an autolink candidate
+  and a symbol;
+- these, escapes, breaks and other bytes are text.
 
 The grammar decides what each token does.
 

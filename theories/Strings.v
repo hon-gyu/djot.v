@@ -447,6 +447,33 @@ Proof.
 Qed.
 
 (*
+Suffixes
+========
+*)
+
+(* The bytes of `s` from offset `n` on. *)
+Fixpoint sdrop (n : nat) (s : string) : string :=
+  match n, s with
+  | O, _ => s
+  | S n', String _ s' => sdrop n' s'
+  | S _, EmptyString => EmptyString
+  end.
+
+Lemma sdrop_length : forall n s, String.length (sdrop n s) = String.length s - n.
+Proof.
+  induction n as [|n IH]; intros [|c s]; cbn; try reflexivity. apply IH.
+Qed.
+
+Lemma sdrop_sdrop : forall a b s, sdrop a (sdrop b s) = sdrop (b + a) s.
+Proof.
+  intros a b. revert a. induction b as [|b IH]; intros a [|c s]; cbn.
+  - reflexivity.
+  - reflexivity.
+  - destruct a; reflexivity.
+  - apply IH.
+Qed.
+
+(*
 Lines: splitting and joining
 ============================
 *)
