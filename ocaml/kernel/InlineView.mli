@@ -82,6 +82,10 @@ val starts_tick : string -> bool
 
 val ends_tick : string -> bool
 
+val strip_pad : string -> string
+
+val trim_verb : string -> string
+
 val pad_verb : string -> string
 
 val ticks : int -> string

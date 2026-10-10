@@ -28,9 +28,9 @@ is a cheap way to find their shape before `valid` is extended.
 
 ## What it reads
 
-A paragraph's tokens (`tok_at`), read straight through the paragraph by
-`para_toks` in `dev/InlineGrammar.v`, not its bytes; a parse's
-positions are turned into byte offsets to compare with `ref_read`.  The
+A paragraph's tokens (`tok_at`), not its bytes.  `level` in
+`dev/InlineGrammar.v` walks them by byte offset as a reading's chain
+does: from where the last token ended, or from past a region.  The
 lexer has already settled what each token *may* do:
 
 - a delimiter may open, close, or both (flanking, M2; braces, P3), and
@@ -38,7 +38,9 @@ lexer has already settled what each token *may* do:
   never pair;
 - `[` may open, and `]` may close when `(` or `[` follows it; any other
   `]` is text;
-- escapes, breaks and other bytes are text.
+- a verbatim, a backtick run and the bytes to the next run of its
+  length or to the paragraph's end, is one token;
+- verbatims, escapes, breaks and other bytes are text.
 
 The grammar decides what each token does.
 

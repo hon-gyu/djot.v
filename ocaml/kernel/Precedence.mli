@@ -32,10 +32,17 @@ type token =
 | TEsc of char
 | TEscWs of string
 | THard of string
+| TVerb of int * string * bool
 
 val ws_run : string -> string
 
 val line_rest : string -> string
+
+val tick_run : string -> int
+
+val verb_go : int -> int -> string -> (string * int) * bool
+
+val verb_tok : string -> token * int
 
 val at_rbrace : char option -> bool
 

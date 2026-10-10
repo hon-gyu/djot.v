@@ -20,13 +20,13 @@ module G = Djot_fixtures.InlineGrammar
 let table = Djot.Inline.djot_table
 
 (* Delimiters bare and braced, brackets with what may follow them,
-   parens for destinations, escapes, and text. *)
-let small = [| "_"; "*"; "{_"; "_}"; "["; "]"; "("; ")"; "a"; " "; "\\" |]
+   parens for destinations, escapes, backticks, and text. *)
+let small = [| "_"; "*"; "{_"; "_}"; "["; "]"; "("; ")"; "a"; " "; "\\"; "`" |]
 
 let pieces =
   [| "_"; "*"; "^"; "~"; "{_"; "_}"; "{*"; "*}"; "{="; "=}"; "{+"; "+}";
      "["; "]"; "]("; "]["; "("; ")"; "a"; "b"; " "; "\\"; "\\*"; "\\]";
-     "\\("; "[a]("; "[a][" |]
+     "\\("; "[a]("; "[a]["; "`"; "``"; "`a`"; "`*`" |]
 
 let sort_pairs m = List.sort compare m
 let sort_os os = List.sort_uniq compare os

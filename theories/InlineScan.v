@@ -92,22 +92,6 @@ The inline pass
 ===============
 *)
 
-(* Verbatim content is trimmed of one padding space at each end, but only
-   where it sits against a backtick.  A space not adjacent to a backtick
-   is content: `` ` a ` `` really is " a ".  Reversed, "ends with a
-   backtick then a space" is "starts with a space then a backtick", so
-   one function does both ends. *)
-
-Local Definition strip_pad (s : string) : string :=
-  match s with
-  | String c rest =>
-      if (Ascii.eqb c " "%char && starts_tick rest)%bool then rest else s
-  | EmptyString => s
-  end.
-
-Definition trim_verb (s : string) : string :=
-  rev_string (strip_pad (rev_string (strip_pad s))).
-
 Local Lemma strip_pad_added :
   forall s, starts_tick s = true -> strip_pad (" " ++ s) = s.
 Proof.

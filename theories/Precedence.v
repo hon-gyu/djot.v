@@ -36,14 +36,14 @@ Definition bare_opens (k : dstyle) : bool :=
   match dsyntax_of k with DBare => true | _ => false end.
 
 (* The bytes a line is drawn from: the characters of those rows, the
-   braces, the brackets, and bytes that no row and no other syntax
-   claims, the parens among them.  A paren is not a row's character
+   braces, the brackets, the backtick, and bytes that no row and no other
+   syntax claims, the parens among them.  A paren is not a row's character
    here, since a destination counts parens.  The newline ends the
    line, and a hole's `%` is not drawn on while holes are on. *)
 Definition in_alphabet (c : ascii) : bool :=
   (negb (Ascii.eqb c nl_char)
    && (Ascii.eqb c lbrace || Ascii.eqb c rbrace || Ascii.eqb c lbrack
-       || Ascii.eqb c rbrack
+       || Ascii.eqb c rbrack || is_tick c
        || (negb (dreserved c) && negb (holes_enabled && Ascii.eqb c percent)))
    && negb (Ascii.eqb c hyphen)
    && match dstyle_of c with
@@ -58,15 +58,18 @@ Definition starts_with (c : ascii) (s : string) : bool :=
   match s with String d _ => Ascii.eqb d c | EmptyString => false end.
 
 (* What may follow a byte.  A `{` before anything but a row's character
-   begins an attribute spec, and so does one after a `]`; a `[` before a
-   `^` begins a footnote reference and before a `[` a wikilink. *)
+   begins an attribute spec, and so does one after a `]`; one after a
+   backtick may begin a raw format; a `[` before a `^` begins a footnote
+   reference and before a `[` a wikilink. *)
 Definition follow_ok (c : ascii) (rest : string) : bool :=
   ((negb (Ascii.eqb c lbrace) || starts_row rest)
    && negb (Ascii.eqb c lbrack && (starts_with lbrack rest || starts_with hat rest))
-   && negb (Ascii.eqb c rbrack && starts_with lbrace rest))%bool.
+   && negb ((Ascii.eqb c rbrack || is_tick c) && starts_with lbrace rest))%bool.
 
 (* A backslash escapes the byte after it, whatever that byte is but the
-   newline, so the escaped byte is not drawn on the alphabet (O2, O3). *)
+   newline, so the escaped byte is not drawn on the alphabet (O2, O3).
+   An escaped backtick still may not come before `{`: inside a verbatim
+   the backslash is a byte and the backtick may close it. *)
 Fixpoint over_alphabet (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -74,7 +77,9 @@ Fixpoint over_alphabet (s : string) : bool :=
       if is_bslash c
       then match rest with
            | EmptyString => true
-           | String d rest' => negb (Ascii.eqb d nl_char) && over_alphabet rest'
+           | String d rest' =>
+               negb (Ascii.eqb d nl_char) && negb (is_tick d && starts_with lbrace rest')
+               && over_alphabet rest'
            end
       else (in_alphabet c && follow_ok c rest && over_alphabet rest)%bool
   end.
@@ -92,7 +97,11 @@ Fixpoint over_alphabet (s : string) : bool :=
    run (`TEscWs`), which is a non-breaking space and the rest of the run
    when it begins with a space; before any other byte, that byte as text
    if it is punctuation, and the backslash and the byte otherwise
-   (`TEsc`). *)
+   (`TEsc`).
+
+   A run of `n` backticks opens a verbatim (V1), which runs to the next
+   run of exactly `n` (`closed`) or to the paragraph's end; its body is
+   every byte between, backslashes and newlines included (V2, V4). *)
 Inductive token : Type :=
   | TText (c : ascii)
   | TBreak
@@ -101,7 +110,8 @@ Inductive token : Type :=
   | TClose (dest : bool)
   | TEsc (c : ascii)
   | TEscWs (ws : string)
-  | THard (ws : string).
+  | THard (ws : string)
+  | TVerb (n : nat) (body : string) (closed : bool).
 
 (* The whitespace a string begins with. *)
 Fixpoint ws_run (s : string) : string :=
@@ -116,6 +126,29 @@ Fixpoint line_rest (s : string) : string :=
   | String c rest => if Ascii.eqb c nl_char then EmptyString else String c (line_rest rest)
   | EmptyString => EmptyString
   end.
+
+Fixpoint tick_run (s : string) : nat :=
+  match s with
+  | String c r => if is_tick c then S (tick_run r) else 0
+  | EmptyString => 0
+  end.
+
+(* A verbatim's body, read after its opening run of `n`: its bytes, how
+   many bytes it takes with its closing run, and whether it closed.
+   `run` counts the backticks pending. *)
+Fixpoint verb_go (n run : nat) (s : string) : string * nat * bool :=
+  match s with
+  | EmptyString => if Nat.eqb run n then (EmptyString, 0, true) else (ticks run, 0, false)
+  | String c rest =>
+      if is_tick c then let '(b, l, cl) := verb_go n (S run) rest in (b, S l, cl)
+      else if Nat.eqb run n then (EmptyString, 0, true)
+      else let '(b, l, cl) := verb_go n 0 rest in ((ticks run ++ String c b)%string, S l, cl)
+  end.
+
+(* A verbatim that `s` begins with, and its length. *)
+Definition verb_tok (s : string) : token * nat :=
+  let n := tick_run s in
+  let '(body, used, closed) := verb_go n 0 (sdrop n s) in (TVerb n body closed, n + used).
 
 Definition at_rbrace (p : option ascii) : bool :=
   match p with Some b => Ascii.eqb b rbrace | None => false end.
@@ -142,6 +175,7 @@ Definition next_tok (prev : option ascii) (s : string) : option (token * nat) :=
                     else (TEsc d, 2)
                 | EmptyString => (THard EmptyString, 1)
                 end
+         else if is_tick c then verb_tok s
          else if Ascii.eqb c lbrack then (TOpen, 1)
          else if Ascii.eqb c rbrack then
            (if starts_with lparen rest then TClose true
@@ -464,6 +498,30 @@ Proof.
   induction s as [|c s IH]; cbn; [lia|]. destruct (Ascii.eqb c nl_char); cbn; lia.
 Qed.
 
+Lemma verb_go_len : forall s n run, snd (fst (verb_go n run s)) <= String.length s.
+Proof.
+  induction s as [|c s IH]; intros n run; cbn [verb_go String.length].
+  - destruct (Nat.eqb run n); cbn; lia.
+  - destruct (is_tick c).
+    + specialize (IH n (S run)). destruct (verb_go n (S run) s) as [[b l] cl]. cbn in *. lia.
+    + destruct (Nat.eqb run n); [cbn; lia|].
+      specialize (IH n 0). destruct (verb_go n 0 s) as [[b l] cl]. cbn in *. lia.
+Qed.
+
+Lemma tick_run_le : forall s, tick_run s <= String.length s.
+Proof. induction s as [|c s IH]; cbn; [lia|]. destruct (is_tick c); cbn; lia. Qed.
+
+Lemma verb_tok_len : forall c rest t l,
+  is_tick c = true -> verb_tok (String c rest) = (t, l) -> 0 < l <= S (String.length rest).
+Proof.
+  intros c rest t l Hc H. unfold verb_tok in H.
+  pose proof (verb_go_len (sdrop (tick_run (String c rest)) (String c rest))
+                (tick_run (String c rest)) 0) as G.
+  rewrite sdrop_length in G.
+  pose proof (tick_run_le (String c rest)) as Tr. cbn [tick_run] in *. rewrite Hc in *.
+  destruct (verb_go _ 0 _) as [[b u] cl]. injection H as <- <-. cbn in *. lia.
+Qed.
+
 Lemma next_tok_len : forall prev s t l,
   next_tok prev s = Some (t, l) -> 0 < l <= String.length s.
 Proof.
@@ -485,13 +543,18 @@ Proof.
   | (if ?b then _ else _) = _ => destruct b eqn:?
   | (match ?x with _ => _ end) = _ => destruct x eqn:?
   end;
-    injection H as <- <-; try lia.
-  all: try specialize (Wn d); first
-    [ cbn [ws_run] in H1; rewrite Heqb2 in H1 |- *; cbn [String.length] in *; lia
+    try (injection H as <- <-); try lia.
+  all: first
+    [ match goal with Hw : is_ws ?a = true |- _ =>
+        cbn [ws_run] in H1; rewrite Hw in H1 |- *; cbn [String.length] in *; lia end
     | cbn [String.length]; lia
-    | specialize (P1 d Heqb4); lia
-    | specialize (G d Heqb5); lia
-    | specialize (P2 d Heqb4); lia ].
+    | match goal with Hp : prefix (dtoken ?k) _ = true |- _ =>
+        specialize (P1 k Hp); specialize (Wn k); lia end
+    | match goal with Hg : at_rbrace (get (dwidth ?k) _) = true |- _ =>
+        specialize (G k Hg); specialize (Wn k); lia end
+    | match goal with Hp : prefix (dtoken ?k) _ = true |- _ =>
+        specialize (P2 k Hp); specialize (Wn k); lia end
+    | match goal with Ht : is_tick ?x = true |- _ => exact (verb_tok_len _ _ t l Ht H) end ].
 Qed.
 
 Lemma tok_at_len : forall s p t l,
@@ -533,7 +596,7 @@ Qed.
 
 Lemma tok_at_close : forall s p b l, tok_at s p = Some (TClose b, l) -> l = 1.
 Proof.
-  intros s p b l H. unfold tok_at, next_tok in H.
+  intros s p b l H. unfold tok_at, next_tok, verb_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
   | (if ?b then _ else _) = _ => destruct b
@@ -790,7 +853,7 @@ Definition ropen (i : nat) (k : key) (op : bool) (st : rstate) : rstate :=
 
 Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
   match t with
-  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ => st
+  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ => st
   | TOpen => ropen i KBracket true st
   | TDelim k mr op cl =>
       match (if cl then pick (KDelim k mr) (rs_live st) else PNone) with
@@ -1316,7 +1379,7 @@ Proof.
     - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
     - intros k Hk. congruence. }
   (* text, a break and the escapes neither open nor close *)
-  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (apply Text; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vn vb vc]; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Hop : open_key s n = if op then Some K else None)
@@ -1419,7 +1482,7 @@ Proof.
             /\ (rs_os (ropen i k op st') = os \/ rs_os (ropen i k op st') = i :: os)).
   { intros k [|] st' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
       split; [left|right|left|left]; reflexivity. }
-  destruct t as [c| |k mr op cl| |b|c|ws|ws]; try (split; left; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vn vb vc]; try (split; left; reflexivity).
   - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
       [destruct (Nat.ltb (tok_end s p) i)| |];
       try (apply Ro; reflexivity); try (split; left; reflexivity).
@@ -1558,6 +1621,7 @@ Definition tok_text (t : token) : string :=
   | TEsc c => String bslash (one c)
   | TEscWs ws => String bslash ws
   | THard ws => String bslash ws
+  | TVerb n body closed => (ticks n ++ body ++ if closed then ticks n else EmptyString)%string
   end.
 
 (* A run escaped by a backslash is a non-breaking space and the rest of
@@ -1667,6 +1731,7 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
       | None => temit_str (tok_text t) fs top
       end
   | THard _ => let '(fs', top') := ttrim fs top in temit (mk HardBreak) fs' top'
+  | TVerb _ body _ => temit (mk (Verbatim (trim_verb body))) fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
   | TDelim k _ _ _ =>
       if is_opener m i then ((TKDelim k, []) :: fs, top)
