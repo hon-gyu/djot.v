@@ -200,6 +200,8 @@ type block =
 
 type blocks = block node list
 
+val fold_children : ('a1 -> block node -> 'a1) -> block -> 'a1 -> 'a1
+
 val decorate_head : attr -> blocks -> blocks
 
 val invisible_block : block -> bool

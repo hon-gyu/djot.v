@@ -639,6 +639,8 @@ module Refs :
 
 module Notes :
  sig
+  val add_note : block -> note_map -> note_map
+
   val of_block : block -> note_map -> note_map
 
   val of_list : blocks -> note_map -> note_map

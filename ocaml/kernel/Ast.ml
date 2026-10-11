@@ -375,6 +375,28 @@ type block =
 
 type blocks = block node list
 
+(** val fold_children : ('a1 -> block node -> 'a1) -> block -> 'a1 -> 'a1 **)
+
+let fold_children f b acc =
+  let go = fold_left f in
+  (match b with
+   | Section bs -> go bs acc
+   | BlockQuote bs -> go bs acc
+   | Div (_, bs) -> go bs acc
+   | OrderedList (_, _, items) ->
+     fold_left (fun acc0 it -> go (node_contents it) acc0) items acc
+   | BulletList (_, _, items) ->
+     fold_left (fun acc0 it -> go (node_contents it) acc0) items acc
+   | TaskList (_, items) ->
+     fold_left (fun acc0 it -> go (snd (node_contents it)) acc0) items acc
+   | DefinitionList (_, items) ->
+     fold_left (fun acc0 it ->
+       go (node_contents (snd (node_contents it))) acc0) items acc
+   | FootnoteDef (_, bs) -> go bs acc
+   | Ext_keyed (_, n) -> f acc n
+   | Ext_callout (_, _, _, bs) -> go bs acc
+   | _ -> acc)
+
 (** val decorate_head : attr -> blocks -> blocks **)
 
 let decorate_head pending = function
