@@ -4776,6 +4776,32 @@ Proof.
       rewrite Hhead, (IH Hrest). reflexivity.
 Qed.
 
+Local Lemma wf_block_children : forall b,
+  wf_block b = true -> wf_blocks (children b) = true.
+Proof.
+  assert (F : forall (A : Type) (g : A -> blocks) its,
+            forallb (fun it => wf_blocks (g it)) its = true ->
+            wf_blocks (flat_map g its) = true).
+  { intros A g. induction its as [|x its IH]; intros H; [reflexivity|].
+    cbn [forallb] in H. apply andb_true_iff in H as [Hx Hr].
+    cbn [flat_map]. rewrite wf_blocks_app, Hx, (IH Hr). reflexivity. }
+  intros b H. destruct b; cbn [Ast.children]; try reflexivity.
+  - rewrite wf_block_section in H. apply andb_true_iff in H as [_ H]. exact H.
+  - rewrite wf_block_quote in H. exact H.
+  - rewrite wf_block_div in H. exact H.
+  - rewrite wf_block_olist in H. apply andb_true_iff in H as [_ H]. apply F, H.
+  - rewrite wf_block_bullet in H. apply andb_true_iff in H as [_ H]. apply F, H.
+  - rewrite wf_block_tasklist in H. apply andb_true_iff in H as [_ H].
+    exact (F _ (fun it => snd (node_contents it)) _ H).
+  - rewrite wf_block_deflist in H. apply andb_true_iff in H as [_ H].
+    apply (F _ (fun it => node_contents (snd (node_contents it)))).
+    rewrite forallb_forall in *. intros x Hx. specialize (H x Hx).
+    unfold wf_def_entry in H. apply andb_true_iff in H as [_ H]. exact H.
+  - rewrite wf_block_footnote in H. apply andb_true_iff in H as [_ H]. exact H.
+  - rewrite wf_block_keyed in H. apply andb_true_iff in H as [_ H]. exact H.
+  - rewrite wf_block_callout in H. apply andb_true_iff in H as [_ H]. exact H.
+Qed.
+
 (* The pass enters only well-formed bodies, so every body it records is
    well formed. *)
 Local Lemma collect_notes_block_wf :
@@ -4783,72 +4809,17 @@ Local Lemma collect_notes_block_wf :
     wf_block b = true -> wf_note_map m = true ->
     wf_note_map (Notes.of_block b m) = true.
 Proof.
-  intros b. induction b using block_ind2 with
-      (Q := fun bs => forall m,
-          wf_blocks bs = true -> wf_note_map m = true ->
-          wf_note_map (Notes.of_list bs m) = true)
-      (R := fun its => forall m,
-          forallb (fun it => wf_blocks (node_contents it)) its = true ->
-          wf_note_map m = true ->
-          wf_note_map
-            (fold_left (fun acc it => Notes.of_list (node_contents it) acc) its m)
-          = true)
-      (D := fun its => forall m,
-          forallb wf_def_entry its = true -> wf_note_map m = true ->
-          wf_note_map
-            (fold_left
-               (fun acc kv =>
-                  Notes.of_list (node_contents (snd (node_contents kv))) acc)
-               its m)
-          = true)
-      (K := fun its => forall m,
-          forallb (fun ti => wf_blocks (snd (node_contents ti))) its = true ->
-          wf_note_map m = true ->
-          wf_note_map
-            (fold_left (fun acc kv => Notes.of_list (snd (node_contents kv)) acc)
-               its m)
-          = true);
-    intros; try assumption.
-  - (* Section *)
-    rewrite wf_block_section in H. apply andb_true_iff in H as [_ Hbs].
-    cbn [Notes.of_block]. rewrite Notes.inner_go. apply IHb; assumption.
-  - (* BlockQuote *)
-    rewrite wf_block_quote in H.
-    cbn [Notes.of_block]. rewrite Notes.inner_go. apply IHb; assumption.
-  - (* Div *)
-    rewrite wf_block_div in H.
-    cbn [Notes.of_block]. rewrite Notes.inner_go. apply IHb; assumption.
-  - (* OrderedList *)
-    rewrite wf_block_olist in H. apply andb_true_iff in H as [_ Hits].
-    cbn [Notes.of_block]. rewrite Notes.inner_goit. apply IHb; assumption.
-  - (* BulletList *)
-    rewrite wf_block_bullet in H. apply andb_true_iff in H as [_ Hits].
-    cbn [Notes.of_block]. rewrite Notes.inner_goit. apply IHb; assumption.
-  - (* TaskList *)
-    rewrite wf_block_tasklist in H. apply andb_true_iff in H as [_ Hits].
-    cbn [Notes.of_block]. rewrite Notes.inner_got. apply IHb; assumption.
-  - (* DefinitionList *)
-    rewrite wf_block_deflist in H. apply andb_true_iff in H as [_ Hits].
-    cbn [Notes.of_block]. rewrite Notes.inner_god. apply IHb; assumption.
-  - (* FootnoteDef: the one arm that writes an entry *)
-    rewrite wf_block_footnote in H. apply andb_true_iff in H as [_ Hbs].
-    cbn [Notes.of_block]. rewrite Notes.inner_go.
-    apply wf_note_map_set; [exact Hbs|apply IHb; assumption].
-  - (* Ext_keyed: its one block, through Q at the singleton *)
-    rewrite wf_block_keyed in H. apply andb_true_iff in H as [_ Hb].
-    destruct b as [p' a' x]. exact (IHb m Hb H0).
-  - (* Ext_callout *)
-    rewrite wf_block_callout in H. apply andb_true_iff in H as [_ Hbs].
-    cbn [Notes.of_block]. rewrite Notes.inner_go. apply IHb; assumption.
-  - rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hb Hrest].
-    cbn [Notes.of_list]. apply IHb0; [exact Hrest|apply IHb; assumption].
-  - cbn [forallb node_contents] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [fold_left node_contents]. apply IHb0; [exact Hrest|apply IHb; assumption].
-  - cbn [forallb] in H. apply andb_true_iff in H as [Hit Hrest].
-    apply andb_true_iff in Hit as [_ Hit].
-    cbn [fold_left node_contents snd]. apply IHb0; [exact Hrest|apply IHb; assumption].
-  - cbn [forallb node_contents snd] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [fold_left node_contents snd]. apply IHb0; [exact Hrest|apply IHb; assumption].
+  intros b. induction b as [b IH] using block_children_ind. intros m Hb Hm.
+  rewrite Notes.of_block_children.
+  assert (L : wf_note_map (Notes.of_list (children b) m) = true).
+  { pose proof (wf_block_children b Hb) as Hc. revert m Hm Hc.
+    induction IH as [|[q c x] rest Hx _ IHr]; intros m Hm Hc; [exact Hm|].
+    rewrite wf_blocks_cons in Hc. apply andb_true_iff in Hc as [H1 H2].
+    cbn [Notes.of_list]. apply IHr; [|exact H2]. apply Hx; assumption. }
+  destruct b; try exact L.
+  (* FootnoteDef: the one arm that writes an entry *)
+  rewrite wf_block_footnote in Hb. apply andb_true_iff in Hb as [_ Hbs].
+  cbn [Notes.add_note]. apply wf_note_map_set; [exact Hbs|exact L].
 Qed.
 
 Local Lemma collect_notes_list_wf :

@@ -1215,59 +1215,14 @@ Module Notes.
    is assigned after its body, the order in which nested containers
    close.  `Section` has an arm so that the map can be read back off
    `doc_blocks` (`doc_footnotes_of_blocks`). *)
-Fixpoint of_block (b : block) (m : note_map) {struct b} : note_map :=
-  let go :=
-    fix go (ns : blocks) (acc : note_map) {struct ns} : note_map :=
-      match ns with
-      | [] => acc
-      | Node _ _ x :: rest => go rest (of_block x acc)
-      end in
-  let goit :=
-    fix goit (its : list (node blocks)) (acc : note_map) {struct its}
-      : note_map :=
-      match its with
-      | [] => acc
-      | Node _ _ it :: rest =>
-          goit rest ((fix go' (ns : blocks) (acc' : note_map)
-                        {struct ns} : note_map :=
-                        match ns with
-                        | [] => acc'
-                        | Node _ _ x :: more => go' more (of_block x acc')
-                        end) it acc)
-      end in
+Definition add_note (b : block) (m : note_map) : note_map :=
   match b with
-  | FootnoteDef label bs => alist_set (normalize_label label) bs (go bs m)
-  | BlockQuote bs | Div _ bs | Section bs | Ext_callout _ _ _ bs => go bs m
-  | Ext_keyed _ (Node _ _ x) => of_block x m
-  | BulletList _ _ items | OrderedList _ _ items => goit items m
-  | DefinitionList _ items =>
-      (fix god (its : list (node (node inlines * node blocks))) (acc : note_map)
-         {struct its} : note_map :=
-         match its with
-         | [] => acc
-         | Node _ _ (_, Node _ _ it) :: rest =>
-             god rest ((fix go' (ns : blocks) (acc' : note_map)
-                          {struct ns} : note_map :=
-                          match ns with
-                          | [] => acc'
-                          | Node _ _ x :: more => go' more (of_block x acc')
-                          end) it acc)
-         end) items m
-  | TaskList _ items =>
-      (fix got (its : list (node (task_status * blocks))) (acc : note_map)
-         {struct its} : note_map :=
-         match its with
-         | [] => acc
-         | Node _ _ (_, it) :: rest =>
-             got rest ((fix go' (ns : blocks) (acc' : note_map)
-                          {struct ns} : note_map :=
-                          match ns with
-                          | [] => acc'
-                          | Node _ _ x :: more => go' more (of_block x acc')
-                          end) it acc)
-         end) items m
+  | FootnoteDef label bs => alist_set (normalize_label label) bs m
   | _ => m
   end.
+
+Fixpoint of_block (b : block) (m : note_map) {struct b} : note_map :=
+  add_note b (fold_children (fun acc n => match n with Node _ _ x => of_block x acc end) b m).
 
 Fixpoint of_list (ns : blocks) (m : note_map) : note_map :=
   match ns with
@@ -1282,71 +1237,15 @@ Proof.
   cbn [app of_list]. apply IH.
 Qed.
 
-Lemma inner_go : forall ns m,
-  (fix go (ns : blocks) (acc : note_map) : note_map :=
-     match ns with
-     | [] => acc
-     | Node _ _ x :: rest => go rest (of_block x acc)
-     end) ns m = of_list ns m.
+Lemma of_block_children : forall b m,
+  of_block b m = add_note b (of_list (children b) m).
 Proof.
-  induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
-  cbn [of_list]. rewrite IH. reflexivity.
-Qed.
-
-Lemma inner_goit : forall its m,
-  (fix goit (its : list (node blocks)) (acc : note_map) : note_map :=
-     match its with
-     | [] => acc
-     | Node _ _ it :: rest =>
-         goit rest
-           ((fix go (ns : blocks) (acc' : note_map) : note_map :=
-               match ns with
-               | [] => acc'
-               | Node _ _ x :: more => go more (of_block x acc')
-               end) it acc)
-     end) its m
-  = fold_left (fun acc it => of_list (node_contents it) acc) its m.
-Proof.
-  induction its as [|[ip ia it] rest IH]; intros m; [reflexivity|].
-  cbn [fold_left]. rewrite inner_go, IH. reflexivity.
-Qed.
-
-Lemma inner_god : forall its m,
-  (fix god (its : list (node (node inlines * node blocks))) (acc : note_map)
-      : note_map :=
-     match its with
-     | [] => acc
-     | Node _ _ (_, Node _ _ it) :: rest =>
-         god rest
-           ((fix go (ns : blocks) (acc' : note_map) : note_map :=
-               match ns with
-               | [] => acc'
-               | Node _ _ x :: more => go more (of_block x acc')
-               end) it acc)
-     end) its m
-  = fold_left (fun acc kv => of_list (node_contents (snd (node_contents kv))) acc) its m.
-Proof.
-  induction its as [|[ip ia [term [dp da it]]] rest IH]; intros m; [reflexivity|].
-  cbn [fold_left]. rewrite inner_go, IH. reflexivity.
-Qed.
-
-Lemma inner_got : forall its m,
-  (fix got (its : list (node (task_status * blocks))) (acc : note_map)
-      : note_map :=
-     match its with
-     | [] => acc
-     | Node _ _ (_, it) :: rest =>
-         got rest
-           ((fix go (ns : blocks) (acc' : note_map) : note_map :=
-               match ns with
-               | [] => acc'
-               | Node _ _ x :: more => go more (of_block x acc')
-               end) it acc)
-     end) its m
-  = fold_left (fun acc kv => of_list (snd (node_contents kv)) acc) its m.
-Proof.
-  induction its as [|[ip ia [chk it]] rest IH]; intros m; [reflexivity|].
-  cbn [fold_left]. rewrite inner_go, IH. reflexivity.
+  intros b m.
+  assert (L : forall ns acc,
+            fold_left (fun acc n => match n with Node _ _ x => of_block x acc end) ns acc
+            = of_list ns acc)
+    by (induction ns as [|[p' a' x] rest IH]; intros acc; [reflexivity|apply IH]).
+  rewrite <- L, <- fold_children_spec. destruct b; reflexivity.
 Qed.
 
 End Notes.
@@ -2386,8 +2285,8 @@ Local Fixpoint stack_notes (stk : sect_state) (m : note_map) : note_map :=
 Local Lemma section_node_notes :
   forall a bs m, Notes.of_list [section_node a bs] m = Notes.of_list bs m.
 Proof.
-  intros a bs m. unfold section_node. cbn [Notes.of_list Notes.of_block].
-  apply Notes.inner_go.
+  intros a bs m. unfold section_node. cbn [Notes.of_list].
+  rewrite Notes.of_block_children. reflexivity.
 Qed.
 
 Local Lemma close_ge_notes :
@@ -2932,57 +2831,16 @@ Local Lemma collect_notes_erase : forall b m,
   Notes.of_block (Erase.of_block b) (erase_note_map m)
   = erase_note_map (Notes.of_block b m).
 Proof.
-  intros b.
-  induction b using block_ind2 with
-    (Q := fun ns => forall m,
-        Notes.of_list (Erase.of_blocks ns) (erase_note_map m)
-        = erase_note_map (Notes.of_list ns m))
-    (R := fun its => forall m,
-        fold_left (fun acc it => Notes.of_list (node_contents it) acc)
-          (map Erase.item its) (erase_note_map m)
-        = erase_note_map
-            (fold_left (fun acc it => Notes.of_list (node_contents it) acc) its m))
-    (D := fun its => forall m,
-        fold_left (fun acc kv => Notes.of_list (node_contents (snd (node_contents kv))) acc)
-          (map Erase.def_entry its) (erase_note_map m)
-        = erase_note_map
-            (fold_left (fun acc kv => Notes.of_list (node_contents (snd (node_contents kv))) acc) its m))
-    (K := fun its => forall m,
-        fold_left (fun acc kv => Notes.of_list (snd (node_contents kv)) acc)
-          (map Erase.task_item its) (erase_note_map m)
-        = erase_note_map
-            (fold_left (fun acc kv => Notes.of_list (snd (node_contents kv)) acc) its m));
-    intros; try (cbn [Erase.of_block Notes.of_block]; reflexivity).
-  all: try solve [cbn [Erase.of_block Notes.of_block]; fold Erase.of_blocks;
-                  rewrite !Notes.inner_go; exact (IHb m)].
-  all: try solve [cbn [Erase.of_block Notes.of_block]; fold Erase.of_blocks;
-                  rewrite erase_items_fix; rewrite !Notes.inner_goit;
-                  exact (IHb m)].
-  all: try solve [cbn [Erase.of_block Notes.of_block]; fold Erase.of_blocks;
-                  rewrite erase_task_items_fix; rewrite !Notes.inner_got;
-                  exact (IHb m)].
-  all: try solve [cbn [Erase.of_block Notes.of_block]; fold Erase.of_blocks;
-                  rewrite erase_def_items_fix; rewrite !Notes.inner_god;
-                  exact (IHb m)].
+  intros b. induction b as [b IH] using block_children_ind. intros m.
+  rewrite !Notes.of_block_children, erase_children.
+  assert (L : Notes.of_list (Erase.of_blocks (children b)) (erase_note_map m)
+              = erase_note_map (Notes.of_list (children b) m)).
+  { revert m. induction IH as [|[q c x] rest Hx _ IHr]; intros m; [reflexivity|].
+    cbn [Erase.of_blocks Notes.of_list node_contents] in *. rewrite Hx. apply IHr. }
+  rewrite L. destruct b as [| | | | | | | | | | | | | | |? []|]; try reflexivity.
   (* FootnoteDef: the body is erased both in the tree and in its entry *)
-  all: try solve [cbn [Erase.of_block Notes.of_block]; fold Erase.of_blocks;
-                  rewrite !Notes.inner_go, erase_note_map_alist_set, (IHb m);
-                  reflexivity].
-  all: try solve [destruct b as [p' a' x]; cbn [Erase.of_block Notes.of_block];
-                  pose proof (IHb m) as Hk;
-                  cbn [Erase.of_blocks Notes.of_list] in Hk; exact Hk].
-  - (* Q cons *)
-    cbn [Erase.of_blocks Notes.of_list].
-    rewrite (IHb m), IHb0. reflexivity.
-  - (* R cons *)
-    cbn [map fold_left Erase.item Erase.task_item Erase.def_entry Erase.inlines_node node_contents].
-    rewrite (IHb m), IHb0. reflexivity.
-  - (* D cons *)
-    cbn [map fst snd fold_left Erase.item Erase.task_item Erase.def_entry Erase.inlines_node node_contents].
-    rewrite (IHb m), IHb0. reflexivity.
-  - (* K cons *)
-    cbn [map fst snd fold_left Erase.item Erase.task_item Erase.def_entry Erase.inlines_node node_contents].
-    rewrite (IHb m), IHb0. reflexivity.
+  cbn [Erase.of_block Notes.add_note]. fold Erase.of_blocks.
+  rewrite erase_note_map_alist_set. reflexivity.
 Qed.
 
 Local Lemma collect_notes_list_erase : forall ns m,
