@@ -411,72 +411,8 @@ module Refs =
       block -> pos -> attr -> reference_map -> reference_map **)
 
   let rec of_block b p a m =
-    let go =
-      let rec go ns acc =
-        match ns with
-        | [] -> acc
-        | n :: rest ->
-          let Node (p', a', x) = n in go rest (of_block x p' a' acc)
-      in go
-    in
-    let goit =
-      let rec goit its acc =
-        match its with
-        | [] -> acc
-        | n :: rest ->
-          let Node (_, _, it) = n in
-          goit rest
-            (let rec go' ns acc' =
-               match ns with
-               | [] -> acc'
-               | n0 :: more ->
-                 let Node (p', a', x) = n0 in go' more (of_block x p' a' acc')
-             in go' it acc)
-      in goit
-    in
-    (match b with
-     | Section bs -> go bs m
-     | BlockQuote bs -> go bs m
-     | Div (_, bs) -> go bs m
-     | OrderedList (_, _, items) -> goit items m
-     | BulletList (_, _, items) -> goit items m
-     | TaskList (_, items) ->
-       let rec got its acc =
-         match its with
-         | [] -> acc
-         | n :: rest ->
-           let Node (_, _, x) = n in
-           let (_, it) = x in
-           got rest
-             (let rec go' ns acc' =
-                match ns with
-                | [] -> acc'
-                | n0 :: more ->
-                  let Node (p', a', x0) = n0 in
-                  go' more (of_block x0 p' a' acc')
-              in go' it acc)
-       in got items m
-     | DefinitionList (_, items) ->
-       let rec god its acc =
-         match its with
-         | [] -> acc
-         | n :: rest ->
-           let Node (_, _, x) = n in
-           let (_, n1) = x in
-           let Node (_, _, it) = n1 in
-           god rest
-             (let rec go' ns acc' =
-                match ns with
-                | [] -> acc'
-                | n0 :: more ->
-                  let Node (p', a', x0) = n0 in
-                  go' more (of_block x0 p' a' acc')
-              in go' it acc)
-       in god items m
-     | FootnoteDef (_, bs) -> go bs m
-     | Ext_keyed (_, b0) -> let Node (p', a', x) = b0 in of_block x p' a' m
-     | Ext_callout (_, _, _, bs) -> go bs m
-     | _ -> add_ref p a b m)
+    fold_children (fun acc n ->
+      let Node (p', a', x) = n in of_block x p' a' acc) b (add_ref p a b m)
 
   (** val of_list : blocks -> reference_map -> reference_map **)
 
@@ -488,73 +424,19 @@ module Refs =
 
 module Notes =
  struct
+  (** val add_note : block -> note_map -> note_map **)
+
+  let add_note b m =
+    match b with
+    | FootnoteDef (label, bs) -> alist_set (normalize_label label) bs m
+    | _ -> m
+
   (** val of_block : block -> note_map -> note_map **)
 
   let rec of_block b m =
-    let go =
-      let rec go ns acc =
-        match ns with
-        | [] -> acc
-        | n :: rest -> let Node (_, _, x) = n in go rest (of_block x acc)
-      in go
-    in
-    let goit =
-      let rec goit its acc =
-        match its with
-        | [] -> acc
-        | n :: rest ->
-          let Node (_, _, it) = n in
-          goit rest
-            (let rec go' ns acc' =
-               match ns with
-               | [] -> acc'
-               | n0 :: more ->
-                 let Node (_, _, x) = n0 in go' more (of_block x acc')
-             in go' it acc)
-      in goit
-    in
-    (match b with
-     | Section bs -> go bs m
-     | BlockQuote bs -> go bs m
-     | Div (_, bs) -> go bs m
-     | OrderedList (_, _, items) -> goit items m
-     | BulletList (_, _, items) -> goit items m
-     | TaskList (_, items) ->
-       let rec got its acc =
-         match its with
-         | [] -> acc
-         | n :: rest ->
-           let Node (_, _, x) = n in
-           let (_, it) = x in
-           got rest
-             (let rec go' ns acc' =
-                match ns with
-                | [] -> acc'
-                | n0 :: more ->
-                  let Node (_, _, x0) = n0 in go' more (of_block x0 acc')
-              in go' it acc)
-       in got items m
-     | DefinitionList (_, items) ->
-       let rec god its acc =
-         match its with
-         | [] -> acc
-         | n :: rest ->
-           let Node (_, _, x) = n in
-           let (_, n1) = x in
-           let Node (_, _, it) = n1 in
-           god rest
-             (let rec go' ns acc' =
-                match ns with
-                | [] -> acc'
-                | n0 :: more ->
-                  let Node (_, _, x0) = n0 in go' more (of_block x0 acc')
-              in go' it acc)
-       in god items m
-     | FootnoteDef (label, bs) ->
-       alist_set (normalize_label label) bs (go bs m)
-     | Ext_keyed (_, b0) -> let Node (_, _, x) = b0 in of_block x m
-     | Ext_callout (_, _, _, bs) -> go bs m
-     | _ -> m)
+    add_note b
+      (fold_children (fun acc n -> let Node (_, _, x) = n in of_block x acc) b
+        m)
 
   (** val of_list : blocks -> note_map -> note_map **)
 
