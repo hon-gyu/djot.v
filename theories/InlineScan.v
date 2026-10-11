@@ -675,6 +675,8 @@ Definition split_text_pos (p : pos) (word_start : option spot)
    - A run ending in whitespace has no last word, and the spec is
      dropped rather than attached across the gap.
    - Any other node takes it (`*e*{.a}`, `[l](u){}`, `x{.a}{.b}`).
+   - A `HardBreak` and a `NonBreakingSpace` take none: a break and a
+     space are no element to attach to.
    - Nothing before it drops the spec, and so does a `SoftBreak`.  These
      two move together: the head below a spec is a `SoftBreak` exactly
      when `oout_app` spliced a previous line there, and every `_app`
@@ -695,7 +697,7 @@ Definition oattach_list `{PosPolicy}
                isnoc (add_inline_role RAttrSpec spec (Node wp a (Str w))) out1
            end
       else out
-  | Node _ _ SoftBreak :: _ | [] => out
+  | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
   | n :: rest => add_inline_role RAttrSpec spec
                    (match n with
                     | Node p a' v => Node p (Attr.merge a a') v

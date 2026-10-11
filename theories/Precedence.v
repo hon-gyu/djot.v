@@ -2131,8 +2131,8 @@ Definition item_trim (out : list titem) : list titem :=
    (with no intervening whitespace)": after plain text that element is
    its last word, and an empty spec leaves the text whole; after any
    other node it is that node, whose attributes the spec is merged into;
-   after whitespace, after a soft break or with nothing before it the
-   spec attaches to nothing. *)
+   after whitespace, after a break, after a non-breaking space or with
+   nothing before it the spec attaches to nothing. *)
 Definition attach (a : attr) (out : inlines) : inlines :=
   match out with
   | Node p [] (Str s) :: rest =>
@@ -2144,7 +2144,7 @@ Definition attach (a : attr) (out : inlines) : inlines :=
                   :: (if nonempty_str pre then Node p [] (Str pre) :: rest else rest)
            end
       else out
-  | Node _ _ SoftBreak :: _ | [] => out
+  | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
   | Node p a' v :: rest => Node p (Attr.merge a a') v :: rest
   end.
 

@@ -553,6 +553,8 @@ Proof.
     apply isnoc_ok; [apply dn_add_inline_role, dn_node_str|].
     destruct (nonempty_str pre); [apply isnoc_ok; [apply dn_node_str|]|]; exact Hrest.
   - destruct a'; exact Hout.
+  - destruct a'; exact Hout.
+  - destruct a'; exact Hout.
 Qed.
 
 Lemma oresolve_go_ok : forall W l,

@@ -1195,6 +1195,19 @@ Example attr_punctuation_does_not_split :
   = [Node NoPos [("class", "a")] (Str "a-b")].
 Proof. vm_compute. reflexivity. Qed.
 
+(* A break or a non-breaking space is no element to attach to: a spec
+   after a hard break attaches to nothing, as after a soft break, and one
+   after an escaped space as after a space. *)
+Example attr_after_hard_break_attaches_to_nothing :
+  para_inlines ["a\"; "{#i}b"]
+  = [mk (Str "a"); mk HardBreak; mk (Str "b")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example attr_after_nbsp_attaches_to_nothing :
+  parse_inline_line "a\ {#i}b"
+  = [mk (Str "a"); mk NonBreakingSpace; mk (Str "b")].
+Proof. vm_compute. reflexivity. Qed.
+
 (* Parentheses are not a span: the spec still lands on the last word. *)
 Example attr_parens_are_not_a_span :
   parse_inline_line "(some text){.attr}"
