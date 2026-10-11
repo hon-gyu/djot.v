@@ -83,6 +83,14 @@ val dollar_tok : dtable -> string -> token * int
 
 val at_rbrace : char option -> bool
 
+val esc_tok : string -> token * int
+
+val rbrack_tok : dtable -> string -> token * int
+
+val lbrace_tok : dtable -> string -> token * int
+
+val delim_tok : dtable -> char option -> char -> string -> token * int
+
 val next_tok : dtable -> char option -> string -> (token * int) option
 
 val before : string -> int -> char option
@@ -124,31 +132,6 @@ val resume : string -> int -> bool -> int option
 val chain_next : dtable -> string -> matching -> int -> int option
 
 type reading = matching * int list
-
-type litem =
-| LOpen of int * key
-| LBar of int
-
-val has_key : key -> litem list -> bool
-
-type pick_res =
-| PFound of int * litem list
-| PBarred
-| PNone
-
-val pick : key -> litem list -> pick_res
-
-type rstate = { rs_live : litem list; rs_pairs : matching; rs_os : int list }
-
-val ropen : int -> key -> bool -> rstate -> rstate
-
-val rstep : dtable -> string -> int -> token -> rstate -> rstate
-
-val rgo : dtable -> string -> int -> int -> rstate -> rstate
-
-val rstart : rstate
-
-val ref_read : dtable -> string -> reading
 
 val str_snoc : string -> inlines -> inlines
 
@@ -213,3 +196,28 @@ val tgo :
   -> tframes * titem list
 
 val tree_of : dtable -> string -> matching -> inlines
+
+type litem =
+| LOpen of int * key
+| LBar of int
+
+val has_key : key -> litem list -> bool
+
+type pick_res =
+| PFound of int * litem list
+| PBarred
+| PNone
+
+val pick : key -> litem list -> pick_res
+
+type rstate = { rs_live : litem list; rs_pairs : matching; rs_os : int list }
+
+val ropen : int -> key -> bool -> rstate -> rstate
+
+val rstep : dtable -> string -> int -> token -> rstate -> rstate
+
+val rgo : dtable -> string -> int -> int -> rstate -> rstate
+
+val rstart : rstate
+
+val ref_read : dtable -> string -> reading
