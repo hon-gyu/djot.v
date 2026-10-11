@@ -1085,11 +1085,15 @@ let attach a out = match out with
                            then (Node (p, [], (Str pre))) :: rest
                            else rest))
         else out
+      | NonBreakingSpace -> out
       | SoftBreak -> out
+      | HardBreak -> out
       | _ -> (Node (p, (Attr.merge a a'), v)) :: rest)
    | _ :: _ ->
      (match v with
+      | NonBreakingSpace -> out
       | SoftBreak -> out
+      | HardBreak -> out
       | _ -> (Node (p, (Attr.merge a a'), v)) :: rest))
 
 (** val push : inline node -> inlines -> inlines **)
