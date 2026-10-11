@@ -748,11 +748,30 @@ Example span_needs_adjacent_brace :
   parse_inline_line "[s] {.a}" = [mk (Str "[s] ")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A failed spec puts the region back as text and resumes the scan at the
-   byte that failed, so the `*` still opens a delimiter run. *)
+(* A span whose spec fails is the ordinary reading of the same bytes, so
+   the `*` that failed it still opens a delimiter run. *)
 Example span_failed_spec_resumes :
   parse_inline_line "[s]{bad*x*y"
   = [mk (Str "[s]{bad"); mk (Strong [mk (Str "x")]); mk (Str "y")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* In that reading the `{` is what it would be anywhere, here a marked
+   opener.  djot.js makes a span with no attributes of `[a]`
+   (`.project/djotjs-divergences.md`). *)
+Example span_failed_spec_is_ordinary :
+  parse_inline_line "[a]{_b_}" = [mk (Str "[a]"); mk (Emph [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* And the bracket is still open, so a later `](` closes it. *)
+Example span_failed_spec_leaves_bracket_open :
+  parse_inline_line "[x [a]{_ y](u)"
+  = [mk (Str "[x "); mk (Link [mk (Str "a]{_ y")] (Direct "u"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A spec the paragraph ends inside is ordinary too, across its lines. *)
+Example span_unclosed_spec_is_ordinary :
+  para_inlines ["[a]{.b"; "*c*"]
+  = [mk (Str "[a]{.b"); mk SoftBreak; mk (Strong [mk (Str "c")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* `!` is not part of a span: the image opener decays to text. *)

@@ -212,8 +212,9 @@ Fixpoint of_iscan (st : iscan) : iscan :=
   | IDash n txt prev o => IDash n txt prev (of_ostate o)
   | IBang txt prev o => IBang txt prev (of_ostate o)
   | IClosed txt o => IClosed txt (of_ostate o)
-  | ISpan kids image _ p src o =>
-      ISpan (Erase.of_inlines kids) image null_span p src (of_ostate o)
+  | ISpan kids image _ p src sh o =>
+      ISpan (Erase.of_inlines kids) image null_span p src (of_iscan sh)
+        (of_ostate o)
   | IAttr p src txt prev sh o =>
       IAttr p src txt prev (of_iscan sh) (of_ostate o)
   | IReference kids image _ esc label o =>
@@ -700,19 +701,6 @@ Proof.
     reflexivity.
 Qed.
 
-Local Lemma of_bspan_lit : forall `{P : PosPolicy} `{C : InlineCursor}
-  kids image src o,
-  @bspan_lit _ _ semantic_pos semantic_inline_cursor (Erase.of_inlines kids) image
-    src (of_ostate o)
-  = (fst (@bspan_lit _ _ P C kids image src o),
-     of_ostate (snd (@bspan_lit _ _ P C kids image src o))).
-Proof.
-  intros P C kids image src o. unfold bspan_lit.
-  rewrite of_bclosed_lit.
-  destruct (@bclosed_lit _ _ P C kids image o) as [txt o']; cbn [fst snd].
-  apply of_bsplit_nl.
-Qed.
-
 Local Lemma of_battr_lit : forall `{P : PosPolicy} `{C : InlineCursor} src txt o,
   @battr_lit _ _ semantic_pos semantic_inline_cursor src txt (of_ostate o)
   = (fst (@battr_lit _ _ P C src txt o),
@@ -981,20 +969,18 @@ Proof.
 Qed.
 
 Local Lemma of_ispan_feed : forall `{P : PosPolicy} `{C : InlineCursor}
-  c kids image open p src o,
-  of_iscan (@ispan_feed T _ _ P C c kids image open p src o) =
+  c kids image open p src sh o,
+  of_iscan (@ispan_feed T _ _ P C c kids image open p src sh o) =
   @ispan_feed T _ _ semantic_pos semantic_inline_cursor c (Erase.of_inlines kids) image
-    null_span p src (of_ostate o).
+    null_span p src (of_iscan sh) (of_ostate o).
 Proof.
-  intros P C c kids image open p src o. unfold ispan_feed. tred.
-  destruct (ap_failed (astep p c)).
-  - rewrite of_bspan_lit.
-    destruct (@bspan_lit _ _ P C kids image src o) as [txt o']; cbn [fst snd].
-    apply of_ilead.
-  - destruct (ap_done (astep p c)); [|reflexivity].
-    cbn [of_iscan]. rewrite of_oemit, of_add_inline_role,
+  intros P C c kids image open p src sh o. unfold ispan_feed. tred.
+  destruct (ap_failed (astep p c)); [reflexivity|].
+  destruct (ap_done (astep p c)).
+  - cbn [of_iscan]. rewrite of_oemit, of_add_inline_role,
       of_ospan_bang.
     cbn [Erase.inode]. rewrite span_node. reflexivity.
+  - cbn [of_iscan]. rewrite of_islice_end. reflexivity.
 Qed.
 
 Local Lemma of_inote_step : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -1094,6 +1080,12 @@ Proof.
     cbn [of_iscan]. rewrite of_tag_push, of_flush_text_to_at. reflexivity.
 Qed.
 
+Local Lemma iscan_span : forall kids image open ap src sh o,
+  of_iscan (ISpan kids image open ap src sh o) =
+  ISpan (Erase.of_inlines kids) image null_span ap src (of_iscan sh)
+    (of_ostate o).
+Proof. reflexivity. Qed.
+
 Local Lemma iscan_attr : forall ap src txt prev sh o,
   of_iscan (IAttr ap src txt prev sh o) =
   IAttr ap src txt prev (of_iscan sh) (of_ostate o).
@@ -1127,7 +1119,7 @@ Proof.
     | two txt prev o
     | mt me ms mx ml msh IHmsh mo | mct mcs mcx mcl mcsh IHmcsh mco
     | two txt prev o | n txt prev o | txt prev o
-    | txt o | kids image open ap src o | ap src txt prev sh IHsh o
+    | txt o | kids image open ap src sh IHsh o | ap src txt prev sh IHsh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
     | kids image open esc depth dst sh IHsh o | src txt o
@@ -1224,7 +1216,10 @@ Proof.
     destruct (Ascii.eqb c lparen);
       [cbn [of_iscan]; rewrite of_idest_open; reflexivity|].
     destruct (Ascii.eqb c lbrack); reflexivity.
-  - (* ISpan *) apply of_ispan_feed.
+  - (* ISpan *)
+    rewrite iscan_span. cbn [istep_at].
+    destruct (ap_failed (astep ap c)); [apply IHsh|].
+    rewrite of_ispan_feed, IHsh. reflexivity.
   - (* IAttr *)
     rewrite iscan_attr. cbn [istep_at].
     destruct (ap_failed (astep ap c)); [apply IHsh|].
@@ -1270,7 +1265,7 @@ Proof.
     | two txt prev o
     | mt me ms mx ml msh mo | mct mcs mcx mcl mcsh mco
     | two txt prev o | n txt prev o | txt prev o
-    | txt o | kids image open ap src o | ap src txt prev sh o
+    | txt o | kids image open ap src sh o | ap src txt prev sh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
     | kids image open esc depth dst sh o | src txt o
@@ -1282,9 +1277,6 @@ Proof.
   - apply of_iesc_hard.
   - rewrite of_oemit, of_imk, of_vnode. reflexivity.
   - rewrite of_oemit, of_imk, of_vnode. reflexivity.
-  - rewrite of_bspan_lit.
-    destruct (@bspan_lit _ _ P C kids image (tval src) o) as [t o']; cbn [fst snd].
-    apply of_flush_text_at.
   - rewrite of_battr_lit.
     destruct (@battr_lit _ _ P C (tval src) txt o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
@@ -1318,6 +1310,7 @@ Proof.
     destruct (match last with Some p => negb (is_ws_nl p)
               | None => false end); [|assumption].
     rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
+  - rewrite iscan_span. cbn [ifinish_ostate]. assumption.
   - rewrite iscan_attr. cbn [ifinish_ostate]. assumption.
   - rewrite iscan_dest. cbn [ifinish_ostate]. assumption.
   - cbn [of_iscan ifinish_ostate]. assumption.
@@ -1374,7 +1367,7 @@ Proof.
     | two txt prev o
     | mt me ms mx ml msh IHmsh mo | mct mcs mcx mcl mcsh IHmcsh mco
     | two txt prev o | n txt prev o | txt prev o
-    | txt o | kids image open ap src o | ap src txt prev sh o
+    | txt o | kids image open ap src sh o | ap src txt prev sh o
     | kids image open label o | esc image label open o
     | esc rb image region open o
     | kids image open esc depth dst sh IHdest o | src txt o
@@ -1390,7 +1383,7 @@ Proof.
   - destruct (Nat.eqb run n); [|reflexivity].
     cbn [of_iscan]. rewrite of_oword_reset, of_oemit, of_imk_here,
       of_oemit, of_imk, of_vnode. reflexivity.
-  - apply of_ispan_feed.
+  - rewrite of_ispan_feed. reflexivity.
   - rewrite of_iattr_feed. reflexivity.
   - rewrite of_bwiki_lit.
     destruct (bwiki_lit esc rb image (tval region) o) as [t o']; cbn [fst snd of_iscan].
@@ -1428,6 +1421,8 @@ Proof.
     rewrite of_ibreak_flat. cbn [of_iscan].
     rewrite of_oemit, of_imk, of_flush_text_to_at.
     reflexivity.
+  - rewrite iscan_span. cbn [ibreak_at].
+    rewrite of_ispan_feed, IHst. reflexivity.
   - rewrite iscan_attr. cbn [ibreak_at].
     rewrite of_iattr_feed, IHst. reflexivity.
   - rewrite iscan_dest. cbn [ibreak_at].

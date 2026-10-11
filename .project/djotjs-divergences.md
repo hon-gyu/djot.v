@@ -2565,3 +2565,31 @@ plain spec, an unclosed destination and a failed autolink already do.
 then the inline specification admits a `]{` only before a spec that
 closes.
 
+## 2026-10-11 -- OURS: a `]{` whose spec fails is its ordinary reading
+
+The entry above, done.
+
+| Input | djot.js | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `[a]{_b_}` | a span around `a` with no attributes, emphasised `b` | `[a]{_b_}`, all text | `[a]` as text, emphasised `b` |
+| `[a]{*b*}` | a span around `a` with no attributes, strong `b` | `[a]{*b*}`, all text | `[a]` as text, strong `b` |
+| `[x [a]{_ y](u)` | a link over `x `, a span around `a`, and `{_ y` | the outer `[` closes: a link over `x [a]{_ y` | `[x ` as text, a link over `a]{_ y` |
+| `[s]{bad*x*y` | `[s]{bad`, strong `x`, `y` | the same | the same |
+| `[a]{#x` | `[a]{#x`, all text | the same | the same |
+
+`ISpan` now carries the ordinary reading of its bytes (`sh`), as `IAttr`
+does: the `]` is text, the bracket is still open, and the `{` is read
+with attribute recognition off.  A spec that fails selects it, and so
+does the end of the paragraph.  Nothing is closed and put back, so the
+helper that rebuilt a failed span as text is gone.
+
+The reading kept is the one a failed plain spec keeps, cut at every
+special byte of the spec's source (`islice_end`).  So inside a spec that
+never closes a `]` finds no destination: `[a]{k="](u)` is all text, as
+`a{k="](u)` is.
+
+The inline specification still admits a `]{` only before a spec that
+closes (`261010.plan.attributes-and-spans.md`, "Decided afterwards").
+Pinned by `span_failed_spec_is_ordinary`,
+`span_failed_spec_leaves_bracket_open` and
+`span_unclosed_spec_is_ordinary` in `dev/InlineExamples.v`.

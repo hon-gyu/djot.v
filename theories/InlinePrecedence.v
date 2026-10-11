@@ -5389,10 +5389,10 @@ Definition linked (ps : string) (n : nat) (h : bool) (v : pview) (prev : option 
         /\ core = iscan_str (substring p (n - p) ps) (IText false txt0 prev0 o0)
         /\ verb_state core (get n ps)
   | PMSpan kids a e =>
-      h = false /\ Forall bare kids /\ exists p src open cm b,
+      h = false /\ Forall bare kids /\ exists p src open cm b sh,
         ap_done p = false /\ spec_go p (sdrop n ps) = Some (b, a) /\ no_bslash b = true
         /\ e = n + String.length b
-        /\ core = ISpan kids false open p src (oview cm v)
+        /\ core = ISpan kids false open p src sh (oview cm v)
   end.
 
 (* What a hard break leaves at the end of a line in text mode: the view
@@ -5719,7 +5719,7 @@ Proof.
            ++ exact Hs'.
            ++ unfold istep. cbn [istep_at]. rewrite Eb, Er. apply settles_refl.
   - (* a span's spec *)
-    destruct L as (_ & Bk & p & src & open & cm & b & Hp & Hgo & Hnb & He & ->).
+    destruct L as (_ & Bk & p & src & open & cm & b & sh & Hp & Hgo & Hnb & He & ->).
     cbn [pend_esc with_esc] in Ha. cbn [spec_go] in Hgo.
     destruct (Ascii.eqb c nl_char); [discriminate|].
     destruct (ap_failed (astep p c)) eqn:Ef; [discriminate|].
@@ -5744,12 +5744,14 @@ Proof.
       apply andb_true_iff in Hnb as [Hcb Hnb]. apply negb_true_iff in Hcb.
       cbn [String.length] in He.
       replace (n =? se)%nat with false in A by (symmetry; apply Nat.eqb_neq; lia).
-      apply (A (ISpan sk false open (astep p c) (src ++ one c) (oview cm v))).
+      apply (A (ISpan sk false open (astep p c) (src ++ one c)
+                  (islice_end (istep_at false c sh)) (oview cm v))).
       * cbn [pend_esc with_esc]. exact (proj2 (proj2 (over_alphabet_cons c s' Hcb Ha))).
       * right. intros t q o E. discriminate E.
       * unfold istep. cbn [istep_at]. unfold ispan_feed. rewrite Ef, Ed. apply settles_refl.
       * unfold linked. rewrite Em'. split; [reflexivity|]. split; [exact Bk|].
-        exists (astep p c), (src ++ one c)%string, open, cm, b1.
+        exists (astep p c), (src ++ one c)%string, open, cm, b1,
+          (islice_end (istep_at false c sh)).
         split; [exact Ed|]. split; [rewrite Hs1; exact E1|]. split; [exact Hnb|].
         split; [lia|reflexivity].
 Qed.
@@ -6248,7 +6250,7 @@ Proof.
     rewrite Er. split; [exact Hh|]. split; [exact He|].
     exists p, dd, m, body, cl, rw, txt0, prev0, o0. repeat split; assumption.
   - (* a span's spec ends within its line *)
-    destruct L as (_ & _ & p & src & open & cm & b & _ & Hgo & _).
+    destruct L as (_ & _ & p & src & open & cm & b & sh & _ & Hgo & _).
     exfalso. destruct Hle as [E|[r E]]; rewrite E in Hgo; [discriminate|].
     cbn [spec_go] in Hgo. rewrite Ascii.eqb_refl in Hgo. discriminate.
 Qed.
@@ -6329,6 +6331,7 @@ Local Lemma closed_step_span : forall cm v0 txt content rest,
   inline_attrs_enabled = true ->
   istep lbrace (IClosed txt (oview cm v0))
   = ISpan (vres content) false null_span ap_init ""
+      (IBrace (txt ++ one rbrack) (Some rbrack) (oview cm v0))
       (oview cm (PView rest (pv_out (add_text txt v0)) PMNormal)).
 Proof.
   intros cm v0 txt content rest Ht B Nf Hc Hen.
@@ -7166,14 +7169,16 @@ Proof.
       { cbn [no_char] in Hnl. apply andb_true_iff in Hnl as [_ Hnl].
         apply andb_true_iff in Hnl as [_ Hnl]. exact Hnl. }
       assert (Hsp : iscan_str (String rbrack (one lbrace)) (IText false txt prev o)
-                    = ISpan kids false null_span ap_init "" o1).
+                    = ISpan kids false null_span ap_init ""
+                        (IBrace (txt ++ one rbrack) (Some rbrack) o) o1).
       { cbn [iscan_str one]. unfold istep at 2. cbn [istep_at].
         rewrite (ilead_rbrack_closed txt prev o Htag). rewrite Eo.
         pose proof (closed_step_span cm v0 txt content rest' Ht) as Hcs.
         rewrite <- Ev in Hcs. exact (Hcs B Fnm Hpc Hen). }
       apply (scan_advance ps after len IH (String rbrack (String lbrace r)) n false v ws
                (IText false txt prev o) (String rbrack (one lbrace)) r (Some lbrace) []
-               (ISpan kids false null_span ap_init "" o1) false v1);
+               (ISpan kids false null_span ap_init ""
+                  (IBrace (txt ++ one rbrack) (Some rbrack) o) o1) false v1);
         try assumption; cbn [String.length one]; try reflexivity; try discriminate.
       - apply (pruns_trans ps n false v (S n) false v1).
         + apply pruns_one.
@@ -7191,7 +7196,9 @@ Proof.
       - cbn [wrap]. rewrite Hsp. apply settles_refl.
       - constructor.
       - unfold linked. cbn [v1 pv_mode]. split; [reflexivity|]. split; [apply vres_ok|].
-        exists ap_init, "", null_span, cm, b. split; [reflexivity|].
+        exists ap_init, "", null_span, cm, b,
+          (IBrace (txt ++ one rbrack) (Some rbrack) o).
+        split; [reflexivity|].
         split; [|split; [exact Hnb|split; [lia|reflexivity]]].
         replace (n + 2) with (S (S n)) by lia. rewrite (sdrop_succ ps (S n) lbrace _ Hs1).
         pose proof (spec_at_app r after Hnr Hae) as Sp. unfold spec_at in Sp.
@@ -7794,7 +7801,7 @@ Proof.
     rewrite Efin, Fl, (oemit_view cm _ vN) by (intros s0; apply verb_node_nonstr). reflexivity.
   - (* a span's spec ends within its line *)
     unfold linked in L. rewrite ?Em in L.
-    destruct L as (_ & _ & p & src & open & cm & b & _ & Hgo & _).
+    destruct L as (_ & _ & p & src & open & cm & b & sh & _ & Hgo & _).
     rewrite Hs in Hgo. cbn [spec_go] in Hgo. rewrite Ascii.eqb_refl in Hgo. discriminate.
 Qed.
 
@@ -7867,7 +7874,7 @@ Proof.
       pose proof (tok_at_len ps p _ _ Htv) as [_ Hle].
       pose proof (sdrop_length n ps) as L0. rewrite Hs in L0. cbn in L0. lia.
     + (* a span's spec ends before the end *)
-      destruct L as (_ & _ & p & src & open & cm & b & _ & Hgo & _).
+      destruct L as (_ & _ & p & src & open & cm & b & sh & _ & Hgo & _).
       rewrite Hs in Hgo. discriminate Hgo.
   - destruct P as (ws0 & txt & p & o & vb & _ & _ & -> & Emb & Hsim & ->).
     rewrite ifinish_pending. destruct Hsim as (v0 & cm & -> & Ht & ->).

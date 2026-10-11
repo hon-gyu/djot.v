@@ -1062,8 +1062,11 @@ Local Fixpoint iscan_wf (st : iscan) : bool :=
      buffer is the one the literal continuation appends to. *)
   | IBang _ _ o | IAuto _ _ o | IClosed _ o =>
       (oscope_ok o && negb (hd_str (ocur o)))%bool
-  | ISpan kids _ _ _ _ o | IReference kids _ _ _ _ o =>
+  | IReference kids _ _ _ _ o =>
       (oscope_ok o && wf_inlines kids)%bool
+  (* A span owes both its readings, as a destination does below. *)
+  | ISpan kids _ _ _ _ sh o =>
+      (oscope_ok o && wf_inlines kids && iscan_wf sh)%bool
   (* An attribute candidate owes both its interpretations: the scope and
      seam condition its successful attachment will use, and the ordinary
      scan selected if the candidate never closes. *)
@@ -1662,18 +1665,6 @@ Proof.
   destruct (bclosed_lit kids image o). exact Hc.
 Qed.
 
-Local Lemma bspan_lit_ok :
-  forall kids image src o,
-    oscope_ok o = true -> wf_inlines kids = true ->
-    oscope_ok (snd (bspan_lit kids image src o)) = true
-    /\ starts_str (ocur (snd (bspan_lit kids image src o))) = false.
-Proof.
-  intros kids image src o Ho Hk. unfold bspan_lit.
-  pose proof (bclosed_lit_ok kids image o Ho Hk) as Hc.
-  destruct (bclosed_lit kids image o) as [txt o']; cbn [snd] in Hc |- *.
-  destruct Hc as [H1 H2]. apply bsplit_nl_ok; assumption.
-Qed.
-
 Local Lemma battr_lit_ok :
   forall src txt o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
@@ -1887,17 +1878,16 @@ Proof.
 Qed.
 
 Local Lemma ispan_feed_wf :
-  forall c kids image open p src o,
+  forall c kids image open p src sh o,
     oscope_ok o = true -> wf_inlines kids = true ->
-    iscan_wf (ispan_feed c kids image open p src o) = true.
+    iscan_wf sh = true ->
+    iscan_wf (ispan_feed c kids image open p src sh o) = true.
 Proof.
-  intros c kids image open p src o Ho Hk. unfold ispan_feed. tred.
-  destruct (ap_failed (astep p c)).
-  - destruct (bspan_lit_ok kids image src o Ho Hk) as [H1 H2].
-    destruct (bspan_lit kids image src o) as [txt o']; cbn [snd] in H1, H2.
-    apply ilead_wf; assumption.
+  intros c kids image open p src sh o Ho Hk Hsh. unfold ispan_feed. tred.
+  pose proof (islice_end_wf sh Hsh) as Hsl.
+  destruct (ap_failed (astep p c)); [exact Hsh|].
   - destruct (ap_done (astep p c));
-      [|cbn [iscan_wf]; rewrite Ho, Hk; reflexivity].
+      [|cbn [iscan_wf]; rewrite Ho, Hk, Hsl; reflexivity].
     (* `starts_str` matches on the node's attributes before its payload,
        so the list has to be forced even though a `Span` is not a `Str`
        either way *)
@@ -1916,7 +1906,7 @@ Local Lemma iscan_wf_step_at :
     iscan_wf st = true -> iscan_wf (istep_at attrs_enabled c st) = true.
 Proof.
   intros attrs_enabled c st. revert attrs_enabled c.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc sob|ap asrc atxt aprev ash IHash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob|pct pcp pco];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc ssh IHssh sob|ap asrc atxt aprev ash IHash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob|pct pcp pco];
     intros attrs_enabled c H;
     cbn [istep_at];
     try (cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs];
@@ -2088,9 +2078,13 @@ Proof.
        rewrite Ho', Hk, (idest_open_wf kids image open o' Ho' Hk);
        reflexivity|].
     destruct (Ascii.eqb c lbrack); cbn [iscan_wf]; rewrite Ho', Hk;
-      reflexivity.
-  - cbn [iscan_wf] in H. apply andb_true_iff in H as [Ho Hk].
-    apply ispan_feed_wf; assumption.
+      [reflexivity|].
+    rewrite Ho, hd_str_is_starts_str, Hs. reflexivity.
+  - cbn [iscan_wf] in H. apply andb_true_iff in H as [Hb Hsh].
+    apply andb_true_iff in Hb as [Ho Hk].
+    destruct (ap_failed (astep sp c)).
+    + apply IHssh, Hsh.
+    + apply ispan_feed_wf; [exact Ho|exact Hk|apply IHssh; exact Hsh].
   - cbn [iscan_wf] in H. apply andb_true_iff in H as [Hb Hsh].
     apply andb_true_iff in Hb as [Ho Hs].
     apply negb_true_iff in Hs. rewrite hd_str_is_starts_str in Hs.
@@ -2272,7 +2266,7 @@ Qed.
 Local Lemma iscan_wf_resolve :
   forall st, iscan_wf st = true -> iscan_wf (iresolve st) = true.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc sob|ap asrc atxt aprev ash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco] H;
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco] H;
     cbn [iresolve]; try exact H;
     cbn [iscan_wf] in H; apply andb_true_iff in H as [Ho Hs].
   (* `IBrace` is closed by `exact H` above: the invariant does not look
@@ -2294,7 +2288,7 @@ Proof.
   intros st H. pose proof (iscan_wf_resolve st H) as Hr.
   pose proof (iresolve_resolved st) as Hno.
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc sob|ap asrc atxt aprev ash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco];
     try contradiction; cbn [ifinish_ostate_flat];
     try (cbn [iscan_wf] in Hr; apply andb_true_iff in Hr as [Ho Hs];
          apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs).
@@ -2315,10 +2309,9 @@ Proof.
   - cbn [iscan_wf] in Hr.
     apply andb_true_iff in Hr as [Hb _].
     apply andb_true_iff in Hb as [Ho _]. exact Ho.
-  - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Ho Hk].
-    destruct (bspan_lit_ok kids img (tval ssrc) sob Ho Hk) as [H1 H2].
-    destruct (bspan_lit kids img (tval ssrc) sob) as [txt o']; cbn [snd] in H1, H2.
-    apply iscan_wf_flush; assumption.
+  - cbn [iscan_wf] in Hr.
+    apply andb_true_iff in Hr as [Hb _].
+    apply andb_true_iff in Hb as [Ho _]. exact Ho.
   - cbn [iscan_wf] in Hr. apply andb_true_iff in Hr as [Hb _].
     apply andb_true_iff in Hb as [Ho Hs].
     apply negb_true_iff in Hs. rewrite hd_str_is_starts_str in Hs.
@@ -2421,7 +2414,7 @@ Proof.
         destruct (idelim_resolve_text k txt before false None o)
           as [u [v [w E]]]; rewrite E; reflexivity).
   destruct (iresolve st) as
-    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc sob|ap asrc atxt aprev ash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco];
+    [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img ropen label ob|nesc nimg nlab nopen nob|wesc wrb wimg wreg wopen wob|kids img dopen esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco];
     try contradiction;
     try (cbn [is_compound] in Hcomp'; discriminate Hcomp');
     cbn [ibreak_flat];
@@ -2443,7 +2436,6 @@ Proof.
            | rewrite plain_str_vnode; apply andb_false_l]
         |reflexivity | apply andb_false_l].
     + rewrite ocur_emit. reflexivity.
-  - apply andb_true_iff in Hr as [Ho Hk]. apply ispan_feed_wf; assumption.
   - cbn [iscan_wf] in Hr |- *. exact Hr.
   (* a label and a destination both carry the break as a character, so
      nothing is emitted and the invariant is the one they arrived with *)
@@ -2538,6 +2530,10 @@ Proof.
              |reflexivity|apply andb_false_l].
         -- rewrite ocur_emit. reflexivity.
       * apply IHst, Hsh.
+  - cbn [ibreak_at iscan_wf] in H |- *.
+    apply andb_true_iff in H as [Hb Hsh].
+    apply andb_true_iff in Hb as [Ho Hk].
+    apply ispan_feed_wf; [exact Ho|exact Hk|apply IHst; exact Hsh].
   - cbn [ibreak_at iscan_wf] in H |- *.
     apply andb_true_iff in H as [Hb Hsh].
     apply andb_true_iff in Hb as [Ho Hs].

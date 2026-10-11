@@ -116,14 +116,6 @@ Proof.
   unfold map_fst; cbn [fst snd]. laws. reflexivity.
 Qed.
 
-Lemma bspan_lit_map : forall kids image src o,
-  map_fst (bspan_lit kids image src o) = bspan_lit kids image src o.
-Proof.
-  intros kids image src o. unfold bspan_lit. tred.
-  rewrite <- bclosed_lit_map. destruct (bclosed_lit kids image o) as [t o'].
-  unfold map_fst; cbn [fst snd]. rewrite <- tval_push. apply bsplit_nl_map.
-Qed.
-
 Lemma battr_lit_map : forall src t o,
   map_fst (battr_lit src t o) = battr_lit src (tval t) o.
 Proof.
@@ -218,14 +210,10 @@ Proof.
   unfold map_fst; cbn [fst snd]. crush.
 Qed.
 
-Lemma ispan_feed_map : forall c kids image open p src o,
-  map_text (ispan_feed c kids image open p src o) = ispan_feed c kids image open p (tval src) o.
-Proof.
-  intros. unfold ispan_feed. tred.
-  destruct (ap_failed (astep p c)); [|crush].
-  rewrite <- bspan_lit_map. destruct (bspan_lit kids image (tval src) o) as [t o'].
-  unfold map_fst; cbn [fst snd]. crush.
-Qed.
+Lemma ispan_feed_map : forall c kids image open p src sh o,
+  map_text (ispan_feed c kids image open p src sh o)
+  = ispan_feed c kids image open p (tval src) (map_text sh) o.
+Proof. intros. unfold ispan_feed. crush. Qed.
 
 Lemma inote_step_map : forall c esc image label open o,
   map_text (inote_step c esc image label open o) = inote_step c esc image (tval label) open o.
@@ -335,7 +323,7 @@ Proof.
   - crush.
   - crush.
   - crush.
-  - crush.
+  - (* ISpan *) rewrite <- !IHst. crush.
   - (* IAttr *) rewrite <- !IHst. crush.
   - crush.
   - crush.
@@ -361,7 +349,7 @@ Proof.
   intros []; cbn [ifinish_ostate_flat map_text]; tred; try destruct esc;
     try rewrite iesc_hard_map; try rewrite tval_nil;
     try solve [crush; rewrite ?auto_lit_map; reflexivity];
-    try first [through bref_lit_map | through bspan_lit_map | through battr_lit_map];
+    try first [through bref_lit_map | through battr_lit_map];
     crush.
 Qed.
 
@@ -410,6 +398,7 @@ Proof.
               | None => false end);
       [rewrite ibreak_flat_map; cbn [map_text]; laws; reflexivity
       |apply IHst].
+  - rewrite ispan_feed_map, IHst. reflexivity.
   - rewrite iattr_feed_map, IHst. reflexivity.
   - rewrite IHst. crush.
   - apply IHst.

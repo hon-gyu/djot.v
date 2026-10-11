@@ -400,10 +400,9 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
   | IClosed txt o =>
       oinv W o (nonempty_str txt) (sleft 1 cur) /\
       byte_at W (sleft 1 cur) = Some rbrack
-  | ISpan kids _ _ p src o =>
-      Forall (dn_node W) kids /\ held W o false cur /\
-      prev_ok W (InlineScan.blit_prev (String lbrace src)) cur /\
-      ap_done p = false
+  | ISpan kids _ _ p _ sh o =>
+      Forall (dn_node W) kids /\ held W o false cur /\ ap_done p = false /\
+      st_inv W cur sh
   | IAttr p _ txt _ sh o =>
       held W o (nonempty_str txt) cur /\ ap_done p = false /\ st_inv W cur sh
   | IReference kids _ _ _ _ o => Forall (dn_node W) kids /\ held W o false cur
@@ -1092,14 +1091,6 @@ Proof.
   destruct (bflat kids _ o1) as [t o2]. exact H2.
 Qed.
 
-Lemma bspan_lit_ok : forall W (CU : InlineCursor) kids image src o h,
-  Forall (dn_node W) kids -> oinv W o true h -> oinv W (snd (bspan_lit kids image src o)) true h.
-Proof.
-  intros W CU kids image src o h Hk Ho. unfold bspan_lit.
-  pose proof (bclosed_lit_ok W CU kids image o h Hk Ho) as H1.
-  destruct (bclosed_lit kids image o) as [t o1]. apply bsplit_nl_ok, H1.
-Qed.
-
 Lemma bref_lit_ok : forall W (CU : InlineCursor) kids image label o h,
   Forall (dn_node W) kids -> oinv W o true h -> oinv W (snd (bref_lit kids image label o)) true h.
 Proof.
@@ -1728,31 +1719,26 @@ Proof.
   - eapply ilead_nl; eassumption.
 Qed.
 
-Lemma ispan_feed_ok : forall W (CU : InlineCursor) cur next c kids image open p src o,
+Lemma ispan_feed_ok : forall W (CU : InlineCursor) cur next c kids image open p src sh o,
   stepped W CU cur next c ->
-  Forall (dn_node W) kids -> held W o false cur ->
-  prev_ok W (InlineScan.blit_prev (String lbrace src)) cur -> ap_done p = false ->
-  st_inv W next (ispan_feed c kids image open p src o).
+  Forall (dn_node W) kids -> held W o false cur -> ap_done p = false ->
+  st_inv W next sh ->
+  st_inv W next (ispan_feed c kids image open p src sh o).
 Proof.
-  intros W CU cur next c kids image open p src o Hst Hk Ho Hp Hd.
+  intros W CU cur next c kids image open p src sh o Hst Hk Ho Hd Hsh.
   pose proof (held_oinv _ _ _ _ Ho) as Ht. pose proof (stepped_lt _ _ _ _ _ Hst) as Hlt.
   unfold ispan_feed.
-  destruct (ap_failed (astep p c)).
-  - pose proof (bspan_lit_ok W CU kids image (tval src) o cur Hk Ht) as H.
-    destruct (bspan_lit kids image (tval src) o) as [txt o'].
-    eapply stepped_ilead; [exact Hst|apply oinv_any, H|exact Hp].
-  - destruct (ap_done (astep p c)) eqn:Ed.
-    + pose proof (astep_done p c Hd Ed) as Hc. cbn [st_inv orb].
-      split; [|split; [|discriminate]].
-      2: { replace (Some rbrace) with (Some c) by (rewrite Hc; reflexivity).
-           exact (stepped_prev _ _ _ _ _ Hst). }
-      apply oinv_any, oemit_ok.
-      * apply dn_add_inline_role, dn_node_plain; [reflexivity|exact Hk].
-      * apply ospan_bang_ok. eapply oinv_mono; [apply spot_lt_le, Hlt|exact Ht].
-    + cbn [st_inv]. tred. split; [exact Hk|split; [eapply held_mono; [apply spot_lt_le, Hlt|exact Ho]|]].
-      split; [|exact Ed].
-      change (String lbrace (src ++ one c)) with ((String lbrace src) ++ one c)%string.
-      unfold InlineScan.blit_prev. rewrite str_last_snoc. exact (stepped_prev _ _ _ _ _ Hst).
+  destruct (ap_failed (astep p c)); [exact Hsh|].
+  destruct (ap_done (astep p c)) eqn:Ed.
+  - pose proof (astep_done p c Hd Ed) as Hc. cbn [st_inv orb].
+    split; [|split; [|discriminate]].
+    2: { replace (Some rbrace) with (Some c) by (rewrite Hc; reflexivity).
+         exact (stepped_prev _ _ _ _ _ Hst). }
+    apply oinv_any, oemit_ok.
+    + apply dn_add_inline_role, dn_node_plain; [reflexivity|exact Hk].
+    + apply ospan_bang_ok. eapply oinv_mono; [apply spot_lt_le, Hlt|exact Ht].
+  - cbn [st_inv]. split; [exact Hk|split; [eapply held_mono; [apply spot_lt_le, Hlt|exact Ho]|]].
+    split; [exact Ed|apply islice_end_ok, Hsh].
 Qed.
 
 Section Step.
@@ -1957,8 +1943,10 @@ Proof.
   - destruct (Ascii.eqb c lbrack) eqn:E2.
     + cbn [st_inv]. split; [exact K|exact Hh].
     + cbn [orb] in Econd. apply andb_true_iff in Econd as [E3 _]. apply Ascii.eqb_eq in E3.
-      cbn [st_inv]. split; [exact K|split; [exact Hh|split; [|reflexivity]]].
-      rewrite <- E3. exact nx_prev.
+      cbn [st_inv]. split; [exact K|split; [exact Hh|split; [reflexivity|]]].
+      tred. rewrite nx_back. split.
+      * rewrite (nonempty_app_r txt (one rbrack) eq_refl). exact Ht.
+      * rewrite <- E3. exact (byte_at_sfx _ _ _ _ Hcur).
 Qed.
 
 Lemma eqb_rewrite : forall x, Ascii.eqb c x = true -> prev_ok W (Some x) next.
@@ -2246,8 +2234,10 @@ Proof.
   - (* IDash *) destruct H as (He & Hn1 & Ho). cbn [istep_at]. apply idash_ok; assumption.
   - (* IBang *) destruct H as (Ho & Hb). cbn [istep_at]. apply ibang_ok; assumption.
   - (* IClosed *) destruct H as (Ho & Hb). apply iclosed_ok; assumption.
-  - (* ISpan *) destruct H as (Hk & Ho & Hp & Hd). cbn [istep_at].
-    eapply ispan_feed_ok; [exact stepped_here|exact Hk|exact Ho|exact Hp|exact Hd].
+  - (* ISpan *) destruct H as (Hk & Ho & Hd & Hsh). cbn [istep_at].
+    destruct (ap_failed (astep p c)); [apply IHst, Hsh|].
+    eapply ispan_feed_ok; [exact stepped_here|exact Hk|exact Ho|exact Hd|].
+    apply IHst, Hsh.
   - (* IAttr *) destruct H as (Ho & Hd & Hsh). cbn [istep_at].
     destruct (ap_failed (astep p c)); [apply IHst, Hsh|].
     eapply iattr_feed_ok; [apply spot_lt_le, nx_lt|intros _; exact nx_prev|exact Ho|exact Hd|].
@@ -2348,6 +2338,7 @@ Definition settled (st : iscan) : Prop :=
   | IBrace _ _ _ | IDollar _ _ _ _ | IPeriod _ _ _ _ | IDash _ _ _ _
   | IBang _ _ _ | IDelim _ _ _ _ _ _ | IClosed _ _
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
+  | ISpan _ _ _ _ _ _ _
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ | ISymbol _ _ _ _
   | IPercent _ _ _ => False
   | _ => True
@@ -2428,8 +2419,6 @@ Proof.
     + apply brk_text, oemit_ok; [apply dn_imk_leaf; reflexivity|].
       apply oemit_ok; [apply dn_vnode|exact (brk_held _ _ _ Ho)].
     + cbn [st_inv]. split; [eapply held_step; [exact Ho|exact Hlt]|split; [exact Hn1|lia]].
-  - (* ISpan *) destruct H as (Hk & Ho & Hp & Hd).
-    eapply ispan_feed_ok; [exact brk_stepped|exact Hk|exact Ho|exact Hp|exact Hd].
   - (* IReference *) destruct H as (Hk & Ho). cbn [st_inv].
     split; [exact Hk|eapply held_step; [exact Ho|exact Hlt]].
   - (* INote *) cbn [st_inv]. eapply held_step; [exact H|exact Hlt].
@@ -2474,6 +2463,9 @@ Proof.
       cbn [st_inv]. split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh].
     + destruct (match last with Some p => _ | None => false end);
         [apply Hclose; reflexivity|apply IHst, Hsh].
+  - (* ISpan *) destruct H as (Hk & Ho & Hd & Hsh).
+    eapply ispan_feed_ok; [exact brk_stepped|exact Hk|exact Ho|exact Hd|].
+    apply IHst, Hsh.
   - (* IAttr *) destruct H as (Ho & Hd & Hsh).
     eapply iattr_feed_ok; [apply spot_lt_le, Hlt|discriminate|exact Ho|exact Hd|].
     apply IHst, Hsh.
@@ -2526,9 +2518,6 @@ Proof.
   - destruct H as (Ho & He & Hne). eapply held_any_of, iesc_hard_ok; exact (held_far _ _ _ _ Ho).
   - destruct H as (Ho & Hn1). eapply held_any_of, oemit_ok; [apply dn_vnode|exact (held_far _ _ _ _ Ho)].
   - destruct H as (Ho & Hn1 & Hr). eapply held_any_of, oemit_ok; [apply dn_vnode|exact (held_far _ _ _ _ Ho)].
-  - destruct H as (Hk & Ho & Hp & Hd).
-    pose proof (bspan_lit_ok W CU kids image src o _ Hk (held_far _ _ _ _ Ho)) as Hb.
-    destruct (bspan_lit kids image src o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
   - destruct H as (Hk & Ho).
     set (lab := (label ++ (if esc then one bslash else EmptyString))%string).
     pose proof (bref_lit_ok W CU kids image lab o _ Hk (held_far _ _ _ _ Ho)) as Hb.
@@ -2562,6 +2551,7 @@ Proof.
     + destruct last; [apply IHst, Hsh|apply Hclose; reflexivity].
     + destruct (match last with Some p => _ | None => false end);
         [apply Hclose; reflexivity|apply IHst, Hsh].
+  - destruct H as (_ & _ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & Hsh). apply IHst, Hsh.
