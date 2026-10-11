@@ -303,11 +303,18 @@ Definition dstyle_at_fast (C : dconfig) (c : ascii) : option dstyle :=
 Lemma dstyle_at_fast_eq : forall C c, dstyle_at_fast C c = dstyle_at C c.
 Proof. reflexivity. Qed.
 
-(* A row's decay leaves something behind, so no token vanishes. *)
+(* Nonempty, and ending in no whitespace. *)
+Definition solid_str (s : string) : bool :=
+  (nonempty_str s && String.eqb (strip_trailing_ws s) s)%bool.
+
+(* A row's decay leaves something behind, so no token vanishes, and it
+   ends in no whitespace.  A hard break trims the whitespace written
+   before it; a curly form's own would go with it where the quote is
+   pending text and stay where it is an opener put back. *)
 Definition ddecay_ok (d : ddecay) : bool :=
   match d with
   | DDSelf => true
-  | DDPair _ l r => (nonempty_str l && nonempty_str r)%bool
+  | DDPair _ l r => (solid_str l && solid_str r)%bool
   end.
 
 (* Is the row read from the source directly, rather than from inside a
@@ -328,7 +335,8 @@ Definition dsyntax_bare (s : dsyntax) : bool :=
    4. Free: a row's character is not `dreserved`.  `ilead` dispatches the
       reserved characters before it consults the table, so such a row
       would never be reached.
-   5. Leaves something: an unmatched token's decay is nonempty.
+   5. Leaves something: an unmatched token's decay is nonempty, and ends
+      in no whitespace.
    6. A bare row is not spelled with the hyphen.
 
    Conditions 2 to 6 are asked of every row, enabled or not.  A disabled

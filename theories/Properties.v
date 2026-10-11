@@ -671,7 +671,7 @@ Program Definition p_inline_precedence : property := {|
   p_statement := "When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.";
   p_implication := "Overlapping delimiters have one meaning, which can be worked out by hand.";
   p_theorems := ["para_inlines_valid"; "valid_unique"];
-  p_status := always (Conditional "For emphasis-like delimiters, links, spans, attribute specifiers, backslash escapes, code spans, math, raw inline, autolinks, symbols and plain text. Smart quotes, images, and classes or quoted values in a specifier are not covered.");
+  p_status := always (Conditional "For every inline construct. A few shapes are not covered: an attribute specifier, a footnote label or a symbol left unclosed on its line; a backslash in a specifier, a footnote label or an autolink candidate; a specifier right after a code span; a second bracket right after a bracket; an exclamation mark right before a footnote reference; two or more hyphens right before a closing brace.");
   p_holds := fun o => inline_precedence (o_inline o)
 |}.
 Next Obligation. exact (@para_inlines_valid _). Qed.

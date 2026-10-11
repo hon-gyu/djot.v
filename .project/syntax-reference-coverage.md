@@ -36,7 +36,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 11 | 23 | 18 | 0 | 0 | 5 |
+| Inline | 11 | 41 | 0 | 0 | 0 | 5 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 17 | 2 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 13 | 0 | 3 | 0 | 0 | 2 |
@@ -54,10 +54,13 @@ construction, the emphasis flanking and nonempty rules (M2, M3) over
 every document, escapes (O2), verbatim spans (V1) and dash runs (Q5)
 from any point where the scan is reading text, and the attribute
 language (AT2 to AT5, C1) as a grammar the machine accepts exactly.  It
-has twenty-three T~: precedence and nesting over a restricted alphabet
+has forty-one T~: precedence and nesting over a restricted alphabet
 (P1 to P5), and over the same alphabet backslash escapes (O3 to O5),
 verbatim, math and raw inline (P6, V2 to V4, MA1, R1), autolinks (A1 to
-A3), symbols (Y1), and attribute specs and spans (AT1, AT7, C2, N1);
+A3), symbols (Y1), attribute specs and spans (AT1, AT7, C2, N1),
+reference labels, images and footnote references (L4, L6, I1, F1),
+and the rest of inline syntax as instances of the same theorem (L1 to
+L3, M1, M4, M5, H1, S1, D1, Q1 to Q4, B1);
 and line breaks in a spec (AT6).  The other 18 inline rules are at E.
 
 ## Inline syntax
@@ -75,13 +78,13 @@ and line breaks in a spec (AT6).  The other 18 inline rules are at E.
 | O3 | Ordinary text | "Backslashes before characters other than ASCII punctuation ... are just treated as literal backslashes" | T~ | `para_inlines_valid` (InlinePrecedence.v), `TEsc`, `TEscWs`, `THard` in `esc_tok` (Precedence.v); `escape_other_is_literal` | `esc_text`: the byte if punctuation, the backslash and the byte otherwise.  Shape as P1: a paragraph over the precedence alphabet, where a backslash may escape any byte.  Inside a destination an escape is decoded the same way, inside a reference label it is kept as written (`region_text`). |
 | O4 | Ordinary text | "Backslash before a newline (or before spaces or tabs followed by a newline) is parsed as a hard line break.  Spaces and tab characters before the backslash are ignored" | T~ | `para_inlines_valid` (InlinePrecedence.v), `TEsc`, `TEscWs`, `THard` in `esc_tok` (Precedence.v); `escape_newline_hard_break`, `escape_newline_after_spaces`, `line_break` | `THard`: a backslash and whitespace to the line's end; the tree trims the text before it (`str_trim`) and the break after it is the hard one (`tstep`'s `hard`).  A backslash that ends the paragraph is a hard break too, as in djot.js.  Shape as P1. |
 | O5 | Ordinary text | "Backslash before a space is parsed as a nonbreaking space" | T~ | `para_inlines_valid` (InlinePrecedence.v), `TEsc`, `TEscWs`, `THard` in `esc_tok` (Precedence.v); `escape_space_nbsp` | `TEscWs`: a backslash and a whitespace run with more on the line; a run that begins with a space is a non-breaking space and the rest of the run, one that begins with a tab is text with its backslash (`nbsp_rest`).  Shape as P1. |
-| L1 | Link | inline link: text in `[...]`, then the destination in parentheses, "no space between the `]` ... and the open `(`" | E | `link_inline`, `link_no_space_before_destination` | Unit: InlineExamples.v, "Direct links". |
-| L2 | Link | "link text (which may contain arbitrary inline formatting)" | E | `precedence_link_closes_first` | |
-| L3 | Link | "The URL may be split over multiple lines; ... the line breaks and any leading and trailing space is ignored, and the lines are concatenated" | E | `link_url_split` | |
-| L4 | Link | reference link: the label "must come immediately after the link text" | E | `link_reference`, `link_no_space_before_label` | |
+| L1 | Link | inline link: text in `[...]`, then the destination in parentheses, "no space between the `]` ... and the open `(`" | T~ | `para_inlines_valid`; `link_inline`, `link_no_space_before_destination` | `TClose true` (`rbrack_tok`, Precedence.v): a `]` closes its bracket as a link only with the `(` right after it; the destination, to the `)` that balances it, is the pair's region.  Shape as P1. |
+| L2 | Link | "link text (which may contain arbitrary inline formatting)" | T~ | `para_inlines_valid`; `precedence_link_closes_first` | The link text is the bracket pair's content, read as any content is (`valid`, `tree_of`).  Shape as P1. |
+| L3 | Link | "The URL may be split over multiple lines; ... the line breaks and any leading and trailing space is ignored, and the lines are concatenated" | T~ | `para_inlines_valid`; `link_url_split` | A destination is a region of the paragraph's bytes, line breaks included; `region_node` drops them (`no_nl`).  Shape as P1. |
+| L4 | Link | reference link: the label "must come immediately after the link text" | T~ | `para_inlines_valid`; `link_reference`, `link_no_space_before_label` | `TClose false` (`rbrack_tok`, Precedence.v): a `]` closes its bracket only with the label's `[` right after it, and the label, to the next `]` not escaped, is the pair's region (`region_end`).  Shape as P1. |
 | L5 | Link | "the parsing of the link is 'local' and does not depend on whether the label is defined" | T | `classify_inlines_locality`, `html_tree_reference_shape`; `link_reference_local` | Locality holds by construction: the inline scan never sees the definitions. |
-| L6 | Link | "If the label is empty, then the link text will be taken to be the reference label" | E | `link_empty_label` | |
-| I1 | Image | "Images work just like links, but have a `!` prefixed", inline and reference | E | `image` | |
+| L6 | Link | "If the label is empty, then the link text will be taken to be the reference label" | T~ | `para_inlines_valid`; `link_empty_label` | `region_node` (Precedence.v): an empty label is `reference_inlines_text` of the link text.  Shape as P1. |
+| I1 | Image | "Images work just like links, but have a `!` prefixed", inline and reference | T~ | `para_inlines_valid`; `image` | `TOpen true` (`bang_tok`, Precedence.v): a `!` and a `[` open a bracket as a `[` does, and the pair it closes is an image where a `[` pair is a link (`region_node`).  Closed as a span, the `!` is text before the span; any other `!` is text.  Shape as P1; a `!` before a footnote reference is outside the alphabet. |
 | A1 | Autolink | "A URL or email address that is enclosed in `<`...`>` will be hyperlinked" | T~ | `para_inlines_valid`; `autolink` | `TAuto` (Precedence.v): a `<` and the region to the byte that ends a candidate, a link when that byte is `>` and the region an address.  Shape as P1.  Unit: InlineExamples.v, "Autolinks". |
 | A2 | Autolink | "The content between pointy braces is treated literally (backslash-escapes may not be used)" | T~ | `para_inlines_valid`; `autolink_literal` | The region is the link's text as written, and a failed candidate's region is text.  The alphabet leaves out a backslash in a region.  Shape as P1. |
 | A3 | Autolink | "The URL or email address may not contain a newline" | T~ | `para_inlines_valid`; `autolink_no_newline` | The end of a line ends a candidate (`auto_stop`).  Shape as P1. |
@@ -89,22 +92,22 @@ and line breaks in a spec (AT6).  The other 18 inline rules are at E.
 | V2 | Verbatim | "backslash escapes don't work there" | T~ | `para_inlines_valid`; `verbatim_no_escapes` | The body is every byte between the runs (`verb_go`).  Shape as P1. |
 | V3 | Verbatim | "If the content starts or ends with a backtick character, a single space is removed" | T~ | `para_inlines_valid`; `verbatim_space_stripped` | The node's text is `trim_verb` of the body (`verb_node`).  Shape as P1.  `trim_verb_pad` is the renderer's inverse, not this rule. |
 | V4 | Verbatim | "If the text ... ends before a closing backtick string ..., the verbatim text extends to the end" | T~ | `para_inlines_valid`; `verbatim_unclosed` | A verbatim with no closing run runs to the paragraph's end.  Shape as P1. |
-| M1 | Emphasis/strong | `_` delimits emphasis, `*` strong | E | `emphasis` | |
+| M1 | Emphasis/strong | `_` delimits emphasis, `*` strong | T~ | `para_inlines_valid`; `emphasis` | `dnode` (InlineTable.v) on the pair's row, in `tree_of`.  Shape as P1. |
 | M2 | Emphasis/strong | "can open emphasis only if it is not directly followed by whitespace.  It can close ... only if it is not directly preceded by whitespace" | T | `parse_blocks_located_spans` (StoredLines.v), from `para_inlines_spans`, `cell_inlines_spans` (InlineSpans.v); `emphasis_not_opened`, `emphasis_opener_before_space`, `emphasis_closer_after_space` | Every delimiter node of the located parse of any document, in any inline sequence at any depth and for every row: a bare opener is followed by a byte that is not whitespace, a bare closer preceded by one, both read in the source lines.  Whitespace is space, tab, CR and LF (`nonspace_at`); a line break counts as whitespace.  The bytes read are inline content, never a container prefix: at the start of a stored line the scanner sees a break.  Keys are off: a key with no block retracts to a paragraph read by the semantic scan, whose nodes carry no position. |
 | M3 | Emphasis/strong | closes "only if there are some characters besides the delimiter character between the opener and the closer" | T | `para_inlines_spans`, `cell_inlines_spans`; `emphasis_not_opened` (`___`) | As M2: at least one byte or line break lies between the opener's end and the closer's start.  The wording read literally would exclude `{___}`, which is emphasis around `_` in the model, the parser and djot.js; the theorem states what all three do. |
-| M4 | Emphasis/strong | "Emphasis can be nested" | E | `emphasis_nested` | See P2. |
-| M5 | Emphasis/strong | "Curly braces may be used to force interpretation ... as an opener or as a closer" | E | `emphasis_braces` | |
-| H1 | Highlighted | `{=` ... `=}`; "the `{` and `}` are mandatory" | E | `highlighted`, `highlight_needs_braces` | |
-| S1 | Super/subscript | `^` superscript, `~` subscript; braces "may be used, but are not required" | E | `super_subscript`, `super_subscript_braces` | |
-| D1 | Insert/delete | `{+` ... `+}`, `{-` ... `-}`; "The `{` and `}` are mandatory" | E | `insert_delete`, `insert_needs_braces` | |
-| Q1 | Smart punctuation | straight quotes "are parsed as curly quotes"; "Djot is pretty good about figuring out from context which direction" | E | `smart_quotes` | The heuristic itself is not stated.  Unit: InlineExamples.v, "Smart quotes". |
-| Q2 | Smart punctuation | "using curly braces to mark a quote as an opener `{"` or a closer `"}`" | E | `smart_quotes_braces` | |
-| Q3 | Smart punctuation | "If you want a straight quote, use a backslash-escape" | E | `smart_quotes_escaped` | |
-| Q4 | Smart punctuation | three periods: ellipsis; three hyphens: em dash; two: en dash | E | `smart_dashes_ellipsis` | |
+| M4 | Emphasis/strong | "Emphasis can be nested" | T~ | `para_inlines_valid`; `emphasis_nested` | See P2.  Shape as P1. |
+| M5 | Emphasis/strong | "Curly braces may be used to force interpretation ... as an opener or as a closer" | T~ | `para_inlines_valid`; `emphasis_braces` | See P3.  Shape as P1. |
+| H1 | Highlighted | `{=` ... `=}`; "the `{` and `}` are mandatory" | T~ | `para_inlines_valid`; `highlighted`, `highlight_needs_braces` | A row written only in braces: its bare token neither opens (`dbare`) nor finds an opener of its key.  Shape as P1. |
+| S1 | Super/subscript | `^` superscript, `~` subscript; braces "may be used, but are not required" | T~ | `para_inlines_valid`; `super_subscript`, `super_subscript_braces` | Rows written bare or in braces.  Shape as P1. |
+| D1 | Insert/delete | `{+` ... `+}`, `{-` ... `-}`; "The `{` and `}` are mandatory" | T~ | `para_inlines_valid`; `insert_delete`, `insert_needs_braces` | As H1.  `-}` is the closer of the row spelled with the hyphen (`dash_tok`, Precedence.v).  Shape as P1, without two or more hyphens right before a `}`. |
+| Q1 | Smart punctuation | straight quotes "are parsed as curly quotes"; "Djot is pretty good about figuring out from context which direction" | T~ | `para_inlines_valid`; `smart_quotes` | The heuristic, stated: a bare single quote may open only at the start of a line or after whitespace, a quote, a hyphen, `(` or `[` (`dbare`), any quote opens only before a nonspace byte and closes only after one (M2), quotes pair as the other rows do (`valid`), and one left unmatched is a curly quote, the left one for a double quote and the right one for a single (`delim_lit`, Precedence.v).  Shape as P1.  Unit: InlineExamples.v, "Smart quotes". |
+| Q2 | Smart punctuation | "using curly braces to mark a quote as an opener `{"` or a closer `"}`" | T~ | `para_inlines_valid`; `smart_quotes_braces` | A quote marked with `{` only opens and one marked with `}` only closes (P3); left unmatched, `{'` is the left quote and a double quote before `}` the right one (`delim_lit`).  Shape as P1. |
+| Q3 | Smart punctuation | "If you want a straight quote, use a backslash-escape" | T~ | `para_inlines_valid`; `smart_quotes_escaped` | An escaped quote is the token `TEsc`, which is its byte as text (`esc_text`).  Shape as P1. |
+| Q4 | Smart punctuation | three periods: ellipsis; three hyphens: em dash; two: en dash | T~ | `para_inlines_valid`; `smart_dashes_ellipsis` | A run of periods is one token, an ellipsis for every three left to right (`TDots`, `dots`, Precedence.v); a run of hyphens is one token, cut by `dashes` (`TDash`; Q5 states the cut).  Shape as P1, without two or more hyphens right before a `}`. |
 | Q5 | Smart punctuation | longer hyphen runs divided "uniformly, if possible, and preferring em-dashes" | T | `dashes_divide`, `dash_run_in_text`, `dash_run_at_end` (InlineScan.v); `smart_dash_runs` | `dashes_divide` is the cut, for every length.  The other two say the scan hands it the whole run: from the scan reading text, as O2, a run ended by any byte but `}`, or by the end of the line.  A `}` takes the last hyphen back for a delete closer.  Unit: `dashes_1` ... `dashes_13`. |
 | MA1 | Math | verbatim prefixed with `$` (inline) or `$$` (display) | T~ | `para_inlines_valid`; `math`, `math_display` | The dollars before a backtick run are part of its token (`pre`), the dollars before the last two text.  Shape as P1, while dollar math is off.  Unit: InlineExamples.v, "Math". |
-| F1 | Footnote reference | "`^` + the reference label in square brackets" | E | `footnote_reference` | Unit: InlineExamples.v, "Footnote references". |
-| B1 | Line break | "Line breaks in inline content are treated as 'soft' breaks" | E | `line_break` | |
+| F1 | Footnote reference | "`^` + the reference label in square brackets" | T~ | `para_inlines_valid`; `footnote_reference` | `TNote` (`lbrack_tok`, Precedence.v): a `[^`, a label and its `]` are one token, the `[` opens no bracket, and nothing in the label is read.  Shape as P1, for a label that closes on its line and holds no backslash.  Unit: InlineExamples.v, "Footnote references". |
+| B1 | Line break | "Line breaks in inline content are treated as 'soft' breaks" | T~ | `para_inlines_valid`; `line_break` | `TBreak` (Precedence.v): a newline is a soft break, but right after a hard break.  Shape as P1. |
 | B2 | Line break | "may be rendered as spaces, or ... as newlines" | n/a | | Rendering. |
 | C1 | Comment | "Material between two `%` characters in an attribute will be ignored" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `comment_in_attribute` | `CComment` and `BOpenComment` in the grammar (`AttrSyntax.v`) add nothing to the attributes.  As AT2. |
 | C2 | Comment | "an attribute specifier that contains only a comment" as a general comment | T~ | `para_inlines_valid`; `comment_alone` | A spec holding only a comment has no attributes: `attach` leaves the text before it whole, and the spec's bytes are no text.  Shape as AT1, and holes off. |
@@ -112,8 +115,8 @@ and line breaks in a spec (AT6).  The other 18 inline rules are at E.
 | Y2 | Symbols | "may be treated specially by a filter" | n/a | | |
 | R1 | Raw inline | "a verbatim span followed by `{=FORMAT}`" | T~ | `para_inlines_valid`; `raw_inline` | The spec is part of the verbatim's token (`raw`).  Shape as P1, for a spec that closes.  Unit: InlineExamples.v, "Raw inline". |
 | R2 | Raw inline | "passed through verbatim when rendering the designated format, but ignored otherwise" | n/a | | Rendering. |
-| N1 | Span | "Text in square brackets that is not a link or image and is followed immediately by an attribute" | T~ | `para_inlines_valid`; `span`, `span_needs_attributes` | `TSpan` (Precedence.v): a `]` before a `{` and a spec that closes may close its bracket, the spec is its region, and the pair is a span with the spec's attributes.  A `]{` whose spec does not close is outside the alphabet.  Shape as P1, for a spec that closes on its line with bytes of the alphabet (no period, quote, hyphen or backslash: identifiers, bare values and comments), and not right after a backtick run. |
-| AT1 | Inline attributes | "must *immediately follow* the inline element ... (with no intervening whitespace)" | T~ | `para_inlines_valid`; `inline_attrs_need_adjacency` | `TAttr` and `attach` (Precedence.v): a spec waits among the nodes of its pair and, when the pair closes, lands on the last word of plain text or on the node before it, and on nothing after whitespace, after a break, after a non-breaking space or at the pair's start.  A hard break trims only the whitespace written right before its backslash, so text on either side of a spec is not adjacent.  Shape as P1, for a spec that closes on its line with bytes of the alphabet (no period, quote, hyphen or backslash: identifiers, bare values and comments), and not right after a backtick run.  Unit: InlineExamples.v, "Inline attributes". |
+| N1 | Span | "Text in square brackets that is not a link or image and is followed immediately by an attribute" | T~ | `para_inlines_valid`; `span`, `span_needs_attributes` | `TSpan` (Precedence.v): a `]` before a `{` and a spec that closes may close its bracket, the spec is its region, and the pair is a span with the spec's attributes.  A `]{` whose spec does not close is outside the alphabet.  Shape as P1, for a spec that closes on its line with bytes of the alphabet (no backslash), and not right after a backtick run. |
+| AT1 | Inline attributes | "must *immediately follow* the inline element ... (with no intervening whitespace)" | T~ | `para_inlines_valid`; `inline_attrs_need_adjacency` | `TAttr` and `attach` (Precedence.v): a spec waits among the nodes of its pair and, when the pair closes, lands on the last word of plain text or on the node before it, and on nothing after whitespace, after a break, after a non-breaking space or at the pair's start.  A hard break trims only the whitespace written right before its backslash, so text on either side of a spec is not adjacent.  Shape as P1, for a spec that closes on its line with bytes of the alphabet (no backslash), and not right after a backtick run.  Unit: InlineExamples.v, "Inline attributes". |
 | AT2 | Inline attributes | "`.foo` specifies `foo` as a class.  Multiple classes ... will be combined" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_classes_combine` | The attribute language as a grammar written without the machine (`body`, `attrs_of` in `AttrSyntax.v`): the machine is done after a body and its `}` exactly when the grammar reads that body, with the grammar's attributes.  Every spec, block or inline, is read by this machine (`attr_open`, `iattr_feed`, `ispan_feed`); the inline scan's use of it is by the code, not restated.  Where the reference is silent the grammar follows djot.js: `SPEC-GAP`, 2026-10-07. |
 | AT3 | Inline attributes | "if multiple identifiers are given, the last one is used" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_last_id` | `add_item` on `IId`.  As AT2. |
 | AT4 | Inline attributes | `key="value"` or `key=value`; bare values of ASCII alphanumerics, `_`, `:`, `-`; "Backslash escapes may be used inside quoted values" | T | `machine_accepts`, `machine_sound` (AttrAgree.v); `inline_attrs_bare_value`, `inline_attrs_quoted_escape` | `OBare`, `CQuoted`, `quoted`.  As AT2.  Which bytes escape and how whitespace in a value is stored: `SPEC-GAP`, 2026-10-07. |
@@ -353,12 +356,15 @@ attributes").
 
 T~ rows where the restriction is not a gap to close now.
 
-- **P1 to P6, O3 to O5, V2 to V4, MA1, R1, A1 to A3, Y1**: the alphabet
-  leaves out `{` except as a marker or a raw spec, `[^`, `[[`, `]{`,
-  images and smart quotes; the inline specification widens it stage by
-  stage (`261007.plan.inline-specification.md`).  Each is a new token
-  kind in `next_tok` and a new case through the simulation in
-  InlinePrecedence.v.  That is a plan of its own, not a row to sweep.
+- **Every inline T~ row whose shape is "as P1"**: the alphabet admits
+  every byte and leaves out a few shapes: `[[`; a spec, a footnote label
+  or a symbol that does not close on its line; a spec holding a
+  backslash, or right after a backtick run; a `!` right before a
+  footnote reference; and two or more hyphens right before a `}`.  The
+  inline specification names them
+  (`261007.plan.inline-specification.md`).  Taking one in is a case
+  through the simulation in InlinePrecedence.v that carries a reading
+  which fails, not a row to sweep.
 - **BI3**: the rule as worded is false for indentation that differs from
   line to line, which code block contents and nesting read.  Uniform
   indentation is all there is to state.
@@ -374,9 +380,7 @@ T~ rows where the restriction is not a gap to close now.
 
 ### An example is enough
 
-L1, L2, L3, L4, L6, I1,
-M1, M4, M5, H1, S1, D1, Q1, Q2, Q3, Q4, F1, B1, C2,
-N1, AT1, AT7, BI4, PT5, PT6, PT8, RD3,
+BI4, PT5, PT6, PT8, RD3,
 RD4, LH3, LH4, and what the T~ theorem leaves of DL1.
 
 Each is one case, or a list of cases with no quantifier worth stating,

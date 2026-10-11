@@ -383,7 +383,7 @@ module Profile = struct
     | RWidth -> "the width must be at least 1"
     | RNotPunct -> Printf.sprintf "%C is not ASCII punctuation" c
     | RReserved -> Printf.sprintf "%C is taken by other syntax" c
-    | RDecay -> "an unmatched delimiter must leave something behind"
+    | RDecay -> "an unmatched delimiter must leave something behind, ending in no whitespace"
     | RBareHyphen -> "a bare delimiter cannot be a hyphen"
     | RTaken row ->
       let r = List.find (fun (r : Delimiter.t) -> r.row = row) rows in

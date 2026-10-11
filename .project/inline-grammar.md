@@ -34,16 +34,20 @@ A paragraph's tokens (`tok_at`), not its bytes.  `level` in
 does: from where the last token ended, or from past a region.  The
 lexer has already settled what each token *may* do:
 
-- a delimiter may open, close, or both (flanking, M2; braces, P3), and
-  its kind is its style and whether it is braced (P4), so `{_` and `_`
-  never pair;
-- `[` may open, and `]` may close when `(` or `[` follows it, or a `{`
-  and an attribute spec that closes (a span, whose region is the spec);
-  any other `]` is text;
+- a delimiter may open, close, or both (flanking, M2; braces, P3; a
+  bare single quote opens only where no apostrophe can be meant, Q1),
+  and its kind is its style and whether it is braced (P4), so `{_` and
+  `_` never pair;
+- `[` may open, and so may `![`, an image's bracket of the same kind;
+  `]` may close when `(` or `[` follows it, or a `{` and an attribute
+  spec that closes (a span, whose region is the spec); any other `]` is
+  text, and so is any other `!`;
 - a verbatim, a backtick run and the bytes to the next run of its
   length or to the paragraph's end, is one token, with any dollars
   before it (math) and a raw spec after it; so is an autolink candidate,
-  a symbol, and an attribute spec that closes;
+  a symbol, an attribute spec that closes, a footnote reference
+  (`[^`, a label and its `]`), a run of periods, and a run of hyphens,
+  which before a `}` leaves its last hyphen to be a closer;
 - these, escapes, breaks and other bytes are text.
 
 The grammar decides what each token does.

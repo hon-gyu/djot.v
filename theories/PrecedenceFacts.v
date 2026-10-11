@@ -172,6 +172,29 @@ Qed.
 Lemma dollar_run_le : forall s, dollar_run s <= String.length s.
 Proof. induction s as [|c s IH]; cbn; [lia|]. destruct (Ascii.eqb c dollar); cbn; lia. Qed.
 
+Lemma run_of_le : forall c s, run_of c s <= String.length s.
+Proof. induction s as [|d s IH]; cbn; [lia|]. destruct (Ascii.eqb d c); cbn; lia. Qed.
+
+Lemma dash_tok_len : forall c rest t l,
+  Ascii.eqb c hyphen = true -> dash_tok (String c rest) = (t, l) ->
+  0 < l <= S (String.length rest).
+Proof.
+  intros c rest t l Hc H. unfold dash_tok in H. pose proof (run_of_le hyphen rest) as Le.
+  pose proof (sdrop_length (run_of hyphen (String c rest)) (String c rest)) as Ls.
+  cbn [run_of String.length] in *. rewrite Hc in *.
+  destruct (dstyle_of hyphen) as [k|]; [|injection H as <- <-; lia].
+  pose proof (dwidth_nonzero k) as Wn.
+  destruct (dwidth k) as [|w]; [destruct (Wn eq_refl)|].
+  destruct (starts_with rbrace (sdrop (S (run_of hyphen rest)) (String c rest))
+            && Nat.leb (S w) (S (run_of hyphen rest)))%bool eqn:E;
+    [|injection H as <- <-; lia].
+  apply andb_true_iff in E as [Er Ew]. apply Nat.leb_le in Ew.
+  destruct (sdrop (S (run_of hyphen rest)) (String c rest)) as [|d r]; [discriminate Er|].
+  cbn [String.length] in Ls.
+  destruct (Nat.eqb (S (run_of hyphen rest)) (S w)) eqn:En;
+    [|apply Nat.eqb_neq in En]; injection H as <- <-; lia.
+Qed.
+
 Lemma dollar_tok_len : forall c rest t l,
   Ascii.eqb c dollar = true -> dollar_tok (String c rest) = (t, l) ->
   0 < l <= S (String.length rest).
@@ -274,6 +297,30 @@ Proof.
   rewrite length_append. cbn [String.length]. lia.
 Qed.
 
+Lemma note_go_split : forall s esc l,
+  note_go esc s = Some l -> exists r, s = (l ++ String rbrack r)%string.
+Proof.
+  induction s as [|c s IH]; intros esc l H; [discriminate|]. cbn [note_go] in H.
+  destruct (Ascii.eqb c nl_char); [discriminate|].
+  assert (K : forall e, option_map (String c) (note_go e s) = Some l ->
+              exists r, String c s = (l ++ String rbrack r)%string).
+  { intros e He. destruct (note_go e s) as [l'|] eqn:E; [|discriminate]. injection He as <-.
+    destruct (IH e l' E) as [r ->]. exists r. reflexivity. }
+  destruct esc; [exact (K _ H)|]. destruct (is_bslash c); [exact (K _ H)|].
+  destruct (Ascii.eqb c rbrack) eqn:Er; [|exact (K _ H)].
+  injection H as <-. apply Ascii.eqb_eq in Er. subst c. exists s. reflexivity.
+Qed.
+
+(* A footnote reference's label is right after its `[^`, before a `]`. *)
+Lemma note_at_split : forall s l,
+  note_at s = Some l -> exists r, s = String hat (l ++ String rbrack r).
+Proof.
+  intros [|c s] l H; [discriminate|]. cbn [note_at] in H.
+  destruct (notes_enabled && Ascii.eqb c hat)%bool eqn:E; [|discriminate].
+  apply andb_true_iff in E as [_ E]. apply Ascii.eqb_eq in E. subst c.
+  destruct (note_go_split s false l H) as [r ->]. exists r. reflexivity.
+Qed.
+
 Lemma next_tok_len : forall prev s t l,
   next_tok prev s = Some (t, l) -> 0 < l <= String.length s.
 Proof.
@@ -288,7 +335,7 @@ Proof.
   assert (G : forall k, at_rbrace (get (dwidth k) s) = true -> dwidth k < String.length s).
   { intros k Hg. unfold at_rbrace in Hg. destruct (get (dwidth k) s) eqn:E; [|discriminate].
     exact (get_lt _ _ _ E). }
-  rewrite <- Es in H. unfold next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok in H. rewrite Es in H at 1.
+  rewrite <- Es in H. unfold next_tok, esc_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok in H. rewrite Es in H at 1.
   injection H as H. rewrite <- Es. subst s. cbn [String.length] in *.
   pose proof (line_rest_length rest). pose proof (ws_run_length rest).
   repeat match type of H with
@@ -310,12 +357,21 @@ Proof.
         pose proof (verb_tok_len 0 (String x rest) t l Ht H); cbn [String.length] in *; lia end
     | match goal with Hd : Ascii.eqb ?x dollar = true |- _ =>
         exact (dollar_tok_len _ _ t l Hd H) end
+    | match goal with Hd : Ascii.eqb ?x period = true |- _ =>
+        rewrite Hd; pose proof (run_of_le period rest); lia end
+    | match goal with Hd : Ascii.eqb ?x hyphen = true |- _ =>
+        exact (dash_tok_len _ _ t l Hd H) end
     | match goal with Hd : Ascii.eqb ?x lt = true |- _ =>
         exact (auto_tok_len _ t l H) end
     | match goal with Hd : Ascii.eqb ?x ":"%char = true |- _ =>
         exact (sym_tok_len _ t l H) end
     | match goal with Hs : spec_at _ = Some _ |- _ =>
-        pose proof (spec_at_len _ _ _ Hs); cbn [String.length]; lia end ].
+        pose proof (spec_at_len _ _ _ Hs); cbn [String.length]; lia end
+    | match goal with Hs : starts_with lbrack ?r = true |- _ =>
+        destruct r; [discriminate Hs|cbn [String.length]; lia] end
+    | match goal with Hs : note_at _ = Some _ |- _ =>
+        destruct (note_at_split _ _ Hs) as [? ->]; cbn [String.length];
+        rewrite length_append; cbn [String.length]; lia end ].
 Qed.
 
 Lemma tok_at_len : forall s p t l,
@@ -357,7 +413,7 @@ Qed.
 
 Lemma tok_at_close : forall s p b l, tok_at s p = Some (TClose b, l) -> l = 1.
 Proof.
-  intros s p b l H. unfold tok_at, next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  intros s p b l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
   | context [sym_tok ?a] =>
@@ -382,7 +438,7 @@ Lemma tok_at_span : forall s p b a l,
   tok_at s p = Some (TSpan b a, l) ->
   l = 1 /\ exists r, sdrop p s = String rbrack (String lbrace (b ++ String rbrace r)).
 Proof.
-  intros s p b a l H. unfold tok_at, next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  intros s p b a l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
   | context [sym_tok ?a] =>
@@ -412,7 +468,51 @@ Qed.
 
 Lemma tok_at_dollars : forall s p k l, tok_at s p = Some (TDollars k, l) -> l = k.
 Proof.
-  intros s p k l H. unfold tok_at, next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  intros s p k l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
+  repeat match type of H with
+  | context [sym_tok ?a] =>
+      let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
+      cbn iota beta in H
+  | context [auto_tok ?a] =>
+      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | context [verb_tok ?a ?b] =>
+      let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | (if ?b then _ else _) = _ => destruct b
+  | (match ?x with _ => _ end) = _ => destruct x
+  | context [if ?b then _ else _] => destruct b
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x
+  | context [match ?x with pair _ _ => _ end] => destruct x
+  end; congruence.
+Qed.
+
+Lemma tok_at_dots : forall s p k l, tok_at s p = Some (TDots k, l) -> l = k.
+Proof.
+  intros s p k l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
+  repeat match type of H with
+  | context [sym_tok ?a] =>
+      let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
+      cbn iota beta in H
+  | context [auto_tok ?a] =>
+      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | context [verb_tok ?a ?b] =>
+      let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | (if ?b then _ else _) = _ => destruct b
+  | (match ?x with _ => _ end) = _ => destruct x
+  | context [if ?b then _ else _] => destruct b
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x
+  | context [match ?x with pair _ _ => _ end] => destruct x
+  end; congruence.
+Qed.
+
+Lemma tok_at_dash : forall s p k l, tok_at s p = Some (TDash k, l) -> l = k.
+Proof.
+  intros s p k l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
   | context [sym_tok ?a] =>
@@ -1125,7 +1225,7 @@ Proof.
     - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
     - intros k Hk. congruence. }
   (* text, a break and the escapes neither open nor close *)
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa']; try (apply Text; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa'|nl|dn|hn]; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Hop : open_key s n = if op then Some K else None)
@@ -1241,7 +1341,7 @@ Proof.
             /\ (rs_os (ropen i k op st') = os \/ rs_os (ropen i k op st') = i :: os)).
   { intros k [|] st' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
       split; [left|right|left|left]; reflexivity. }
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa']; try (split; left; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa'|nl|dn|hn]; try (split; left; reflexivity).
   - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
       [destruct (Nat.ltb (tok_end s p) i)| |];
       try (apply Ro; reflexivity); try (split; left; reflexivity).

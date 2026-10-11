@@ -1,9 +1,9 @@
 (* ai-disclosure: autonomous *)
 
-(* The reference's precedence rules for delimiters and brackets (syntax
-   reference, "Precedence"), stated as a reading of a paragraph's bytes
-   and independent of the scanner: the tokens, the readings the rules
-   allow, and the tree a reading describes.  Definitions only.
+(* Inline syntax, stated as a reading of a paragraph's bytes and
+   independent of the scanner: the tokens, the readings the reference's
+   precedence rules allow (syntax reference, "Precedence"), and the tree
+   a reading describes.  Definitions only.
    `PrecedenceFacts.v` proves that exactly one reading is valid, and
    `InlinePrecedence.v` that the scanner builds its tree. *)
 
@@ -20,24 +20,20 @@ Context {T : dtable}.
 Tokens
 ======
 
-The rows covered here are the ones whose unmatched token is its own
-text: `_ * ^ ~`, written bare or in braces, and `= +`, written only in
-braces, in djot's table.  The quotes are left out: an unmatched quote is
-a curly quote, and whether one may open depends on the byte before it.
-The hyphen is left out too: a run of dashes claims it first. *)
+Every row of the table that is on is covered: in djot's, `_ * ^ ~`
+written bare or in braces, `= +` written only in braces, and the two
+quotes.  An unmatched token of a row is its own text, or for a quote a
+curly quote (`delim_lit` below). *)
 
-Definition self_row (k : dstyle) : bool :=
-  match dsyntax_of k, dc_decay cfg k with
-  | (DBare | DBraced), DDSelf => true
-  | _, _ => false
-  end.
+(* A row spelled with the hyphen is one hyphen wide, as djot's delete row
+   is: a run of hyphens before a `}` gives its last one back to be the
+   row's closer. *)
+Definition hyphen_row_ok : bool :=
+  match dstyle_of hyphen with Some k => Nat.eqb (dwidth k) 1 | None => true end.
 
-(* Whether a row's token may open without braces. *)
-Definition bare_opens (k : dstyle) : bool :=
-  match dsyntax_of k with DBare => true | _ => false end.
-
-(* The bytes a line is drawn from: the characters of those rows, the
-   braces, the brackets, the backtick, `<`, `:` while tags are off, and
+(* The bytes a line is drawn from: the characters of the rows, the
+   braces, the brackets, the backtick, `<`, `!`, `.`, `-`, `:` while tags
+   are off, and
    bytes that no row and no other syntax claims, the parens among them.  A paren is not a row's character
    here, since a destination counts parens.  The newline ends the
    line; the `$` is drawn on while dollar math is off, and a hole's `%`
@@ -45,13 +41,14 @@ Definition bare_opens (k : dstyle) : bool :=
 Definition in_alphabet (c : ascii) : bool :=
   (negb (Ascii.eqb c nl_char)
    && (Ascii.eqb c lbrace || Ascii.eqb c rbrace || Ascii.eqb c lbrack
-       || Ascii.eqb c rbrack || is_tick c || Ascii.eqb c lt
+       || Ascii.eqb c rbrack || is_tick c || Ascii.eqb c lt || Ascii.eqb c bang
+       || Ascii.eqb c period
        || (Ascii.eqb c ":"%char && negb tags_enabled)
        || (Ascii.eqb c dollar && negb dollar_math_enabled)
        || (negb (dreserved c) && negb (holes_enabled && Ascii.eqb c percent)))
-   && negb (Ascii.eqb c hyphen)
+   && (negb (Ascii.eqb c hyphen) || hyphen_row_ok)
    && match dstyle_of c with
-      | Some k => self_row k && negb (Ascii.eqb c lparen || Ascii.eqb c rparen)
+      | Some _ => negb (Ascii.eqb c lparen || Ascii.eqb c rparen)
       | None => true
       end)%bool.
 
@@ -159,16 +156,67 @@ Definition spec_ahead (s : string) : bool :=
 Definition raw_ahead (s : string) : bool :=
   (raw_inline_enabled && match raw_spec s with Some _ => true | None => false end)%bool.
 
+(* The label of a footnote reference, read from after its `[^` (F1): the
+   bytes before the `]` that ends it.  A backslash keeps the byte after
+   it from ending the label, and stays in it.  As a spec does, a label
+   here ends within its line. *)
+Fixpoint note_go (esc : bool) (s : string) : option string :=
+  match s with
+  | EmptyString => None
+  | String c r =>
+      if Ascii.eqb c nl_char then None
+      else if esc then option_map (String c) (note_go false r)
+      else if is_bslash c then option_map (String c) (note_go true r)
+      else if Ascii.eqb c rbrack then Some EmptyString
+      else option_map (String c) (note_go false r)
+  end.
+
+(* The label after a `[`, while footnotes are on. *)
+Definition note_at (s : string) : option string :=
+  match s with
+  | String c r => if (notes_enabled && Ascii.eqb c hat)%bool then note_go false r else None
+  | EmptyString => None
+  end.
+
+(* Whether a label closes with no backslash in it. *)
+Fixpoint note_plain (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c r =>
+      if (Ascii.eqb c nl_char || is_bslash c)%bool then false
+      else if Ascii.eqb c rbrack then true
+      else note_plain r
+  end.
+
+Definition note_ahead (s : string) : bool :=
+  match s with
+  | String c r => (notes_enabled && Ascii.eqb c hat && note_plain r)%bool
+  | EmptyString => false
+  end.
+
+(* The run of `c` a string begins with. *)
+Fixpoint run_of (c : ascii) (s : string) : nat :=
+  match s with
+  | String d r => if Ascii.eqb d c then S (run_of c r) else 0
+  | EmptyString => 0
+  end.
+
 (* What may follow a byte.  A `{` before anything but a row's character
    is drawn on only as an attribute spec that closes; a `{` after a `]`
    only as a span's spec that closes; one after a backtick is drawn on only as a raw
-   spec that closes; a `[` before a `^`
-   begins a footnote reference and before a `[` a wikilink; an autolink
-   candidate holds no backslash; and a `:` either begins a symbol or is
-   text on the spot. *)
+   spec that closes; a `[` before a `^` is drawn on only as a footnote
+   reference whose label closes, and not after a `!`; a `[` before a `[`
+   begins a wikilink; an autolink
+   candidate holds no backslash; a `:` either begins a symbol or is
+   text on the spot; and two hyphens or more do not come right before a
+   `}`, which takes the run's last hyphen back for a closer. *)
 Definition follow_ok (c : ascii) (rest : string) : bool :=
-  ((negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest)
-   && negb (Ascii.eqb c lbrack && (starts_with lbrack rest || starts_with hat rest))
+  (negb (Ascii.eqb c hyphen && starts_with hyphen rest
+         && starts_with rbrace (sdrop (run_of hyphen rest) rest))
+   && (negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest)
+   && negb (Ascii.eqb c lbrack
+            && (starts_with lbrack rest || (starts_with hat rest && negb (note_ahead rest))))
+   && negb (Ascii.eqb c bang && starts_with lbrack rest && starts_with hat (sdrop 1 rest))
    && negb (Ascii.eqb c rbrack && starts_with lbrace rest && negb (spec_ahead (sdrop 1 rest)))
    && negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest))
    && negb (Ascii.eqb c lt && negb (auto_clean rest))
@@ -196,7 +244,9 @@ Fixpoint over_alphabet (s : string) : bool :=
 (* A text token is one byte, so that every token is nonempty.  A marked
    token is an opener `{_` or a closer `_}`, never both.  A break is a
    newline: a soft break in the tree, and whitespace to the delimiters on
-   either side of it.  `TOpen` is a `[`, and `TClose` a `]` followed by
+   either side of it.  `TOpen` is a `[`, or a `!` and a `[`, which opens
+   an image's bracket (I1); a `!` before anything else is text.
+   `TClose` is a `]` followed by
    `(`, which begins a destination (`dest`), or by `[`, which begins a
    reference label; a `]` before anything else is text.
 
@@ -229,12 +279,20 @@ Fixpoint over_alphabet (s : string) : bool :=
    spec while inline attributes are on (`TAttr`, with the bytes between
    its braces); when no spec closes there the `{` is text.  A `]` before
    a `{` and a spec that closes may close a span (`TSpan`, N1), whose
-   region is the spec. *)
+   region is the spec.
+
+   A `[`, a `^`, a label and the `]` that ends it are a footnote
+   reference while footnotes are on (`TNote`, F1); the `[` opens no
+   bracket.
+
+   A run of periods is one token (`TDots`), and so is a run of hyphens
+   (`TDash`), which before a `}` leaves its last hyphens to be the
+   closer of the row spelled with the hyphen (D1). *)
 Inductive token : Type :=
   | TText (c : ascii)
   | TBreak
   | TDelim (k : dstyle) (marked opens closes : bool)
-  | TOpen
+  | TOpen (image : bool)
   | TClose (dest : bool)
   | TEsc (c : ascii)
   | TEscWs (ws : string)
@@ -244,7 +302,10 @@ Inductive token : Type :=
   | TAuto (src : string) (ok : bool)
   | TSymbol (alias : string)
   | TAttr (body : string) (a : attr)
-  | TSpan (body : string) (a : attr).
+  | TSpan (body : string) (a : attr)
+  | TNote (label : string)
+  | TDots (n : nat)
+  | TDash (n : nat).
 
 (* The whitespace a string begins with. *)
 Fixpoint ws_run (s : string) : string :=
@@ -333,6 +394,37 @@ Definition esc_tok (s : string) : token * nat :=
        | EmptyString => (THard EmptyString, 1)
        end.
 
+(* The run of periods that `s` begins with. *)
+Definition dots_tok (s : string) : token * nat :=
+  let n := run_of period s in (TDots n, n).
+
+(* The run of hyphens that `s` begins with.  Before a `}`, the run's last
+   hyphens are the closer of the row spelled with the hyphen, when there
+   is one and the run is long enough for its token. *)
+Definition dash_tok (s : string) : token * nat :=
+  let n := run_of hyphen s in
+  match dstyle_of hyphen with
+  | Some k =>
+      if (starts_with rbrace (sdrop n s) && Nat.leb (dwidth k) n)%bool
+      then if Nat.eqb n (dwidth k) then (TDelim k true false true, S n)
+           else (TDash (n - dwidth k), n - dwidth k)
+      else (TDash n, n)
+  | None => (TDash n, n)
+  end.
+
+(* What a `!` begins, from what `s` has after it: an image's bracket
+   before a `[` (I1), or text. *)
+Definition bang_tok (s : string) : token * nat :=
+  if starts_with lbrack s then (TOpen true, 2) else (TText bang, 1).
+
+(* What a `[` begins, from what `s` has after it: a footnote reference
+   before a `^` and a label that closes (F1), or a bracket. *)
+Definition lbrack_tok (s : string) : token * nat :=
+  match note_at s with
+  | Some l => (TNote l, S (S (S (String.length l))))
+  | None => (TOpen false, 1)
+  end.
+
 (* What a `]` is, from what `s` has after it: a closer before a
    destination's `(` or a label's `[`, a span's closer before a spec that
    closes (N1), or text. *)
@@ -368,8 +460,11 @@ Definition lbrace_tok (s : string) : token * nat :=
    cut, left to right, into tokens of the row's width, and a remainder
    shorter than that is text.  A token with `}` after it is a marked
    closer (P3).  A bare token may open when its row may be written bare
-   and the byte after it is not whitespace, and may close when the byte
-   before it is not whitespace (M2).  Any other byte is text. *)
+   there (`dbare`: a single quote only at the start of a line or after
+   whitespace, a quote, a hyphen, `(` or `[`, where no apostrophe can be
+   meant, Q1) and the byte after it is not whitespace, and may close
+   when the byte before it is not whitespace (M2).  Any other byte is
+   text. *)
 Definition delim_tok (prev : option ascii) (c : ascii) (s : string) : token * nat :=
   match dstyle_of c with
   | Some k =>
@@ -377,7 +472,7 @@ Definition delim_tok (prev : option ascii) (c : ascii) (s : string) : token * na
       then if at_rbrace (get (dwidth k) s)
            then (TDelim k true false true, S (dwidth k))
            else (TDelim k false
-                   (bare_opens k && nonspace_at (get (dwidth k) s))
+                   (dbare k prev && nonspace_at (get (dwidth k) s))
                    (nonspace_at prev), dwidth k)
       else (TText c, 1)
   | None => (TText c, 1)
@@ -396,7 +491,10 @@ Definition next_tok (prev : option ascii) (s : string) : option (token * nat) :=
          else if Ascii.eqb c dollar then dollar_tok s
          else if Ascii.eqb c lt then auto_tok rest
          else if Ascii.eqb c ":"%char then sym_tok rest
-         else if Ascii.eqb c lbrack then (TOpen, 1)
+         else if Ascii.eqb c period then dots_tok s
+         else if Ascii.eqb c hyphen then dash_tok s
+         else if Ascii.eqb c bang then bang_tok rest
+         else if Ascii.eqb c lbrack then lbrack_tok rest
          else if Ascii.eqb c rbrack then rbrack_tok rest
          else if Ascii.eqb c lbrace then lbrace_tok rest
          else delim_tok prev c s)
@@ -461,7 +559,7 @@ Definition needs_content (k : key) : bool :=
 Definition opens_as (t : token) : option key :=
   match t with
   | TDelim k mr true _ => Some (KDelim k mr)
-  | TOpen => Some KBracket
+  | TOpen _ => Some KBracket
   | _ => None
   end.
 
@@ -638,7 +736,7 @@ Definition tok_text (t : token) : string :=
   | TDelim k false _ _ => dtoken k
   | TDelim k true true _ => (one lbrace ++ dtoken k)%string
   | TDelim k true false _ => (dtoken k ++ one rbrace)%string
-  | TOpen => one lbrack
+  | TOpen im => bracket_open im
   | TClose _ => one rbrack
   | TEsc c => String bslash (one c)
   | TEscWs ws => String bslash ws
@@ -651,6 +749,9 @@ Definition tok_text (t : token) : string :=
   | TSymbol a => (String ":"%char a ++ one ":"%char)%string
   | TAttr b _ => (String lbrace b ++ one rbrace)%string
   | TSpan _ _ => one rbrack
+  | TNote l => (String lbrack (String hat l) ++ one rbrack)%string
+  | TDots n => chars period n
+  | TDash n => chars hyphen n
   end.
 
 (* A run escaped by a backslash is a non-breaking space and the rest of
@@ -684,17 +785,22 @@ Definition region_text (s : string) (d e : nat) (dest : bool) : string :=
   let txt := substring (S (S d)) (e - S (S d)) s in
   if dest then dest_text false txt else txt.
 
-(* The link a bracket pair and its region make: to the destination, or
-   to the label, which an empty label takes from the link text. *)
-Definition region_node (dest : bool) (kids : inlines) (txt : string) : inline :=
-  if dest then Link kids (Direct (no_nl txt))
-  else Link kids (Reference (normalize_label
-                    (match txt with
-                     | EmptyString => reference_inlines_text kids
-                     | _ => txt
-                     end))).
+(* The link a bracket pair and its region make, an image when the
+   bracket is an image's (I1): to the destination, or to the label, which
+   an empty label takes from the link text (L6). *)
+Definition region_node (dest image : bool) (kids : inlines) (txt : string) : inline :=
+  bnode image kids
+    (if dest then Direct (no_nl txt)
+     else Reference (normalize_label
+            (match txt with
+             | EmptyString => reference_inlines_text kids
+             | _ => txt
+             end))).
 
-Inductive tkind : Type := TKDelim (k : dstyle) | TKBracket.
+Inductive tkind : Type := TKDelim (k : dstyle) | TKBracket (image : bool).
+
+Definition tk_image (k : tkind) : bool :=
+  match k with TKBracket im => im | TKDelim _ => false end.
 
 (* What a pair holds while it is open: a node, or a spec waiting. *)
 Inductive titem : Type := TIn (n : node inline) | TMark (a : attr).
@@ -811,9 +917,23 @@ Definition verb_node (pre : nat) (raw : option string) (body : string) : inline 
   | None, _ => Math DisplayMath (trim_verb body)
   end.
 
+(* What a row's token reads as when it is text: its source, or for a
+   quote the curly quote its row and its braces choose (`ddecay_str`,
+   Q1, Q2): a double quote the left one, the right one before a `}`; a
+   single quote the right one, an apostrophe, the left one after a `{`.
+   `cm` says a `}` comes right after an opener marked with `{`. *)
+Definition delim_lit (k : dstyle) (mr op cm : bool) : string :=
+  if (mr && op)%bool then ddecay_str k true cm else ddecay_str k false mr.
+
+(* A run of periods as text: an ellipsis for every three, left to right,
+   and the one or two left over (Q4). *)
+Definition dots (n : nat) : string :=
+  (srep typography_ellipsis (Nat.div n 3) ++ chars period (Nat.modulo n 3))%string.
+
 (* One token of the chain; `hard` says the token before it was a hard
    break, which a break right after is part of.  A reference label that
-   never ends is text, brackets and all, to the paragraph's end. *)
+   never ends is text, brackets and all, to the paragraph's end.  A span
+   is no image: the `!` of its bracket is text before it. *)
 Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   (fs : tframes) (top : list titem) : tframes * list titem :=
   match t with
@@ -835,24 +955,29 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   | TAuto src ok => if ok then temit (mk (auto_node src)) fs top else temit_str (tok_text t) fs top
   | TSymbol a => temit (mk (Symbol a)) fs top
   | TAttr _ a => tmark a fs top
+  | TNote l => temit (mk (FootnoteReference (normalize_label l))) fs top
+  | TDots n => temit_str (dots n) fs top
+  | TDash n => temit_str (typography_dashes n) fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
-  | TDelim k _ _ _ =>
+  | TDelim k mr op _ =>
       if is_opener m i then ((TKDelim k, []) :: fs, top)
       else match is_closer m i, fs with
            | true, (TKDelim k', acc) :: fs0 => temit (mk (dnode k' (resolve acc))) fs0 top
-           | _, _ => temit_str (tok_text t) fs top
+           | _, _ =>
+               temit_str (delim_lit k mr op (at_rbrace (get (tok_end s i) s))) fs top
            end
-  | TOpen =>
-      if is_opener m i then ((TKBracket, []) :: fs, top)
+  | TOpen im =>
+      if is_opener m i then ((TKBracket im, []) :: fs, top)
       else temit_str (tok_text t) fs top
   | TClose b =>
       match is_closer m i, fs with
-      | true, (_, acc) :: fs0 =>
+      | true, (k, acc) :: fs0 =>
           let kids := resolve acc in
           match region_end s i b with
-          | Some e => temit (mk (region_node b kids (region_text s i e b))) fs0 top
+          | Some e =>
+              temit (mk (region_node b (tk_image k) kids (region_text s i e b))) fs0 top
           | None =>
-              temit_all (mk (Str (one lbrack)) :: kids
+              temit_all (mk (Str (bracket_open (tk_image k))) :: kids
                          ++ [mk (Str (one rbrack ++ if b then EmptyString else sdrop (S i) s))])%list
                 fs0 top
           end
@@ -860,7 +985,10 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
       end
   | TSpan _ a =>
       match is_closer m i, fs with
-      | true, (_, acc) :: fs0 => temit (Node NoPos a (Span EmptyString (resolve acc))) fs0 top
+      | true, (k, acc) :: fs0 =>
+          let '(fs1, top1) := if tk_image k then temit_str (one bang) fs0 top
+                              else (fs0, top) in
+          temit (Node NoPos a (Span EmptyString (resolve acc))) fs1 top1
       | _, _ => temit_str (tok_text t) fs top
       end
   end.
@@ -934,8 +1062,8 @@ Definition ropen (i : nat) (k : key) (op : bool) (st : rstate) : rstate :=
 Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
   match t with
   | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ _ | TDollars _ | TAuto _ _
-  | TSymbol _ | TAttr _ _ => st
-  | TOpen => ropen i KBracket true st
+  | TSymbol _ | TAttr _ _ | TNote _ | TDots _ | TDash _ => st
+  | TOpen _ => ropen i KBracket true st
   | TDelim k mr op cl =>
       match (if cl then pick (KDelim k mr) (rs_live st) else PNone) with
       | PFound p below =>

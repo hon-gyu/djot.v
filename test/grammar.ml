@@ -22,14 +22,17 @@ let table = Djot.Inline.djot_table
 (* Delimiters bare and braced, brackets with what may follow them,
    parens for destinations, escapes, backticks, and text.  The larger
    pool adds the tokens that are one token to the grammar, attribute
-   specs and spans among them. *)
+   specs and spans among them, image brackets, footnote references,
+   quotes, and runs of periods and hyphens. *)
 let small = [| "_"; "*"; "{_"; "_}"; "["; "]"; "("; ")"; "a"; " "; "\\"; "`" |]
 
 let pieces =
   [| "_"; "*"; "^"; "~"; "{_"; "_}"; "{*"; "*}"; "{="; "=}"; "{+"; "+}";
      "["; "]"; "]("; "]["; "("; ")"; "a"; "b"; " "; "\\"; "\\*"; "\\]";
      "\\("; "[a]("; "[a]["; "`"; "``"; "`a`"; "`*`"; "$"; "$`a`"; "$$`*`"; "`a`{=x}"; "{=" ; "<"; ">"; "<x@y>"; "<*a>"; ":"; ":a:"; ":_a_:"; "<h://x>";
-     "{#i}"; "{k=v}"; "{}"; "{%c%}"; "]{#i}"; "]{}"; "[a]{k=v}"; "]{_a=b}"; "a{#i}"; "}" |]
+     "{#i}"; "{k=v}"; "{}"; "{%c%}"; "]{#i}"; "]{}"; "[a]{k=v}"; "]{_a=b}"; "a{#i}"; "}";
+     "!"; "!["; "[^a]"; "[^a b]"; "'"; "\""; "{'"; "'}"; "{\""; "\"}";
+     "."; "..."; "-"; "--"; "{-"; "-}"; "{.c}" |]
 
 let sort_pairs m = List.sort compare m
 let sort_os os = List.sort_uniq compare os

@@ -182,8 +182,22 @@ Proof.
     destruct om; [reflexivity|].
     destruct (dtoken k); [discriminate|reflexivity].
   - cbn [ddecay_ok] in H. apply andb_true_iff in H as [Hl Hr].
+    apply andb_true_iff in Hl as [Hl _]. apply andb_true_iff in Hr as [Hr _].
     destruct dfl; [destruct cm; [exact Hr|exact Hl]|].
     destruct om; [exact Hl|exact Hr].
+Qed.
+
+(* A quote's curly forms end in no whitespace. *)
+Lemma ddecay_pair_solid :
+  forall k dfl l r, dc_decay cfg k = DDPair dfl l r ->
+  strip_trailing_ws l = l /\ strip_trailing_ws r = r.
+Proof.
+  intros k dfl l r E. pose proof (drow_ok_of k) as H.
+  unfold drow_ok in H. apply andb_true_iff in H as [H _].
+  apply andb_true_iff in H as [_ H]. rewrite E in H.
+  cbn [ddecay_ok] in H. apply andb_true_iff in H as [Hl Hr].
+  apply andb_true_iff in Hl as [_ Hl]. apply andb_true_iff in Hr as [_ Hr].
+  apply String.eqb_eq in Hl, Hr. auto.
 Qed.
 
 Lemma dreserved_false :
@@ -708,6 +722,101 @@ Local Fixpoint auto_scheme (s : string) : bool :=
       else auto_scheme rest
   | _ => false
   end.
+
+(* The ellipsis and the two dashes, as UTF-8.  Three bytes each, like the
+   curly quotes, and nothing downstream looks inside. *)
+Definition ellipsis : string :=
+  String "226"%char (String "128"%char (String "166"%char EmptyString)).
+Definition endash : string :=
+  String "226"%char (String "128"%char (String "147"%char EmptyString)).
+Definition emdash : string :=
+  String "226"%char (String "128"%char (String "148"%char EmptyString)).
+
+Definition periods (two : bool) : string :=
+  if two then String period (one period) else one period.
+
+Definition typography_ellipsis : string :=
+  if smart_typography then ellipsis else chars period 3.
+
+Fixpoint srep (s : string) (n : nat) : string :=
+  match n with O => EmptyString | S m => (s ++ srep s m)%string end.
+
+(* How a run of `n` hyphens is cut: a run divisible by three is all em
+   dashes and an even one all en dashes; otherwise em dashes greedily,
+   finishing with one or two en dashes.  A lone hyphen is literal.
+
+   Spelled as the arithmetic rather than as djot.js's loop, whose
+   recursive call is duplicated across four branches: such a recursion
+   has no normal form at an unknown `n`, so every `Compute` would pass
+   while every general lemma stayed unprovable
+   (`.project/project-engineering-lessons.md`). *)
+Definition dash_counts (n : nat) : nat * nat * nat :=
+  if Nat.eqb (Nat.modulo n 3) 0 then (Nat.div n 3, 0, 0)
+  else if Nat.eqb (Nat.modulo n 2) 0 then (0, Nat.div n 2, 0)
+  else if Nat.eqb n 1 then (0, 0, 1)
+  else if Nat.eqb (Nat.modulo n 6) 5 then (Nat.div (n - 2) 3, 1, 0)
+  else (Nat.div (n - 4) 3, 2, 0).
+
+Definition dashes (n : nat) : string :=
+  let '(em, en, lit) := dash_counts n in
+  (srep emdash em ++ srep endash en ++ chars hyphen lit)%string.
+
+Definition typography_dashes (n : nat) : string :=
+  if smart_typography then dashes n else chars hyphen n.
+
+(* The counts pinned on the runs that decide the arithmetic: the two
+   homogeneous cases, the two remainders, and the lone hyphen. *)
+Example dashes_1 : dashes 1 = one hyphen. Proof. reflexivity. Qed.
+Example dashes_2 : dashes 2 = endash. Proof. reflexivity. Qed.
+Example dashes_3 : dashes 3 = emdash. Proof. reflexivity. Qed.
+Example dashes_4 : dashes 4 = (endash ++ endash)%string. Proof. reflexivity. Qed.
+Example dashes_5 : dashes 5 = (emdash ++ endash)%string. Proof. reflexivity. Qed.
+Example dashes_7 :
+  dashes 7 = (emdash ++ endash ++ endash)%string. Proof. reflexivity. Qed.
+Example dashes_13 :
+  dashes 13 = (emdash ++ emdash ++ emdash ++ endash ++ endash)%string.
+Proof. reflexivity. Qed.
+
+(** The syntax reference's rule, for every run: "Longer sequences of
+    hyphens are divided into em-dashes, en-dashes, and hyphens;
+    uniformly, if possible, and preferring em-dashes, when uniformity can
+    be achieved either way."  Divided: the pieces' widths add up to the
+    run.  Uniformly, preferring em dashes: all em dashes when three
+    divides the run, else all en dashes when two does.  A hyphen is left
+    only when the run is one hyphen long. *)
+Theorem dashes_divide :
+  forall n, 1 <= n ->
+  exists em en lit,
+    dashes n = (srep emdash em ++ srep endash en ++ chars hyphen lit)%string /\
+    3 * em + 2 * en + lit = n /\
+    (lit = 0 \/ n = 1) /\
+    (Nat.modulo n 3 = 0 -> en = 0 /\ lit = 0) /\
+    (Nat.modulo n 3 <> 0 -> Nat.modulo n 2 = 0 -> em = 0 /\ lit = 0).
+Proof.
+  intros n Hn. unfold dashes, dash_counts.
+  pose proof (Nat.div_mod_eq n 3) as D3.
+  pose proof (Nat.mod_upper_bound n 3 ltac:(lia)) as M3.
+  pose proof (Nat.div_mod_eq n 2) as D2.
+  pose proof (Nat.mod_upper_bound n 2 ltac:(lia)) as M2.
+  pose proof (Nat.div_mod_eq n 6) as D6.
+  pose proof (Nat.mod_upper_bound n 6 ltac:(lia)) as M6.
+  destruct (Nat.eqb (n mod 3) 0) eqn:E3;
+    [apply Nat.eqb_eq in E3|apply Nat.eqb_neq in E3].
+  { eexists _, _, _. split; [reflexivity|]. lia. }
+  destruct (Nat.eqb (n mod 2) 0) eqn:E2;
+    [apply Nat.eqb_eq in E2|apply Nat.eqb_neq in E2].
+  { eexists _, _, _. split; [reflexivity|]. lia. }
+  destruct (Nat.eqb n 1) eqn:E1; [apply Nat.eqb_eq in E1|apply Nat.eqb_neq in E1].
+  { eexists _, _, _. split; [reflexivity|]. lia. }
+  destruct (Nat.eqb (n mod 6) 5) eqn:E6;
+    [apply Nat.eqb_eq in E6|apply Nat.eqb_neq in E6].
+  - pose proof (Nat.div_mod_eq (n - 2) 3) as D.
+    pose proof (Nat.mod_upper_bound (n - 2) 3 ltac:(lia)) as M.
+    eexists _, _, _. split; [reflexivity|]. lia.
+  - pose proof (Nat.div_mod_eq (n - 4) 3) as D.
+    pose proof (Nat.mod_upper_bound (n - 4) 3 ltac:(lia)) as M.
+    eexists _, _, _. split; [reflexivity|]. lia.
+Qed.
 
 (* The email test first.  A region failing both is not an autolink, and
    the brackets are literal. *)
