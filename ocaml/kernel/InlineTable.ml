@@ -456,11 +456,16 @@ let dstyle_at_fast = (let rows = [DEmph; DStrong; DSuper; DSub; DMark; DInsert; 
         | _ -> let tbl = build c in Atomic.set last (Some (c, tbl)); tbl in
       Array.unsafe_get tbl (Char.code ch))
 
+(** val solid_str : string -> bool **)
+
+let solid_str s =
+  (&&) (nonempty_str s) ((=) (strip_trailing_ws s) s)
+
 (** val ddecay_ok : ddecay -> bool **)
 
 let ddecay_ok = function
 | DDSelf -> true
-| DDPair (_, l, r) -> (&&) (nonempty_str l) (nonempty_str r)
+| DDPair (_, l, r) -> (&&) (solid_str l) (solid_str r)
 
 (** val dsyntax_bare : dsyntax -> bool **)
 

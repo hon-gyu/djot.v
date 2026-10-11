@@ -82,7 +82,7 @@ let rec level t fuel s p live forb prev barred =
                                 after m os
                                   (level t fuel' s (( + ) e le) live forb None
                                     barred)
-                              | TOpen ->
+                              | TOpen _ ->
                                 after m os
                                   (level t fuel' s (( + ) e le) live forb None
                                     barred)
@@ -138,7 +138,19 @@ let rec level t fuel s p live forb prev barred =
                                   (level t fuel' s
                                     (( + ) e (Stdlib.succ (Stdlib.succ
                                       (Stdlib.succ (String.length b)))))
-                                    live forb None barred))
+                                    live forb None barred)
+                              | TNote _ ->
+                                after m os
+                                  (level t fuel' s (( + ) e le) live forb None
+                                    barred)
+                              | TDots _ ->
+                                after m os
+                                  (level t fuel' s (( + ) e le) live forb None
+                                    barred)
+                              | TDash _ ->
+                                after m os
+                                  (level t fuel' s (( + ) e le) live forb None
+                                    barred))
                         else []
                       | None -> [])
                    | None -> []))

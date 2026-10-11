@@ -6,7 +6,6 @@ open InlineTable
 open InlineView
 open List0
 open Nat0
-open PeanoNat
 open Strings
 
 type 'buf coq_TextOps = { tnil : 'buf; tpush : ('buf -> string -> 'buf);
@@ -239,24 +238,6 @@ val idest_open :
   span -> ostate -> 'a1 iscan_g
 
 val null : 'a1 list -> bool
-
-val ellipsis : string
-
-val endash : string
-
-val emdash : string
-
-val periods : bool -> string
-
-val typography_ellipsis : dtable -> string
-
-val srep : string -> int -> string
-
-val dash_counts : int -> (int * int) * int
-
-val dashes : int -> string
-
-val typography_dashes : dtable -> int -> string
 
 val dollars : bool -> string
 

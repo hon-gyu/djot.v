@@ -110,6 +110,8 @@ val denabled : dconfig -> dstyle -> bool
 
 val dstyle_at_fast : dconfig -> char -> dstyle option
 
+val solid_str : string -> bool
+
 val ddecay_ok : ddecay -> bool
 
 val dsyntax_bare : dsyntax -> bool

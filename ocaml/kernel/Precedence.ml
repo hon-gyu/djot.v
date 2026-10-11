@@ -6,25 +6,16 @@ open InlineTable
 open InlineView
 open List0
 open Nat0
+open PeanoNat
 open String0
 open Strings
 
-(** val self_row : dtable -> dstyle -> bool **)
+(** val hyphen_row_ok : dtable -> bool **)
 
-let self_row t k =
-  match dsyntax_of t k with
-  | DOff -> false
-  | DBareAfterBreak -> false
-  | _ -> (match t.dc_decay k with
-          | DDSelf -> true
-          | DDPair (_, _, _) -> false)
-
-(** val bare_opens : dtable -> dstyle -> bool **)
-
-let bare_opens t k =
-  match dsyntax_of t k with
-  | DBare -> true
-  | _ -> false
+let hyphen_row_ok t =
+  match dstyle_of t hyphen with
+  | Some k -> ( = ) (dwidth t k) (Stdlib.succ 0)
+  | None -> true
 
 (** val in_alphabet : dtable -> char -> bool **)
 
@@ -38,18 +29,22 @@ let in_alphabet t c =
               ((||)
                 ((||)
                   ((||)
-                    ((||) ((||) ((=) c lbrace) ((=) c rbrace)) ((=) c lbrack))
-                    ((=) c rbrack))
-                  (is_tick c))
-                ((=) c lt))
+                    ((||)
+                      ((||)
+                        ((||) ((||) ((=) c lbrace) ((=) c rbrace))
+                          ((=) c lbrack))
+                        ((=) c rbrack))
+                      (is_tick c))
+                    ((=) c lt))
+                  ((=) c bang))
+                ((=) c period))
               ((&&) ((=) c ':') (negb (tags_enabled t))))
             ((&&) ((=) c dollar) (negb (dollar_math_enabled t))))
           ((&&) (negb (dreserved c))
             (negb ((&&) (holes_enabled t) ((=) c percent))))))
-      (negb ((=) c hyphen)))
+      ((||) (negb ((=) c hyphen)) (hyphen_row_ok t)))
     (match dstyle_of t c with
-     | Some k ->
-       (&&) (self_row t k) (negb ((||) ((=) c lparen) ((=) c rparen)))
+     | Some _ -> negb ((||) ((=) c lparen) ((=) c rparen))
      | None -> true)
 
 (** val starts_row : dtable -> string -> bool **)
@@ -255,6 +250,91 @@ let raw_ahead t s =
      | Some _ -> true
      | None -> false)
 
+(** val note_go : bool -> string -> string option **)
+
+let rec note_go esc s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> None)
+    (fun c r ->
+    if (=) c nl_char
+    then None
+    else if esc
+         then option_map (fun x ->
+                (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                (c, x)) (note_go false r)
+         else if is_bslash c
+              then option_map (fun x ->
+                     (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                     (c, x)) (note_go true r)
+              else if (=) c rbrack
+                   then Some ""
+                   else option_map (fun x ->
+                          (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                          (c, x)) (note_go false r))
+    s
+
+(** val note_at : dtable -> string -> string option **)
+
+let note_at t s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> None)
+    (fun c r ->
+    if (&&) (notes_enabled t) ((=) c hat) then note_go false r else None)
+    s
+
+(** val note_plain : string -> bool **)
+
+let rec note_plain s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> false)
+    (fun c r ->
+    if (||) ((=) c nl_char) (is_bslash c)
+    then false
+    else if (=) c rbrack then true else note_plain r)
+    s
+
+(** val note_ahead : dtable -> string -> bool **)
+
+let note_ahead t s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> false)
+    (fun c r -> (&&) ((&&) (notes_enabled t) ((=) c hat)) (note_plain r))
+    s
+
+(** val run_of : char -> string -> int **)
+
+let rec run_of c s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> 0)
+    (fun d r -> if (=) d c then Stdlib.succ (run_of c r) else 0)
+    s
+
 (** val follow_ok : dtable -> char -> string -> bool **)
 
 let follow_ok t c rest =
@@ -263,11 +343,20 @@ let follow_ok t c rest =
       ((&&)
         ((&&)
           ((&&)
-            ((||) ((||) (negb ((=) c lbrace)) (starts_row t rest))
-              (spec_ahead t rest))
+            ((&&)
+              ((&&)
+                (negb
+                  ((&&) ((&&) ((=) c hyphen) (starts_with hyphen rest))
+                    (starts_with rbrace (sdrop (run_of hyphen rest) rest))))
+                ((||) ((||) (negb ((=) c lbrace)) (starts_row t rest))
+                  (spec_ahead t rest)))
+              (negb
+                ((&&) ((=) c lbrack)
+                  ((||) (starts_with lbrack rest)
+                    ((&&) (starts_with hat rest) (negb (note_ahead t rest)))))))
             (negb
-              ((&&) ((=) c lbrack)
-                ((||) (starts_with lbrack rest) (starts_with hat rest)))))
+              ((&&) ((&&) ((=) c bang) (starts_with lbrack rest))
+                (starts_with hat (sdrop (Stdlib.succ 0) rest)))))
           (negb
             ((&&) ((&&) ((=) c rbrack) (starts_with lbrace rest))
               (negb (spec_ahead t (sdrop (Stdlib.succ 0) rest))))))
@@ -310,7 +399,7 @@ type token =
 | TText of char
 | TBreak
 | TDelim of dstyle * bool * bool * bool
-| TOpen
+| TOpen of bool
 | TClose of bool
 | TEsc of char
 | TEscWs of string
@@ -321,6 +410,9 @@ type token =
 | TSymbol of string
 | TAttr of string * attr
 | TSpan of string * attr
+| TNote of string
+| TDots of int
+| TDash of int
 
 (** val ws_run : string -> string **)
 
@@ -476,6 +568,39 @@ let esc_tok s =
           else ((TEsc d), (Stdlib.succ (Stdlib.succ 0))))
           s)
 
+(** val dots_tok : string -> token * int **)
+
+let dots_tok s =
+  let n = run_of period s in ((TDots n), n)
+
+(** val dash_tok : dtable -> string -> token * int **)
+
+let dash_tok t s =
+  let n = run_of hyphen s in
+  (match dstyle_of t hyphen with
+   | Some k ->
+     if (&&) (starts_with rbrace (sdrop n s)) (( <= ) (dwidth t k) n)
+     then if ( = ) n (dwidth t k)
+          then ((TDelim (k, true, false, true)), (Stdlib.succ n))
+          else ((TDash (sub n (dwidth t k))), (sub n (dwidth t k)))
+     else ((TDash n), n)
+   | None -> ((TDash n), n))
+
+(** val bang_tok : string -> token * int **)
+
+let bang_tok s =
+  if starts_with lbrack s
+  then ((TOpen true), (Stdlib.succ (Stdlib.succ 0)))
+  else ((TText bang), (Stdlib.succ 0))
+
+(** val lbrack_tok : dtable -> string -> token * int **)
+
+let lbrack_tok t s =
+  match note_at t s with
+  | Some l ->
+    ((TNote l), (Stdlib.succ (Stdlib.succ (Stdlib.succ (String.length l)))))
+  | None -> ((TOpen false), (Stdlib.succ 0))
+
 (** val rbrack_tok : dtable -> string -> token * int **)
 
 let rbrack_tok t s =
@@ -527,7 +652,7 @@ let delim_tok t prev c s =
     then if at_rbrace (get (dwidth t k) s)
          then ((TDelim (k, true, false, true)), (Stdlib.succ (dwidth t k)))
          else ((TDelim (k, false,
-                ((&&) (bare_opens t k) (nonspace_at (get (dwidth t k) s))),
+                ((&&) (dbare t k prev) (nonspace_at (get (dwidth t k) s))),
                 (nonspace_at prev))), (dwidth t k))
     else ((TText c), (Stdlib.succ 0))
   | None -> ((TText c), (Stdlib.succ 0))
@@ -554,13 +679,21 @@ let next_tok t prev s =
                          then auto_tok rest
                          else if (=) c ':'
                               then sym_tok rest
-                              else if (=) c lbrack
-                                   then (TOpen, (Stdlib.succ 0))
-                                   else if (=) c rbrack
-                                        then rbrack_tok t rest
-                                        else if (=) c lbrace
-                                             then lbrace_tok t rest
-                                             else delim_tok t prev c s))
+                              else if (=) c period
+                                   then dots_tok s
+                                   else if (=) c hyphen
+                                        then dash_tok t s
+                                        else if (=) c bang
+                                             then bang_tok rest
+                                             else if (=) c lbrack
+                                                  then lbrack_tok t rest
+                                                  else if (=) c rbrack
+                                                       then rbrack_tok t rest
+                                                       else if (=) c lbrace
+                                                            then lbrace_tok t
+                                                                   rest
+                                                            else delim_tok t
+                                                                   prev c s))
     s
 
 (** val before : string -> int -> char option **)
@@ -623,7 +756,7 @@ let needs_content = function
 
 let opens_as = function
 | TDelim (k, mr, opens, _) -> if opens then Some (KDelim (k, mr)) else None
-| TOpen -> Some KBracket
+| TOpen _ -> Some KBracket
 | _ -> None
 
 (** val closes_as : token -> key option **)
@@ -780,7 +913,7 @@ let tok_text t = function
        then (^) (one lbrace) (dtoken t k)
        else (^) (dtoken t k) (one rbrace)
   else dtoken t k
-| TOpen -> one lbrack
+| TOpen im -> bracket_open im
 | TEsc c ->
   (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
@@ -819,6 +952,18 @@ let tok_text t = function
   (fun (c, s) -> String.make 1 c ^ s)
 
     (lbrace, b)) (one rbrace)
+| TNote l ->
+  (^)
+    ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (lbrack,
+    ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (hat, l)))) (one rbrack)
+| TDots n -> chars period n
+| TDash n -> chars hyphen n
 | _ -> one rbrack
 
 (** val nbsp_rest : string -> string option **)
@@ -880,25 +1025,32 @@ let region_text s d e dest =
   in
   if dest then dest_text false txt else txt
 
-(** val region_node : bool -> inlines -> string -> inline **)
+(** val region_node : bool -> bool -> inlines -> string -> inline **)
 
-let region_node dest kids txt =
-  if dest
-  then Link (kids, (Direct (no_nl txt)))
-  else Link (kids, (Reference
-         (normalize_label
-           ((* If this appears, you're using String internals. Please don't *)
+let region_node dest image kids txt =
+  bnode image kids
+    (if dest
+     then Direct (no_nl txt)
+     else Reference
+            (normalize_label
+              ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-              (fun _ -> reference_inlines_text kids)
-              (fun _ _ -> txt)
-              txt))))
+                 (fun _ -> reference_inlines_text kids)
+                 (fun _ _ -> txt)
+                 txt)))
 
 type tkind =
 | TKDelim of dstyle
-| TKBracket
+| TKBracket of bool
+
+(** val tk_image : tkind -> bool **)
+
+let tk_image = function
+| TKDelim _ -> false
+| TKBracket im -> im
 
 type titem =
 | TIn of inline node
@@ -1072,6 +1224,19 @@ let verb_node pre raw body =
          n)
        pre)
 
+(** val delim_lit : dtable -> dstyle -> bool -> bool -> bool -> string **)
+
+let delim_lit t k mr op cm =
+  if (&&) mr op then ddecay_str t k true cm else ddecay_str t k false mr
+
+(** val dots : dtable -> int -> string **)
+
+let dots t n =
+  (^)
+    (srep (typography_ellipsis t)
+      (Nat.div n (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))))
+    (chars period (Nat.modulo n (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))))
+
 (** val tstep :
     dtable -> string -> matching -> int -> token -> bool -> tframes -> titem
     list -> tframes * titem list **)
@@ -1079,41 +1244,56 @@ let verb_node pre raw body =
 let tstep t s m i t0 hard fs top =
   match t0 with
   | TBreak -> if hard then (fs, top) else temit (mk SoftBreak) fs top
-  | TDelim (k, _, _, _) ->
+  | TDelim (k, mr, op, _) ->
     if is_opener m i
     then ((((TKDelim k), []) :: fs), top)
     else if is_closer m i
          then (match fs with
-               | [] -> temit_str (tok_text t t0) fs top
+               | [] ->
+                 temit_str
+                   (delim_lit t k mr op (at_rbrace (get (tok_end t s i) s)))
+                   fs top
                | p :: fs0 ->
                  let (t1, acc) = p in
                  (match t1 with
                   | TKDelim k' -> temit (mk (dnode k' (resolve acc))) fs0 top
-                  | TKBracket -> temit_str (tok_text t t0) fs top))
-         else temit_str (tok_text t t0) fs top
-  | TOpen ->
+                  | TKBracket _ ->
+                    temit_str
+                      (delim_lit t k mr op
+                        (at_rbrace (get (tok_end t s i) s)))
+                      fs top))
+         else temit_str
+                (delim_lit t k mr op (at_rbrace (get (tok_end t s i) s))) fs
+                top
+  | TOpen im ->
     if is_opener m i
-    then (((TKBracket, []) :: fs), top)
+    then ((((TKBracket im), []) :: fs), top)
     else temit_str (tok_text t t0) fs top
   | TClose b ->
     if is_closer m i
     then (match fs with
           | [] -> temit_str (tok_text t t0) fs top
           | p :: fs0 ->
-            let (_, acc) = p in
+            let (k, acc) = p in
             let kids = resolve acc in
             (match region_end s i b with
              | Some e ->
-               temit (mk (region_node b kids (region_text s i e b))) fs0 top
+               temit
+                 (mk (region_node b (tk_image k) kids (region_text s i e b)))
+                 fs0 top
              | None ->
                temit_all
-                 ((mk (Str (one lbrack))) :: (app kids
-                                               ((mk (Str
-                                                  ((^) (one rbrack)
-                                                    (if b
-                                                     then ""
-                                                     else sdrop (Stdlib.succ
-                                                            i) s)))) :: [])))
+                 ((mk (Str (bracket_open (tk_image k)))) :: (app kids
+                                                              ((mk (Str
+                                                                 ((^)
+                                                                   (one
+                                                                    rbrack)
+                                                                   (if b
+                                                                    then ""
+                                                                    else
+                                                                    sdrop
+                                                                    (Stdlib.succ
+                                                                    i) s)))) :: [])))
                  fs0 top))
     else temit_str (tok_text t t0) fs top
   | TEsc c -> temit_str (esc_text c) fs top
@@ -1143,9 +1323,15 @@ let tstep t s m i t0 hard fs top =
     then (match fs with
           | [] -> temit_str (tok_text t t0) fs top
           | p :: fs0 ->
-            let (_, acc) = p in
-            temit (Node (NoPos, a, (Span ("", (resolve acc))))) fs0 top)
+            let (k, acc) = p in
+            let (fs1, top1) =
+              if tk_image k then temit_str (one bang) fs0 top else (fs0, top)
+            in
+            temit (Node (NoPos, a, (Span ("", (resolve acc))))) fs1 top1)
     else temit_str (tok_text t t0) fs top
+  | TNote l -> temit (mk (FootnoteReference (normalize_label l))) fs top
+  | TDots n -> temit_str (dots t n) fs top
+  | TDash n -> temit_str (typography_dashes t n) fs top
   | _ -> temit_str (tok_text t t0) fs top
 
 (** val tgo :
@@ -1220,7 +1406,7 @@ let rstep t s i t0 st =
        else ropen i (KDelim (k, mr)) op st
      | PBarred -> st
      | PNone -> ropen i (KDelim (k, mr)) op st)
-  | TOpen -> ropen i KBracket true st
+  | TOpen _ -> ropen i KBracket true st
   | TClose b ->
     (match pick KBracket st.rs_live with
      | PFound (p, below) ->
