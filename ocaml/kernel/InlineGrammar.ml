@@ -128,7 +128,17 @@ let rec level t fuel s p live forb prev barred =
                               | TSymbol _ ->
                                 after m os
                                   (level t fuel' s (( + ) e le) live forb None
-                                    barred))
+                                    barred)
+                              | TAttr (_, _) ->
+                                after m os
+                                  (level t fuel' s (( + ) e le) live forb None
+                                    barred)
+                              | TSpan (b, _) ->
+                                after m os
+                                  (level t fuel' s
+                                    (( + ) e (Stdlib.succ (Stdlib.succ
+                                      (Stdlib.succ (String.length b)))))
+                                    live forb None barred))
                         else []
                       | None -> [])
                    | None -> []))

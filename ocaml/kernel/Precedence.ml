@@ -191,6 +191,62 @@ let colon_ok s =
     (fun n -> starts_with ':' (sdrop (Stdlib.succ n) s))
     (symbol_run s)
 
+(** val spec_go : aparser -> string -> (string * attr) option **)
+
+let rec spec_go p s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> None)
+    (fun c r ->
+    if (=) c nl_char
+    then None
+    else let p' = astep p c in
+         if ap_failed p'
+         then None
+         else if ap_done p'
+              then Some ("", p'.ap_attrs)
+              else (match spec_go p' r with
+                    | Some p0 ->
+                      let (b, a) = p0 in
+                      Some
+                      (((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+                      (c, b)), a)
+                    | None -> None))
+    s
+
+(** val spec_plain : aparser -> string -> bool **)
+
+let rec spec_plain p s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> false)
+    (fun c r ->
+    if (||) ((=) c nl_char) (is_bslash c)
+    then false
+    else let p' = astep p c in
+         if ap_failed p'
+         then false
+         else if ap_done p' then true else spec_plain p' r)
+    s
+
+(** val spec_at : dtable -> string -> (string * attr) option **)
+
+let spec_at t s =
+  if inline_attrs_enabled t then spec_go ap_init s else None
+
+(** val spec_ahead : dtable -> string -> bool **)
+
+let spec_ahead t s =
+  (&&) (inline_attrs_enabled t) (spec_plain ap_init s)
+
 (** val raw_ahead : dtable -> string -> bool **)
 
 let raw_ahead t s =
@@ -206,11 +262,15 @@ let follow_ok t c rest =
     ((&&)
       ((&&)
         ((&&)
-          ((&&) ((||) (negb ((=) c lbrace)) (starts_row t rest))
+          ((&&)
+            ((||) ((||) (negb ((=) c lbrace)) (starts_row t rest))
+              (spec_ahead t rest))
             (negb
               ((&&) ((=) c lbrack)
                 ((||) (starts_with lbrack rest) (starts_with hat rest)))))
-          (negb ((&&) ((=) c rbrack) (starts_with lbrace rest))))
+          (negb
+            ((&&) ((&&) ((=) c rbrack) (starts_with lbrace rest))
+              (negb (spec_ahead t (sdrop (Stdlib.succ 0) rest))))))
         (negb
           ((&&) ((&&) (is_tick c) (starts_with lbrace rest))
             (negb (raw_ahead t rest)))))
@@ -259,6 +319,8 @@ type token =
 | TDollars of int
 | TAuto of string * bool
 | TSymbol of string
+| TAttr of string * attr
+| TSpan of string * attr
 
 (** val ws_run : string -> string **)
 
@@ -440,7 +502,19 @@ let next_tok t prev s =
                                                then TClose true
                                                else if starts_with lbrack rest
                                                     then TClose false
-                                                    else TText c),
+                                                    else (match if starts_with
+                                                                    lbrace
+                                                                    rest
+                                                                then
+                                                                  spec_at t
+                                                                    (sdrop
+                                                                    (Stdlib.succ
+                                                                    0) rest)
+                                                                else None with
+                                                          | Some p ->
+                                                            let (b, a) = p in
+                                                            TSpan (b, a)
+                                                          | None -> TText c)),
                                                (Stdlib.succ 0))
                                         else if (=) c lbrace
                                              then (match (* If this appears, you're using String internals. Please don't *)
@@ -465,8 +539,16 @@ let next_tok t prev s =
                                                      else ((TText c),
                                                             (Stdlib.succ 0))
                                                    | None ->
-                                                     ((TText c), (Stdlib.succ
-                                                       0)))
+                                                     (match spec_at t rest with
+                                                      | Some p ->
+                                                        let (b, a) = p in
+                                                        ((TAttr (b, a)),
+                                                        (Stdlib.succ
+                                                        (Stdlib.succ
+                                                        (String.length b))))
+                                                      | None ->
+                                                        ((TText c),
+                                                          (Stdlib.succ 0))))
                                              else (match dstyle_of t c with
                                                    | Some k ->
                                                      if (fun s1 s2 ->
@@ -569,6 +651,7 @@ let opens_as = function
 let closes_as = function
 | TDelim (k, mr, _, closes) -> if closes then Some (KDelim (k, mr)) else None
 | TClose _ -> Some KBracket
+| TSpan (_, _) -> Some KBracket
 | _ -> None
 
 (** val tok_end : dtable -> string -> int -> int **)
@@ -657,6 +740,12 @@ let chain_next t s m p =
     let (t0, l) = p0 in
     (match t0 with
      | TClose b -> if is_closer m p then resume s p b else Some (( + ) p l)
+     | TSpan (b, _) ->
+       if is_closer m p
+       then Some
+              (( + ) p (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                (String.length b)))))
+       else Some (( + ) p l)
      | _ -> Some (( + ) p l))
   | None -> None
 
@@ -724,6 +813,12 @@ let rstep t s i t0 st =
           then { rs_live = ((LBar i) :: below); rs_pairs = pairs; rs_os =
                  st.rs_os }
           else { rs_live = below; rs_pairs = pairs; rs_os = st.rs_os })
+     | _ -> st)
+  | TSpan (_, _) ->
+    (match pick KBracket st.rs_live with
+     | PFound (p, below) ->
+       { rs_live = below; rs_pairs = ((p, i) :: st.rs_pairs); rs_os =
+         st.rs_os }
      | _ -> st)
   | _ -> st
 
@@ -803,7 +898,6 @@ let tok_text t = function
        else (^) (dtoken t k) (one rbrace)
   else dtoken t k
 | TOpen -> one lbrack
-| TClose _ -> one rbrack
 | TEsc c ->
   (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
@@ -836,6 +930,13 @@ let tok_text t = function
   (fun (c, s) -> String.make 1 c ^ s)
 
     (':', a)) (one ':')
+| TAttr (b, _) ->
+  (^)
+    ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (lbrace, b)) (one rbrace)
+| _ -> one rbrack
 
 (** val nbsp_rest : string -> string option **)
 
@@ -848,31 +949,6 @@ let nbsp_rest ws =
     (fun _ -> None)
     (fun c rest -> if (=) c ' ' then Some rest else None)
     ws
-
-(** val str_trim : inlines -> inlines **)
-
-let str_trim out = match out with
-| [] -> out
-| n :: rest ->
-  let Node (p, a, x) = n in
-  (match a with
-   | [] ->
-     (match x with
-      | Str t ->
-        ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-           (fun _ -> rest)
-           (fun a0 s -> (Node (p, [], (Str
-           ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (a0, s))))) :: rest)
-           (strip_trailing_ws t))
-      | _ -> out)
-   | _ :: _ -> out)
 
 (** val no_nl : string -> string **)
 
@@ -941,30 +1017,139 @@ type tkind =
 | TKDelim of dstyle
 | TKBracket
 
-type tframes = (tkind * inlines) list
+type titem =
+| TIn of inline node
+| TMark of attr
 
-(** val temit : inline node -> tframes -> inlines -> tframes * inlines **)
+(** val item_snoc : string -> titem list -> titem list **)
+
+let item_snoc s out = match out with
+| [] -> (TIn (mk (Str s))) :: out
+| t0 :: rest ->
+  (match t0 with
+   | TIn n ->
+     let Node (p, a, x) = n in
+     (match a with
+      | [] ->
+        (match x with
+         | Str t -> (TIn (Node (p, [], (Str ((^) t s))))) :: rest
+         | _ -> (TIn (mk (Str s))) :: out)
+      | _ :: _ -> (TIn (mk (Str s))) :: out)
+   | TMark _ -> (TIn (mk (Str s))) :: out)
+
+(** val item_trim : titem list -> titem list **)
+
+let item_trim out = match out with
+| [] -> out
+| t0 :: rest ->
+  (match t0 with
+   | TIn n ->
+     let Node (p, a, x) = n in
+     (match a with
+      | [] ->
+        (match x with
+         | Str t ->
+           ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+              (fun _ -> rest)
+              (fun a0 s -> (TIn (Node (p, [], (Str
+              ((* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+              (a0, s)))))) :: rest)
+              (strip_trailing_ws t))
+         | _ -> out)
+      | _ :: _ -> out)
+   | TMark _ -> out)
+
+(** val attach : attr -> inlines -> inlines **)
+
+let attach a out = match out with
+| [] -> out
+| n :: rest ->
+  let Node (p, a', v) = n in
+  (match a' with
+   | [] ->
+     (match v with
+      | Str s ->
+        let (pre, w) = last_ws_split s in
+        if nonempty_str w
+        then (match a with
+              | [] -> out
+              | _ :: _ ->
+                (Node (p, a, (Str
+                  w))) :: (if nonempty_str pre
+                           then (Node (p, [], (Str pre))) :: rest
+                           else rest))
+        else out
+      | SoftBreak -> out
+      | _ -> (Node (p, (Attr.merge a a'), v)) :: rest)
+   | _ :: _ ->
+     (match v with
+      | SoftBreak -> out
+      | _ -> (Node (p, (Attr.merge a a'), v)) :: rest))
+
+(** val push : inline node -> inlines -> inlines **)
+
+let push n out =
+  let Node (_, a, x) = n in
+  (match a with
+   | [] -> (match x with
+            | Str s -> str_snoc s out
+            | _ -> n :: out)
+   | _ :: _ -> n :: out)
+
+(** val resolve_rev : titem list -> inlines **)
+
+let rec resolve_rev = function
+| [] -> []
+| t :: rest ->
+  (match t with
+   | TIn n -> push n (resolve_rev rest)
+   | TMark a -> attach a (resolve_rev rest))
+
+(** val resolve : titem list -> inlines **)
+
+let resolve acc =
+  rev (resolve_rev acc)
+
+type tframes = (tkind * titem list) list
+
+(** val temit :
+    inline node -> tframes -> titem list -> tframes * titem list **)
 
 let temit n fs top =
   match fs with
-  | [] -> ([], (n :: top))
-  | p :: rest -> let (k, acc) = p in (((k, (n :: acc)) :: rest), top)
+  | [] -> ([], ((TIn n) :: top))
+  | p :: rest -> let (k, acc) = p in (((k, ((TIn n) :: acc)) :: rest), top)
 
-(** val temit_str : string -> tframes -> inlines -> tframes * inlines **)
+(** val temit_str :
+    string -> tframes -> titem list -> tframes * titem list **)
 
 let temit_str s fs top =
   match fs with
-  | [] -> ([], (str_snoc s top))
-  | p :: rest -> let (k, acc) = p in (((k, (str_snoc s acc)) :: rest), top)
+  | [] -> ([], (item_snoc s top))
+  | p :: rest -> let (k, acc) = p in (((k, (item_snoc s acc)) :: rest), top)
 
-(** val ttrim : tframes -> inlines -> tframes * inlines **)
+(** val ttrim : tframes -> titem list -> tframes * titem list **)
 
 let ttrim fs top =
   match fs with
-  | [] -> ([], (str_trim top))
-  | p :: rest -> let (k, acc) = p in (((k, (str_trim acc)) :: rest), top)
+  | [] -> ([], (item_trim top))
+  | p :: rest -> let (k, acc) = p in (((k, (item_trim acc)) :: rest), top)
 
-(** val temit_all : inlines -> tframes -> inlines -> tframes * inlines **)
+(** val tmark : attr -> tframes -> titem list -> tframes * titem list **)
+
+let tmark a fs top =
+  match fs with
+  | [] -> ([], ((TMark a) :: top))
+  | p :: rest -> let (k, acc) = p in (((k, ((TMark a) :: acc)) :: rest), top)
+
+(** val temit_all :
+    inlines -> tframes -> titem list -> tframes * titem list **)
 
 let rec temit_all ns fs top =
   match ns with
@@ -1001,8 +1186,8 @@ let verb_node pre raw body =
        pre)
 
 (** val tstep :
-    dtable -> string -> matching -> int -> token -> bool -> tframes -> inlines
-    -> tframes * inlines **)
+    dtable -> string -> matching -> int -> token -> bool -> tframes -> titem
+    list -> tframes * titem list **)
 
 let tstep t s m i t0 hard fs top =
   match t0 with
@@ -1016,7 +1201,7 @@ let tstep t s m i t0 hard fs top =
                | p :: fs0 ->
                  let (t1, acc) = p in
                  (match t1 with
-                  | TKDelim k' -> temit (mk (dnode k' (rev acc))) fs0 top
+                  | TKDelim k' -> temit (mk (dnode k' (resolve acc))) fs0 top
                   | TKBracket -> temit_str (tok_text t t0) fs top))
          else temit_str (tok_text t t0) fs top
   | TOpen ->
@@ -1029,7 +1214,7 @@ let tstep t s m i t0 hard fs top =
           | [] -> temit_str (tok_text t t0) fs top
           | p :: fs0 ->
             let (_, acc) = p in
-            let kids = rev acc in
+            let kids = resolve acc in
             (match region_end s i b with
              | Some e ->
                temit (mk (region_node b kids (region_text s i e b))) fs0 top
@@ -1065,11 +1250,20 @@ let tstep t s m i t0 hard fs top =
     then temit (mk (auto_node src)) fs top
     else temit_str (tok_text t t0) fs top
   | TSymbol a -> temit (mk (Symbol a)) fs top
+  | TAttr (_, a) -> tmark a fs top
+  | TSpan (_, a) ->
+    if is_closer m i
+    then (match fs with
+          | [] -> temit_str (tok_text t t0) fs top
+          | p :: fs0 ->
+            let (_, acc) = p in
+            temit (Node (NoPos, a, (Span ("", (resolve acc))))) fs0 top)
+    else temit_str (tok_text t t0) fs top
   | _ -> temit_str (tok_text t t0) fs top
 
 (** val tgo :
-    dtable -> string -> matching -> int -> int -> bool -> tframes -> inlines
-    -> tframes * inlines **)
+    dtable -> string -> matching -> int -> int -> bool -> tframes -> titem
+    list -> tframes * titem list **)
 
 let rec tgo t s m fuel i hard fs top =
   (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
@@ -1087,4 +1281,4 @@ let rec tgo t s m fuel i hard fs top =
 (** val tree_of : dtable -> string -> matching -> inlines **)
 
 let tree_of t s m =
-  rev (snd (tgo t s m (Stdlib.succ (String.length s)) 0 false [] []))
+  resolve (snd (tgo t s m (Stdlib.succ (String.length s)) 0 false [] []))
