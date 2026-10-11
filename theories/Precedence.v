@@ -4,8 +4,9 @@
    independent of the scanner: the tokens, the readings the reference's
    precedence rules allow (syntax reference, "Precedence"), and the tree
    a reading describes.  Definitions only.
-   `PrecedenceFacts.v` proves that exactly one reading is valid, and
-   `InlinePrecedence.v` that the scanner builds its tree. *)
+   `PrecedenceFacts.v` proves that exactly one reading is valid,
+   `InlinePrecedence.v` that the scanner builds its tree, and
+   `PrecedenceGrammar.v` states the rules again as a grammar. *)
 
 From Stdlib Require Import String Ascii List Bool Lia Arith Sorted.
 From DjotV Require Import Strings Ast Attributes InlineTable InlineView.

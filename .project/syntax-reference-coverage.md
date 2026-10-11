@@ -61,7 +61,7 @@ A3), symbols (Y1), attribute specs and spans (AT1, AT7, C2, N1),
 reference labels, images and footnote references (L4, L6, I1, F1),
 and the rest of inline syntax as instances of the same theorem (L1 to
 L3, M1, M4, M5, H1, S1, D1, Q1 to Q4, B1);
-and line breaks in a spec (AT6).  The other 18 inline rules are at E.
+and line breaks in a spec (AT6).
 
 ## Inline syntax
 

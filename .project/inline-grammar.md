@@ -10,22 +10,28 @@ machine), both in `theories/Precedence.v`, with their proofs in
 rules from: each rule is a clause of the syntax reference, and a
 paragraph's reading is a derivation you can write by hand.
 
-**Status: not proved.**  It is checked by computation:
-`dev/InlineGrammar.v` runs it as an enumerator of parses, and `make
-check-grammar` (`test/grammar.ml`) requires every paragraph over the
-precedence alphabet to have exactly one parse, with the pairs and the
-openers of `ref_read`.  An equivalence with `valid` is to be proved once
-the inline specification is complete
-(`261007.plan.inline-specification.md`), not stage by stage.
+**Status: proved** (2026-10-12, not reviewed by a human).  The grammar
+is the relation `seq` in `theories/PrecedenceGrammar.v`, and
+`theories/PrecedenceGrammarFacts.v` proves, for every string:
+
+| Theorem | Statement |
+| --- | --- |
+| `parses_ref_read` | `parses s r <-> r = ref_read s` |
+| `parses_valid` | a parse is a valid reading |
+| `valid_parses` | the valid reading has a parse, with its pairs and its openers |
+| `parses_unique` | two parses are the same reading |
+
+There is no condition on the alphabet: the grammar reads tokens, and
+the theorems hold of whatever `tok_at` gives.
 
 ## Maintenance
 
-The grammar covers what `valid` covers, no more.  Each stage of the
-inline specification that widens `over_alphabet` extends the grammar
-with it: write the new rules here and in `dev/InlineGrammar.v`, add the
-new bytes to the pieces in `test/grammar.ml`, and keep `make
-check-grammar` at zero differences.  Writing a stage's rules here first
-is a cheap way to find their shape before `valid` is extended.
+The grammar reads a token only through `opens_as`, `closes_as` and where
+its region ends.  A new token kind that neither opens nor closes adds a
+case to `rstep` that returns the state, and the proofs go through
+unchanged.  A new kind of opener, closer or region changes `rstep` and
+`chain_next`, and with them a rule here, a constructor of `seq` and the
+lemmas `rstep_text`, `rstep_open`, `rstep_close` and `rstep_cases`.
 
 ## What it reads
 
@@ -84,6 +90,31 @@ barred one is text.  A closer of a kind in `S` that is not right after
 its opener fits no rule at its level: only R4 to R7 consume it, as the
 end of a pair's content.  A region is source: nothing in it opens or
 closes, and it ends where `region_end` says.
+
+## As stated in Rocq
+
+| Rule | Constructor of `seq` |
+| --- | --- |
+| R0 | `seq_end` at the paragraph's end, `seq_stop` at a closer of `F` |
+| R1, R2, R2' | `seq_text` |
+| R3 | `seq_open` |
+| R4, R5 | `seq_pair`; `past` says where the level goes on |
+| R6 | `seq_dest` |
+| R7 | `seq_label` |
+
+`free` is R2's condition: the token closes nothing, so it is read as an
+opener if it may open and as text if not.  A parse lists its pairs and
+its openers latest first, as `ref_read` does, so the two are equal as
+lists.
+
+Both directions of the proof go through `ref_read`.  A derivation is a
+run: the machine follows each rule (`seq_run`).  A run is a derivation:
+each opener on the stack heads a level whose tokens so far are settled,
+and whether it is R3 or R4 to R7 is decided when a closer takes it or
+the paragraph ends (`base`, `ginv_step`).  What makes the second
+direction work is that a level's tokens between two unmatched openers
+are text or whole pairs, and their rules do not mention `F`
+(`stretch`).
 
 ## Why each part
 
@@ -153,7 +184,14 @@ it is the one side condition.  Neither matters for its use here.
 
 ## The enumerator
 
-`seq` in `dev/InlineGrammar.v` follows the rules, with one shortcut that
+`dev/InlineGrammar.v` runs the rules as an enumerator of parses
+(`level`), and `make check-grammar` (`test/grammar.ml`) requires every
+generated paragraph to have exactly one parse, with the pairs and the
+openers of `ref_read`.  It predates the proof and is not proved to
+enumerate `seq`; it is a second check, and the place to try a rule
+before stating it.
+
+`level` follows the rules, with one shortcut that
 is not a rule: R4 to R7 are tried only when a closer of the kind lies
 ahead.  It backtracks and does not memoize, so an opener with a closer
 ahead doubles the work, and a long line of mixed delimiters is

@@ -7,8 +7,9 @@
    Usage:
      grammar [N] [--len L] [--seed S] [--verbose]
 
-   The grammar is not proved equal to `valid`; this is what checks it.
-   Every paragraph must have exactly one parse, with the pairs and the
+   The grammar as a relation is proved to give the valid reading
+   (`theories/PrecedenceGrammarFacts.v`); the enumerator is not proved to
+   enumerate it, and this is what checks it.  Every paragraph must have exactly one parse, with the pairs and the
    openers of `ref_read`.  Two pools: every one-line paragraph of up to L
    pieces (default 5) from a small set, then N random paragraphs of up to
    three lines of up to eight pieces from a larger one (default 5000).

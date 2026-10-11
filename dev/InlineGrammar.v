@@ -1,9 +1,11 @@
 (* ai-disclosure: autonomous *)
 
 (* The precedence rules (`Precedence.v`) as a grammar over a paragraph's
-   tokens, run as an enumerator of its parses.  Not proved: `make
-   check-grammar` compares it with `ref_read` on generated paragraphs, and
-   `.project/inline-grammar.md` states it for reading.
+   tokens, run as an enumerator of its parses.  The grammar itself is
+   `seq` in `theories/PrecedenceGrammar.v`, proved there to give the
+   valid reading.  This enumerator is not proved to enumerate `seq`:
+   `make check-grammar` compares it with `ref_read` on generated
+   paragraphs.
 
    A level of the paragraph, `Seq(S, F, p, B)`, carries
    - `S`, the kinds with a live opener: a closer of one must close;
