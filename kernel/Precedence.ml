@@ -459,6 +459,79 @@ let at_rbrace = function
 | Some b -> (=) b rbrace
 | None -> false
 
+(** val esc_tok : string -> token * int **)
+
+let esc_tok s =
+  if is_blank (line_rest s)
+  then ((THard (line_rest s)), (Stdlib.succ (String.length (line_rest s))))
+  else ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+          (fun _ -> ((THard ""), (Stdlib.succ 0)))
+          (fun d _ ->
+          if is_ws d
+          then ((TEscWs (ws_run s)), (Stdlib.succ (String.length (ws_run s))))
+          else ((TEsc d), (Stdlib.succ (Stdlib.succ 0))))
+          s)
+
+(** val rbrack_tok : dtable -> string -> token * int **)
+
+let rbrack_tok t s =
+  ((if starts_with lparen s
+    then TClose true
+    else if starts_with lbrack s
+         then TClose false
+         else (match if starts_with lbrace s
+                     then spec_at t (sdrop (Stdlib.succ 0) s)
+                     else None with
+               | Some p -> let (b, a) = p in TSpan (b, a)
+               | None -> TText rbrack)),
+    (Stdlib.succ 0))
+
+(** val lbrace_tok : dtable -> string -> token * int **)
+
+let lbrace_tok t s =
+  match (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+          (fun _ -> None)
+          (fun d _ -> dstyle_of t d)
+          s with
+  | Some k ->
+    if (fun s1 s2 ->
+     let l1 = String.length s1 and l2 = String.length s2 in
+     l1 <= l2 && String.sub s2 0 l1 = s1)
+         (dtoken t k) s
+    then ((TDelim (k, true, true, false)), (Stdlib.succ (dwidth t k)))
+    else ((TText lbrace), (Stdlib.succ 0))
+  | None ->
+    (match spec_at t s with
+     | Some p ->
+       let (b, a) = p in
+       ((TAttr (b, a)), (Stdlib.succ (Stdlib.succ (String.length b))))
+     | None -> ((TText lbrace), (Stdlib.succ 0)))
+
+(** val delim_tok : dtable -> char option -> char -> string -> token * int **)
+
+let delim_tok t prev c s =
+  match dstyle_of t c with
+  | Some k ->
+    if (fun s1 s2 ->
+     let l1 = String.length s1 and l2 = String.length s2 in
+     l1 <= l2 && String.sub s2 0 l1 = s1)
+         (dtoken t k) s
+    then if at_rbrace (get (dwidth t k) s)
+         then ((TDelim (k, true, false, true)), (Stdlib.succ (dwidth t k)))
+         else ((TDelim (k, false,
+                ((&&) (bare_opens t k) (nonspace_at (get (dwidth t k) s))),
+                (nonspace_at prev))), (dwidth t k))
+    else ((TText c), (Stdlib.succ 0))
+  | None -> ((TText c), (Stdlib.succ 0))
+
 (** val next_tok : dtable -> char option -> string -> (token * int) option **)
 
 let next_tok t prev s =
@@ -472,21 +545,7 @@ let next_tok t prev s =
     (if (=) c nl_char
      then (TBreak, (Stdlib.succ 0))
      else if is_bslash c
-          then if is_blank (line_rest rest)
-               then ((THard (line_rest rest)), (Stdlib.succ
-                      (String.length (line_rest rest))))
-               else ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                       (fun _ -> ((THard ""), (Stdlib.succ 0)))
-                       (fun d _ ->
-                       if is_ws d
-                       then ((TEscWs (ws_run rest)), (Stdlib.succ
-                              (String.length (ws_run rest))))
-                       else ((TEsc d), (Stdlib.succ (Stdlib.succ 0))))
-                       rest)
+          then esc_tok rest
           else if is_tick c
                then verb_tok t 0 s
                else if (=) c dollar
@@ -498,89 +557,10 @@ let next_tok t prev s =
                               else if (=) c lbrack
                                    then (TOpen, (Stdlib.succ 0))
                                    else if (=) c rbrack
-                                        then ((if starts_with lparen rest
-                                               then TClose true
-                                               else if starts_with lbrack rest
-                                                    then TClose false
-                                                    else (match if starts_with
-                                                                    lbrace
-                                                                    rest
-                                                                then
-                                                                  spec_at t
-                                                                    (sdrop
-                                                                    (Stdlib.succ
-                                                                    0) rest)
-                                                                else None with
-                                                          | Some p ->
-                                                            let (b, a) = p in
-                                                            TSpan (b, a)
-                                                          | None -> TText c)),
-                                               (Stdlib.succ 0))
+                                        then rbrack_tok t rest
                                         else if (=) c lbrace
-                                             then (match (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-                                                           (fun _ ->
-                                                           None)
-                                                           (fun d _ ->
-                                                           dstyle_of t d)
-                                                           rest with
-                                                   | Some k ->
-                                                     if (fun s1 s2 ->
-     let l1 = String.length s1 and l2 = String.length s2 in
-     l1 <= l2 && String.sub s2 0 l1 = s1)
-                                                          (dtoken t k) rest
-                                                     then ((TDelim (k, true,
-                                                            true, false)),
-                                                            (Stdlib.succ
-                                                            (dwidth t k)))
-                                                     else ((TText c),
-                                                            (Stdlib.succ 0))
-                                                   | None ->
-                                                     (match spec_at t rest with
-                                                      | Some p ->
-                                                        let (b, a) = p in
-                                                        ((TAttr (b, a)),
-                                                        (Stdlib.succ
-                                                        (Stdlib.succ
-                                                        (String.length b))))
-                                                      | None ->
-                                                        ((TText c),
-                                                          (Stdlib.succ 0))))
-                                             else (match dstyle_of t c with
-                                                   | Some k ->
-                                                     if (fun s1 s2 ->
-     let l1 = String.length s1 and l2 = String.length s2 in
-     l1 <= l2 && String.sub s2 0 l1 = s1)
-                                                          (dtoken t k) s
-                                                     then if at_rbrace
-                                                               (get
-                                                                 (dwidth t k)
-                                                                 s)
-                                                          then ((TDelim (k,
-                                                                 true, false,
-                                                                 true)),
-                                                                 (Stdlib.succ
-                                                                 (dwidth t k)))
-                                                          else ((TDelim (k,
-                                                                 false,
-                                                                 ((&&)
-                                                                   (bare_opens
-                                                                    t k)
-                                                                   (nonspace_at
-                                                                    (get
-                                                                    (dwidth t
-                                                                    k) s))),
-                                                                 (nonspace_at
-                                                                   prev))),
-                                                                 (dwidth t k))
-                                                     else ((TText c),
-                                                            (Stdlib.succ 0))
-                                                   | None ->
-                                                     ((TText c), (Stdlib.succ
-                                                       0)))))
+                                             then lbrace_tok t rest
+                                             else delim_tok t prev c s))
     s
 
 (** val before : string -> int -> char option **)
@@ -750,103 +730,6 @@ let chain_next t s m p =
   | None -> None
 
 type reading = matching * int list
-
-type litem =
-| LOpen of int * key
-| LBar of int
-
-(** val has_key : key -> litem list -> bool **)
-
-let rec has_key k = function
-| [] -> false
-| l :: rest ->
-  (match l with
-   | LOpen (_, k') -> (||) (key_eq k k') (has_key k rest)
-   | LBar _ -> has_key k rest)
-
-type pick_res =
-| PFound of int * litem list
-| PBarred
-| PNone
-
-(** val pick : key -> litem list -> pick_res **)
-
-let rec pick k = function
-| [] -> PNone
-| l :: rest ->
-  (match l with
-   | LOpen (p, k') -> if key_eq k k' then PFound (p, rest) else pick k rest
-   | LBar _ -> if has_key k rest then PBarred else PNone)
-
-type rstate = { rs_live : litem list; rs_pairs : matching; rs_os : int list }
-
-(** val ropen : int -> key -> bool -> rstate -> rstate **)
-
-let ropen i k op st =
-  if op
-  then { rs_live = ((LOpen (i, k)) :: st.rs_live); rs_pairs = st.rs_pairs;
-         rs_os = (i :: st.rs_os) }
-  else st
-
-(** val rstep : dtable -> string -> int -> token -> rstate -> rstate **)
-
-let rstep t s i t0 st =
-  match t0 with
-  | TDelim (k, mr, op, cl) ->
-    (match if cl then pick (KDelim (k, mr)) st.rs_live else PNone with
-     | PFound (p, below) ->
-       if ( < ) (tok_end t s p) i
-       then { rs_live = below; rs_pairs = ((p, i) :: st.rs_pairs); rs_os =
-              st.rs_os }
-       else ropen i (KDelim (k, mr)) op st
-     | PBarred -> st
-     | PNone -> ropen i (KDelim (k, mr)) op st)
-  | TOpen -> ropen i KBracket true st
-  | TClose b ->
-    (match pick KBracket st.rs_live with
-     | PFound (p, below) ->
-       let pairs = (p, i) :: st.rs_pairs in
-       (match region_end s i b with
-        | Some _ -> { rs_live = below; rs_pairs = pairs; rs_os = st.rs_os }
-        | None ->
-          if b
-          then { rs_live = ((LBar i) :: below); rs_pairs = pairs; rs_os =
-                 st.rs_os }
-          else { rs_live = below; rs_pairs = pairs; rs_os = st.rs_os })
-     | _ -> st)
-  | TSpan (_, _) ->
-    (match pick KBracket st.rs_live with
-     | PFound (p, below) ->
-       { rs_live = below; rs_pairs = ((p, i) :: st.rs_pairs); rs_os =
-         st.rs_os }
-     | _ -> st)
-  | _ -> st
-
-(** val rgo : dtable -> string -> int -> int -> rstate -> rstate **)
-
-let rec rgo t s fuel p st =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> st)
-    (fun f ->
-    match tok_of t s p with
-    | Some t0 ->
-      let st' = rstep t s p t0 st in
-      (match chain_next t s st'.rs_pairs p with
-       | Some q -> rgo t s f q st'
-       | None -> st')
-    | None -> st)
-    fuel
-
-(** val rstart : rstate **)
-
-let rstart =
-  { rs_live = []; rs_pairs = []; rs_os = [] }
-
-(** val ref_read : dtable -> string -> reading **)
-
-let ref_read t s =
-  let st = rgo t s (Stdlib.succ (String.length s)) 0 rstart in
-  (st.rs_pairs, st.rs_os)
 
 (** val str_snoc : string -> inlines -> inlines **)
 
@@ -1286,3 +1169,100 @@ let rec tgo t s m fuel i hard fs top =
 
 let tree_of t s m =
   resolve (snd (tgo t s m (Stdlib.succ (String.length s)) 0 false [] []))
+
+type litem =
+| LOpen of int * key
+| LBar of int
+
+(** val has_key : key -> litem list -> bool **)
+
+let rec has_key k = function
+| [] -> false
+| l :: rest ->
+  (match l with
+   | LOpen (_, k') -> (||) (key_eq k k') (has_key k rest)
+   | LBar _ -> has_key k rest)
+
+type pick_res =
+| PFound of int * litem list
+| PBarred
+| PNone
+
+(** val pick : key -> litem list -> pick_res **)
+
+let rec pick k = function
+| [] -> PNone
+| l :: rest ->
+  (match l with
+   | LOpen (p, k') -> if key_eq k k' then PFound (p, rest) else pick k rest
+   | LBar _ -> if has_key k rest then PBarred else PNone)
+
+type rstate = { rs_live : litem list; rs_pairs : matching; rs_os : int list }
+
+(** val ropen : int -> key -> bool -> rstate -> rstate **)
+
+let ropen i k op st =
+  if op
+  then { rs_live = ((LOpen (i, k)) :: st.rs_live); rs_pairs = st.rs_pairs;
+         rs_os = (i :: st.rs_os) }
+  else st
+
+(** val rstep : dtable -> string -> int -> token -> rstate -> rstate **)
+
+let rstep t s i t0 st =
+  match t0 with
+  | TDelim (k, mr, op, cl) ->
+    (match if cl then pick (KDelim (k, mr)) st.rs_live else PNone with
+     | PFound (p, below) ->
+       if ( < ) (tok_end t s p) i
+       then { rs_live = below; rs_pairs = ((p, i) :: st.rs_pairs); rs_os =
+              st.rs_os }
+       else ropen i (KDelim (k, mr)) op st
+     | PBarred -> st
+     | PNone -> ropen i (KDelim (k, mr)) op st)
+  | TOpen -> ropen i KBracket true st
+  | TClose b ->
+    (match pick KBracket st.rs_live with
+     | PFound (p, below) ->
+       let pairs = (p, i) :: st.rs_pairs in
+       (match region_end s i b with
+        | Some _ -> { rs_live = below; rs_pairs = pairs; rs_os = st.rs_os }
+        | None ->
+          if b
+          then { rs_live = ((LBar i) :: below); rs_pairs = pairs; rs_os =
+                 st.rs_os }
+          else { rs_live = below; rs_pairs = pairs; rs_os = st.rs_os })
+     | _ -> st)
+  | TSpan (_, _) ->
+    (match pick KBracket st.rs_live with
+     | PFound (p, below) ->
+       { rs_live = below; rs_pairs = ((p, i) :: st.rs_pairs); rs_os =
+         st.rs_os }
+     | _ -> st)
+  | _ -> st
+
+(** val rgo : dtable -> string -> int -> int -> rstate -> rstate **)
+
+let rec rgo t s fuel p st =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> st)
+    (fun f ->
+    match tok_of t s p with
+    | Some t0 ->
+      let st' = rstep t s p t0 st in
+      (match chain_next t s st'.rs_pairs p with
+       | Some q -> rgo t s f q st'
+       | None -> st')
+    | None -> st)
+    fuel
+
+(** val rstart : rstate **)
+
+let rstart =
+  { rs_live = []; rs_pairs = []; rs_os = [] }
+
+(** val ref_read : dtable -> string -> reading **)
+
+let ref_read t s =
+  let st = rgo t s (Stdlib.succ (String.length s)) 0 rstart in
+  (st.rs_pairs, st.rs_os)
