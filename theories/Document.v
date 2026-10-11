@@ -1172,62 +1172,11 @@ Context {K : bconfig}.
 Section WithPolicy.
 Context {P : PosPolicy}.
 
-(* Pre-order, which is document order, with the same inlined list
-   recursion `Ids.of_block` needs and for the same guard-checker reason. *)
+(* Pre-order, which is document order. *)
 Local Fixpoint of_block (b : block) (p : pos) (a : attr) (m : reference_map)
   {struct b} : reference_map :=
-  let go :=
-    fix go (ns : blocks) (acc : reference_map) {struct ns} : reference_map :=
-      match ns with
-      | [] => acc
-      | Node p' a' x :: rest => go rest (of_block x p' a' acc)
-      end in
-  let goit :=
-    fix goit (its : list (node blocks)) (acc : reference_map) {struct its}
-      : reference_map :=
-      match its with
-      | [] => acc
-      | Node ip ia it :: rest =>
-          goit rest ((fix go' (ns : blocks) (acc' : reference_map)
-                        {struct ns} : reference_map :=
-                        match ns with
-                        | [] => acc'
-                        | Node p' a' x :: more => go' more (of_block x p' a' acc')
-                        end) it acc)
-      end in
-  match b with
-  | BlockQuote bs | Div _ bs | Section bs | FootnoteDef _ bs
-  | Ext_callout _ _ _ bs => go bs m
-  | Ext_keyed _ (Node p' a' x) => of_block x p' a' m
-  | BulletList _ _ items | OrderedList _ _ items => goit items m
-  | DefinitionList _ items =>
-      (fix god (its : list (node (node inlines * node blocks))) (acc : reference_map)
-         {struct its} : reference_map :=
-         match its with
-         | [] => acc
-         | Node _ _ (_, Node _ _ it) :: rest =>
-             god rest ((fix go' (ns : blocks) (acc' : reference_map)
-                          {struct ns} : reference_map :=
-                          match ns with
-                          | [] => acc'
-                          | Node p' a' x :: more => go' more (of_block x p' a' acc')
-                          end) it acc)
-         end) items m
-  | TaskList _ items =>
-      (fix got (its : list (node (task_status * blocks))) (acc : reference_map)
-         {struct its} : reference_map :=
-         match its with
-         | [] => acc
-         | Node _ _ (_, it) :: rest =>
-             got rest ((fix go' (ns : blocks) (acc' : reference_map)
-                          {struct ns} : reference_map :=
-                          match ns with
-                          | [] => acc'
-                          | Node p' a' x :: more => go' more (of_block x p' a' acc')
-                          end) it acc)
-         end) items m
-  | _ => add_ref p a b m
-  end.
+  fold_children (fun acc n => match n with Node p' a' x => of_block x p' a' acc end)
+    b (add_ref p a b m).
 
 Local Fixpoint of_list (ns : blocks) (m : reference_map) : reference_map :=
   match ns with
@@ -1235,71 +1184,15 @@ Local Fixpoint of_list (ns : blocks) (m : reference_map) : reference_map :=
   | Node p a b :: rest => of_list rest (of_block b p a m)
   end.
 
-Local Lemma inner_go : forall ns m,
-  (fix go (ns : blocks) (acc : reference_map) : reference_map :=
-     match ns with
-     | [] => acc
-     | Node p' a' x :: rest => go rest (of_block x p' a' acc)
-     end) ns m = of_list ns m.
+Local Lemma of_block_children : forall b p a m,
+  of_block b p a m = of_list (children b) (add_ref p a b m).
 Proof.
-  induction ns as [|[p a b] rest IH]; intros m; [reflexivity|].
-  cbn [of_list]. rewrite IH. reflexivity.
-Qed.
-
-Local Lemma inner_goit : forall its m,
-  (fix goit (its : list (node blocks)) (acc : reference_map) : reference_map :=
-     match its with
-     | [] => acc
-     | Node ip ia it :: rest =>
-         goit rest
-           ((fix go (ns : blocks) (acc' : reference_map) : reference_map :=
-               match ns with
-               | [] => acc'
-               | Node p' a' x :: more => go more (of_block x p' a' acc')
-               end) it acc)
-     end) its m
-  = fold_left (fun acc it => of_list (node_contents it) acc) its m.
-Proof.
-  induction its as [|[ip ia it] rest IH]; intros m; [reflexivity|].
-  cbn [fold_left]. rewrite inner_go, IH. reflexivity.
-Qed.
-
-Local Lemma inner_god : forall its m,
-  (fix god (its : list (node (node inlines * node blocks))) (acc : reference_map)
-      : reference_map :=
-     match its with
-     | [] => acc
-     | Node _ _ (_, Node _ _ it) :: rest =>
-         god rest
-           ((fix go (ns : blocks) (acc' : reference_map) : reference_map :=
-               match ns with
-               | [] => acc'
-               | Node p' a' x :: more => go more (of_block x p' a' acc')
-               end) it acc)
-     end) its m
-  = fold_left (fun acc kv => of_list (node_contents (snd (node_contents kv))) acc) its m.
-Proof.
-  induction its as [|[ip ia [term [dp da it]]] rest IH]; intros m; [reflexivity|].
-  cbn [fold_left]. rewrite inner_go, IH. reflexivity.
-Qed.
-
-Local Lemma inner_got : forall its m,
-  (fix got (its : list (node (task_status * blocks))) (acc : reference_map)
-      : reference_map :=
-     match its with
-     | [] => acc
-     | Node _ _ (_, it) :: rest =>
-         got rest
-           ((fix go (ns : blocks) (acc' : reference_map) : reference_map :=
-               match ns with
-               | [] => acc'
-               | Node p' a' x :: more => go more (of_block x p' a' acc')
-               end) it acc)
-     end) its m
-  = fold_left (fun acc kv => of_list (snd (node_contents kv)) acc) its m.
-Proof.
-  induction its as [|[ip ia [chk it]] rest IH]; intros m; [reflexivity|].
-  cbn [fold_left]. rewrite inner_go, IH. reflexivity.
+  intros b p a m.
+  assert (L : forall ns acc,
+            fold_left (fun acc n => match n with Node p' a' x => of_block x p' a' acc end) ns acc
+            = of_list ns acc)
+    by (induction ns as [|[p' a' x] rest IH]; intros acc; [reflexivity|apply IH]).
+  rewrite <- L, <- fold_children_spec. destruct b; reflexivity.
 Qed.
 
 End WithPolicy.
@@ -2740,6 +2633,23 @@ Proof.
   cbn [map Erase.item Erase.task_item Erase.def_entry Erase.inlines_node]. rewrite IH. reflexivity.
 Qed.
 
+(* Erasure keeps a block's children. *)
+Local Lemma erase_children : forall b,
+  children (Erase.of_block b) = Erase.of_blocks (children b).
+Proof.
+  assert (F : forall (A : Type) (g : A -> blocks) (e : A -> A),
+            (forall x, g (e x) = Erase.of_blocks (g x)) ->
+            forall its, flat_map g (map e its) = Erase.of_blocks (flat_map g its)).
+  { intros A g e H. induction its as [|x its IH]; [reflexivity|].
+    cbn [map flat_map]. rewrite Erase.blocks_app, H, IH. reflexivity. }
+  intros b. destruct b as [| | | | | | | | | | | | | | |? []|];
+    cbn [Erase.of_block Ast.children]; fold Erase.of_blocks; try reflexivity.
+  - rewrite erase_items_fix. apply F. intros []; reflexivity.
+  - rewrite erase_items_fix. apply F. intros []; reflexivity.
+  - rewrite erase_task_items_fix. apply F. intros [? ? []]; reflexivity.
+  - rewrite erase_def_items_fix. apply F. intros [? ? [? []]]; reflexivity.
+Qed.
+
 (*
 Ids.of_block
 *)
@@ -3091,49 +3001,12 @@ Refs.of_block
 Local Lemma collect_refs_erase : forall b p a m,
   Refs.of_block (Erase.of_block b) NoPos a m = Refs.of_block b p a m.
 Proof.
-  intros b.
-  induction b using block_ind2 with
-    (Q := fun ns => forall m,
-        Refs.of_list (Erase.of_blocks ns) m = Refs.of_list ns m)
-    (R := fun its => forall m,
-        fold_left (fun acc it => Refs.of_list (node_contents it) acc)
-          (map Erase.item its) m
-        = fold_left (fun acc it => Refs.of_list (node_contents it) acc) its m)
-    (D := fun its => forall m,
-        fold_left (fun acc kv => Refs.of_list (node_contents (snd (node_contents kv))) acc)
-          (map Erase.def_entry its) m
-        = fold_left (fun acc kv => Refs.of_list (node_contents (snd (node_contents kv))) acc) its m)
-    (K := fun its => forall m,
-        fold_left (fun acc kv => Refs.of_list (snd (node_contents kv)) acc)
-          (map Erase.task_item its) m
-        = fold_left (fun acc kv => Refs.of_list (snd (node_contents kv)) acc) its m);
-    intros; try (cbn [Erase.of_block Refs.of_block]; reflexivity).
-  all: try solve [cbn [Erase.of_block Refs.of_block]; fold Erase.of_blocks;
-                  rewrite !Refs.inner_go; exact (IHb m)].
-  all: try solve [cbn [Erase.of_block Refs.of_block]; fold Erase.of_blocks;
-                  rewrite erase_items_fix; rewrite !Refs.inner_goit;
-                  exact (IHb m)].
-  all: try solve [cbn [Erase.of_block Refs.of_block]; fold Erase.of_blocks;
-                  rewrite erase_task_items_fix; rewrite !Refs.inner_got;
-                  exact (IHb m)].
-  all: try solve [cbn [Erase.of_block Refs.of_block]; fold Erase.of_blocks;
-                  rewrite erase_def_items_fix; rewrite !Refs.inner_god;
-                  exact (IHb m)].
-  all: try solve [destruct b as [p' a' x]; cbn [Erase.of_block Refs.of_block];
-                  pose proof (IHb m) as Hk;
-                  cbn [Erase.of_blocks Refs.of_list] in Hk; exact Hk].
-  - (* Q cons *)
-    cbn [Erase.of_blocks Refs.of_list].
-    rewrite (IHb p a m), IHb0. reflexivity.
-  - (* R cons *)
-    cbn [map fold_left Erase.item Erase.task_item Erase.def_entry Erase.inlines_node node_contents].
-    rewrite (IHb m), IHb0. reflexivity.
-  - (* D cons *)
-    cbn [map fst snd fold_left Erase.item Erase.task_item Erase.def_entry Erase.inlines_node node_contents].
-    rewrite (IHb m), IHb0. reflexivity.
-  - (* K cons *)
-    cbn [map fst snd fold_left Erase.item Erase.task_item Erase.def_entry Erase.inlines_node node_contents].
-    rewrite (IHb m), IHb0. reflexivity.
+  intros b. induction b as [b IH] using block_children_ind. intros p a m.
+  rewrite !Refs.of_block_children, erase_children.
+  replace (add_ref NoPos a (Erase.of_block b) m) with (add_ref p a b m)
+    by (destruct b as [| | | | | | | | | | | | | | |? []|]; reflexivity).
+  generalize (add_ref p a b m). induction IH as [|[q c x] rest Hx _ IHr]; intros m'; [reflexivity|].
+  cbn [Erase.of_blocks Refs.of_list node_contents] in *. rewrite (Hx q c m'). apply IHr.
 Qed.
 
 Local Lemma collect_refs_list_erase : forall ns m,

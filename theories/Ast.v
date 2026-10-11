@@ -737,6 +737,79 @@ Definition block_ind2
     end.
 
 (*
+Children
+--------
+
+A pass that only reads the tree, or rebuilds it node by node, is the
+same recursion every time.  `fold_children` is that recursion's one
+step, and a pass written with it needs no loop of its own: the guard
+checker follows a recursive call through it.  `children` says what it
+visits, and `block_children_ind` is the induction that goes with it. *)
+
+(* The blocks right under a block, in document order.  A list's are its
+   items' blocks, one item after another. *)
+Definition children (b : block) : blocks :=
+  match b with
+  | Section bs | BlockQuote bs | Div _ bs | FootnoteDef _ bs
+  | Ext_callout _ _ _ bs => bs
+  | Ext_keyed _ n => [n]
+  | OrderedList _ _ items | BulletList _ _ items => flat_map (@node_contents _) items
+  | TaskList _ items => flat_map (fun it => snd (node_contents it)) items
+  | DefinitionList _ items =>
+      flat_map (fun it => node_contents (snd (node_contents it))) items
+  | Para _ | Heading _ _ | CodeBlock _ _ | ThematicBreak | Table _ _ | RawBlock _ _
+  | RefDef _ _ => []
+  end.
+
+Definition fold_children {A : Type} (f : A -> node block -> A) (b : block) (acc : A) : A :=
+  let go := fold_left f in
+  match b with
+  | Section bs | BlockQuote bs | Div _ bs | FootnoteDef _ bs
+  | Ext_callout _ _ _ bs => go bs acc
+  | Ext_keyed _ n => f acc n
+  | OrderedList _ _ items | BulletList _ _ items =>
+      fold_left (fun acc it => go (node_contents it) acc) items acc
+  | TaskList _ items => fold_left (fun acc it => go (snd (node_contents it)) acc) items acc
+  | DefinitionList _ items =>
+      fold_left (fun acc it => go (node_contents (snd (node_contents it))) acc) items acc
+  | Para _ | Heading _ _ | CodeBlock _ _ | ThematicBreak | Table _ _ | RawBlock _ _
+  | RefDef _ _ => acc
+  end.
+
+Local Lemma fold_left_flat_map : forall (A B C : Type) (f : A -> C -> A) (g : B -> list C) l acc,
+  fold_left (fun acc x => fold_left f (g x) acc) l acc = fold_left f (flat_map g l) acc.
+Proof.
+  intros A B C f g. induction l as [|x l IH]; intros acc; [reflexivity|].
+  cbn [fold_left flat_map]. rewrite fold_left_app. apply IH.
+Qed.
+
+Lemma fold_children_spec : forall (A : Type) (f : A -> node block -> A) b acc,
+  fold_children f b acc = fold_left f (children b) acc.
+Proof.
+  intros A f b acc. destruct b; cbn [fold_children children]; try reflexivity;
+    apply fold_left_flat_map.
+Qed.
+
+(* `P` holds of every block if it holds of a block whose children have
+   it. *)
+Lemma block_children_ind : forall P : block -> Prop,
+  (forall b, Forall (fun n => P (node_contents n)) (children b) -> P b) ->
+  forall b, P b.
+Proof.
+  intros P H.
+  apply (block_ind2 P
+           (Forall (fun n => P (node_contents n)))
+           (fun its => Forall (fun n => P (node_contents n)) (flat_map (@node_contents _) its))
+           (fun its => Forall (fun n => P (node_contents n))
+                         (flat_map (fun it => node_contents (snd (node_contents it))) its))
+           (fun its => Forall (fun n => P (node_contents n))
+                         (flat_map (fun it => snd (node_contents it)) its)));
+    intros; try (apply H; assumption); try (apply H; constructor);
+    try (cbn [flat_map node_contents snd]; apply Forall_app; split; assumption);
+    constructor; assumption.
+Qed.
+
+(*
 Assembling blocks
 -----------------
 *)
