@@ -640,14 +640,6 @@ let bclosed_lit x h h0 kids image o =
   in
   ((x.tpush txt (one rbrack)), o2)
 
-(** val bspan_lit :
-    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
-    string -> ostate -> 'a1 * ostate **)
-
-let bspan_lit x h h0 kids image src o =
-  let (txt, o') = bclosed_lit x h h0 kids image o in
-  bsplit_nl x h h0 src (x.tpush txt (one lbrace)) o'
-
 (** val battr_lit :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
     ostate -> 'a1 * ostate **)
@@ -742,7 +734,7 @@ type 'buf iscan_g =
 | IDash of int * 'buf * char option * ostate
 | IBang of 'buf * char option * ostate
 | IClosed of 'buf * ostate
-| ISpan of inlines * bool * span * aparser * 'buf * ostate
+| ISpan of inlines * bool * span * aparser * 'buf * 'buf iscan_g * ostate
 | IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
 | IReference of inlines * bool * span * bool * 'buf * ostate
 | INote of bool * bool * 'buf * span * ostate
@@ -1105,19 +1097,13 @@ let ospan_bang h h0 image o =
 
 (** val ispan_feed :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-    inlines -> bool -> span -> aparser -> 'a1 -> ostate -> 'a1 iscan_g **)
+    inlines -> bool -> span -> aparser -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1
+    iscan_g **)
 
-let ispan_feed t x h h0 c kids image open0 p src o =
+let ispan_feed t x h h0 c kids image open0 p src sh o =
   let p' = astep p c in
   if ap_failed p'
-  then let (txt, o') = bspan_lit x h h0 kids image (x.tval src) o in
-       ilead t x h h0 c txt
-         (blit_prev
-           ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-           (lbrace, (x.tval src))))
-         o'
+  then sh
   else if ap_done p'
        then let spec_start =
               spot_before h0.cursor_start
@@ -1134,7 +1120,8 @@ let ispan_feed t x h h0 c kids image open0 p src o =
                 ((h.mkpos (inline_prov open0.span_start spec_start)),
                 p'.ap_attrs, (Span ("", kids)))))
               (ospan_bang h h0 image o)))
-       else ISpan (kids, image, open0, p', (x.tpush src (one c)), o)
+       else ISpan (kids, image, open0, p', (x.tpush src (one c)),
+              (islice_end t x sh), o)
 
 (** val inote_step :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
@@ -1750,10 +1737,14 @@ let rec istep_at t x h h0 attrs_enabled c = function
             (idest_open x h h0 kids image open0 o'), o')
      else if (=) c lbrack
           then IReference (kids, image, open0, false, x.tnil, o')
-          else ISpan (kids, image, open0, ap_init, x.tnil, o')
+          else ISpan (kids, image, open0, ap_init, x.tnil, (IBrace
+                 ((x.tpush txt (one rbrack)), (Some rbrack), o)), o')
    | None -> ilead t x h h0 c (x.tpush txt (one rbrack)) (Some rbrack) o)
-| ISpan (kids, image, open0, p, src, o) ->
-  ispan_feed t x h h0 c kids image open0 p src o
+| ISpan (kids, image, open0, p, src, sh, o) ->
+  if ap_failed (astep p c)
+  then istep_at t x h h0 false c sh
+  else ispan_feed t x h h0 c kids image open0 p src
+         (istep_at t x h h0 false c sh) o
 | IAttr (p, src, txt, prev, sh, o) ->
   if ap_failed (astep p c)
   then istep_at t x h h0 false c sh
@@ -1860,9 +1851,7 @@ let ifinish_ostate_flat x h h0 = function
 | IDash (_, _, _, o) -> o
 | IBang (_, _, o) -> o
 | IClosed (_, o) -> o
-| ISpan (kids, image, _, _, src, o) ->
-  let (txt, o') = bspan_lit x h h0 kids image (x.tval src) o in
-  flush_text_at h h0 (x.tval txt) o'
+| ISpan (_, _, _, _, _, _, o) -> o
 | IAttr (_, src, txt, _, _, o) ->
   let (t, o') = battr_lit x h h0 (x.tval src) txt o in
   flush_text_at h h0 (x.tval t) o'
@@ -1923,6 +1912,7 @@ let rec ifinish_ostate t x h h0 st = match st with
               (imk h start h0.cursor_start (Math (InlineMath, (x.tval src))))
               (flush_text_to_at h h0 start (x.tval txt) o)
        else ifinish_ostate t x h h0 sh
+| ISpan (_, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IAttr (_, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IDest (_, _, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | ISymbol (_, _, sh, _) -> ifinish_ostate t x h h0 sh
@@ -1968,8 +1958,8 @@ let rec ibreak_flat t x h h0 st = match st with
                  (vnode vk (trim_verb (x.tval txt))))
                o))))
   else IVerb (n, 0, (x.tpush txt ((^) (ticks run) nl)), vk, o)
-| ISpan (kids, image, open0, p, src, o) ->
-  ispan_feed t x h h0 nl_char kids image open0 p src o
+| ISpan (kids, image, open0, p, src, sh, o) ->
+  ispan_feed t x h h0 nl_char kids image open0 p src sh o
 | IAttr (p, src, txt, prev, sh, o) ->
   iattr_feed t x h h0 nl_char p src txt prev sh o
 | IReference (kids, image, open0, esc, label, o) ->
@@ -2050,6 +2040,9 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
                   (x.tval src))))
                 (flush_text_to_at h h0 start (x.tval txt) o))))
        else ibreak_at t x h h0 attrs_enabled sh
+| ISpan (kids, image, open0, p, src, sh, o) ->
+  ispan_feed t x h h0 nl_char kids image open0 p src
+    (ibreak_at t x h h0 false sh) o
 | IAttr (p, src, txt, prev, sh, o) ->
   iattr_feed t x h h0 nl_char p src txt prev (ibreak_at t x h h0 false sh) o
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->
@@ -2117,8 +2110,8 @@ let rec map_text x = function
 | IDash (n, t, prev, o) -> IDash (n, (x.tval t), prev, o)
 | IBang (t, prev, o) -> IBang ((x.tval t), prev, o)
 | IClosed (t, o) -> IClosed ((x.tval t), o)
-| ISpan (kids, image, open0, p, src, o) ->
-  ISpan (kids, image, open0, p, (x.tval src), o)
+| ISpan (kids, image, open0, p, src, sh, o) ->
+  ISpan (kids, image, open0, p, (x.tval src), (map_text x sh), o)
 | IAttr (p, src, t, prev, sh, o) ->
   IAttr (p, (x.tval src), (x.tval t), prev, (map_text x sh), o)
 | IReference (kids, image, open0, esc, label, o) ->
@@ -2154,8 +2147,8 @@ let rec lift x = function
 | IDash (n, t, prev, o) -> IDash (n, (x.tof t), prev, o)
 | IBang (t, prev, o) -> IBang ((x.tof t), prev, o)
 | IClosed (t, o) -> IClosed ((x.tof t), o)
-| ISpan (kids, image, open0, p, src, o) ->
-  ISpan (kids, image, open0, p, (x.tof src), o)
+| ISpan (kids, image, open0, p, src, sh, o) ->
+  ISpan (kids, image, open0, p, (x.tof src), (lift x sh), o)
 | IAttr (p, src, t, prev, sh, o) ->
   IAttr (p, (x.tof src), (x.tof t), prev, (lift x sh), o)
 | IReference (kids, image, open0, esc, label, o) ->
