@@ -63,7 +63,8 @@ kind; R4 to R7 then decide whether that closer pairs.
   R2' close_k                            Seq(S, F, -, B)     k barred: text, does not open
   R3  open_k                             Seq(S+k, F, k, B)   k is not F
   R4  open_k Seq(S+k, k, k, B) close_k   Seq(S, F, -, B)     a delimiter pair encloses something
-  R5  open_[ Seq(S+[, [, [, B) ]  region Seq(S, F, -, B)     the region to its end (`region_end`)
+  R5  open_[ Seq(S+[, [, [, B) ]  region Seq(S, F, -, B)     the region to its end (`region_end`),
+                                                             or a span's spec
   R6  open_[ Seq(S+[, [, [, B) ](  Seq(-, F, -, B+S)         a destination that does not close:
                                                              the rest of the paragraph, barred
   R7  open_[ Seq(S+[, [, [, B) ][  rest                      a label that does not close: source
@@ -118,6 +119,10 @@ Fixpoint level (fuel : nat) (s : string) (p : nat)
                                             (level fuel' s (e + le) [] forb None (live ++ barred)))
                                      else [(m, os, String.length s)]                 (* R7 *)
                                  end
+                             | TSpan b _ =>                                          (* R5, a span *)
+                                 after m os
+                                   (level fuel' s (e + S (S (S (String.length b)))) live forb None
+                                      barred)
                              | _ =>                                                  (* R4 *)
                                  after m os (level fuel' s (e + le) live forb None barred)
                              end

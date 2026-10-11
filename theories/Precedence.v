@@ -118,20 +118,57 @@ Definition colon_ok (s : string) : bool :=
   | k => starts_with ":"%char (sdrop k s)
   end.
 
+(* An attribute spec read from after its `{` (AT1): the bytes before the
+   `}` that ends it, and its attributes.  The machine is the one block
+   attributes use (`Attributes.v`); a spec ends within its line. *)
+Fixpoint spec_go (p : aparser) (s : string) : option (string * attr) :=
+  match s with
+  | EmptyString => None
+  | String c r =>
+      if Ascii.eqb c nl_char then None
+      else let p' := astep p c in
+           if ap_failed p' then None
+           else if ap_done p' then Some (EmptyString, ap_attrs p')
+           else match spec_go p' r with
+                | Some (b, a) => Some (String c b, a)
+                | None => None
+                end
+  end.
+
+(* Whether a spec closes with no backslash in it. *)
+Fixpoint spec_plain (p : aparser) (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c r =>
+      if (Ascii.eqb c nl_char || is_bslash c)%bool then false
+      else let p' := astep p c in
+           if ap_failed p' then false
+           else if ap_done p' then true
+           else spec_plain p' r
+  end.
+
+(* The spec after a `{`, while inline attributes are on. *)
+Definition spec_at (s : string) : option (string * attr) :=
+  if inline_attrs_enabled then spec_go ap_init s else None.
+
+Definition spec_ahead (s : string) : bool :=
+  (inline_attrs_enabled && spec_plain ap_init s)%bool.
+
 (* Whether a `{` after a backtick begins a raw spec that closes. *)
 Definition raw_ahead (s : string) : bool :=
   (raw_inline_enabled && match raw_spec s with Some _ => true | None => false end)%bool.
 
 (* What may follow a byte.  A `{` before anything but a row's character
-   begins an attribute spec, and so does one after a `]`; one after a
-   backtick is drawn on only as a raw spec that closes; a `[` before a `^`
+   is drawn on only as an attribute spec that closes; a `{` after a `]`
+   only as a span's spec that closes; one after a backtick is drawn on only as a raw
+   spec that closes; a `[` before a `^`
    begins a footnote reference and before a `[` a wikilink; an autolink
    candidate holds no backslash; and a `:` either begins a symbol or is
    text on the spot. *)
 Definition follow_ok (c : ascii) (rest : string) : bool :=
-  ((negb (Ascii.eqb c lbrace) || starts_row rest)
+  ((negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest)
    && negb (Ascii.eqb c lbrack && (starts_with lbrack rest || starts_with hat rest))
-   && negb (Ascii.eqb c rbrack && starts_with lbrace rest)
+   && negb (Ascii.eqb c rbrack && starts_with lbrace rest && negb (spec_ahead (sdrop 1 rest)))
    && negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest))
    && negb (Ascii.eqb c lt && negb (auto_clean rest))
    && negb (Ascii.eqb c ":"%char && negb (colon_ok rest)))%bool.
@@ -185,7 +222,13 @@ Fixpoint over_alphabet (s : string) : bool :=
    text and the byte that ended it is read on its own.
 
    A `:`, a nonempty run of symbol characters and a `:` are a symbol
-   (`TSymbol`, Y1); any other `:` is text. *)
+   (`TSymbol`, Y1); any other `:` is text.
+
+   A `{` before a byte that is no row's character begins an attribute
+   spec while inline attributes are on (`TAttr`, with the bytes between
+   its braces); when no spec closes there the `{` is text.  A `]` before
+   a `{` and a spec that closes may close a span (`TSpan`, N1), whose
+   region is the spec. *)
 Inductive token : Type :=
   | TText (c : ascii)
   | TBreak
@@ -198,7 +241,9 @@ Inductive token : Type :=
   | TVerb (pre n : nat) (body : string) (closed : bool) (raw : option string)
   | TDollars (k : nat)
   | TAuto (src : string) (ok : bool)
-  | TSymbol (alias : string).
+  | TSymbol (alias : string)
+  | TAttr (body : string) (a : attr)
+  | TSpan (body : string) (a : attr).
 
 (* The whitespace a string begins with. *)
 Fixpoint ws_run (s : string) : string :=
@@ -305,7 +350,10 @@ Definition next_tok (prev : option ascii) (s : string) : option (token * nat) :=
          else if Ascii.eqb c rbrack then
            (if starts_with lparen rest then TClose true
             else if starts_with lbrack rest then TClose false
-            else TText c, 1)
+            else match (if starts_with lbrace rest then spec_at (sdrop 1 rest) else None) with
+                 | Some (b, a) => TSpan b a
+                 | None => TText c
+                 end, 1)
          else if Ascii.eqb c lbrace then
            match (match rest with
                   | String d _ => dstyle_of d
@@ -315,7 +363,11 @@ Definition next_tok (prev : option ascii) (s : string) : option (token * nat) :=
                if prefix (dtoken k) rest
                then (TDelim k true true false, S (dwidth k))
                else (TText c, 1)
-           | None => (TText c, 1)
+           | None =>
+               match spec_at rest with
+               | Some (b, a) => (TAttr b a, S (S (String.length b)))
+               | None => (TText c, 1)
+               end
            end
          else match dstyle_of c with
          | Some k =>
@@ -362,7 +414,7 @@ P4), or the bracket.
 
 A `]` that pairs closes its bracket, and what follows is a region of
 the link syntax: a destination runs to the `)` that balances its `(`,
-and a reference label to the next `]`.  A region is source, and so is
+a reference label to the next `]`, and a span's spec to its `}`.  A region is source, and so is
 a label that no `]` ends: the reading's tokens are a chain from the
 first byte, each followed by the next or, after a `]` that pairs, by
 the byte after its region.  A destination with no balancing `)` is not
@@ -396,7 +448,7 @@ Definition opens_as (t : token) : option key :=
 Definition closes_as (t : token) : option key :=
   match t with
   | TDelim k mr _ true => Some (KDelim k mr)
-  | TClose _ => Some KBracket
+  | TClose _ | TSpan _ _ => Some KBracket
   | _ => None
   end.
 
@@ -459,6 +511,8 @@ Definition resume (s : string) (d : nat) (dest : bool) : option nat :=
 Definition chain_next (s : string) (m : matching) (p : nat) : option nat :=
   match tok_at s p with
   | Some (TClose b, l) => if is_closer m p then resume s p b else Some (p + l)
+  | Some (TSpan b _, l) =>
+      if is_closer m p then Some (p + S (S (S (String.length b)))) else Some (p + l)
   | Some (_, l) => Some (p + l)
   | None => None
   end.
@@ -746,6 +800,46 @@ Proof.
   intros r. unfold sym_tok. destruct (_ && _)%bool; [left; eauto|right; reflexivity].
 Qed.
 
+(* The machine is done only at a `}`. *)
+Lemma astep_done : forall p c,
+  ap_done p = false -> ap_done (astep p c) = true -> c = rbrace.
+Proof.
+  intros p c Hp H. apply Ascii.eqb_eq. unfold ap_done, astep in *.
+  destruct p as [st tok key at_]. cbn [ap_st] in *.
+  destruct st; try discriminate Hp;
+    repeat match type of H with
+           | context [if ?b then _ else _] =>
+               let E := fresh "E" in destruct b eqn:E; try exact E
+           end; cbn in H; try discriminate H.
+Qed.
+
+Lemma spec_go_split : forall s p b a,
+  ap_done p = false -> spec_go p s = Some (b, a) ->
+  exists r, s = (b ++ String rbrace r)%string.
+Proof.
+  induction s as [|c s IH]; intros p b a Hp H; [discriminate|]. cbn [spec_go] in H.
+  destruct (Ascii.eqb c nl_char); [discriminate|].
+  destruct (ap_failed (astep p c)); [discriminate|].
+  destruct (ap_done (astep p c)) eqn:Ed.
+  - injection H as <- _. rewrite (astep_done p c Hp Ed). exists s. reflexivity.
+  - destruct (spec_go (astep p c) s) as [[b' a']|] eqn:E; [|discriminate].
+    injection H as <- _. destruct (IH _ _ _ Ed E) as [r ->]. exists r. reflexivity.
+Qed.
+
+Lemma spec_at_split : forall s b a,
+  spec_at s = Some (b, a) -> exists r, s = (b ++ String rbrace r)%string.
+Proof.
+  intros s b a H. unfold spec_at in H. destruct inline_attrs_enabled; [|discriminate].
+  exact (spec_go_split s ap_init b a eq_refl H).
+Qed.
+
+Lemma spec_at_len : forall s b a,
+  spec_at s = Some (b, a) -> S (String.length b) <= String.length s.
+Proof.
+  intros s b a H. destruct (spec_at_split s b a H) as [r ->].
+  rewrite length_append. cbn [String.length]. lia.
+Qed.
+
 Lemma next_tok_len : forall prev s t l,
   next_tok prev s = Some (t, l) -> 0 < l <= String.length s.
 Proof.
@@ -785,7 +879,9 @@ Proof.
     | match goal with Hd : Ascii.eqb ?x lt = true |- _ =>
         exact (auto_tok_len _ t l H) end
     | match goal with Hd : Ascii.eqb ?x ":"%char = true |- _ =>
-        exact (sym_tok_len _ t l H) end ].
+        exact (sym_tok_len _ t l H) end
+    | match goal with Hs : spec_at _ = Some _ |- _ =>
+        pose proof (spec_at_len _ _ _ Hs); cbn [String.length]; lia end ].
 Qed.
 
 Lemma tok_at_len : forall s p t l,
@@ -841,7 +937,43 @@ Proof.
       cbn iota beta in H
   | (if ?b then _ else _) = _ => destruct b
   | (match ?x with _ => _ end) = _ => destruct x
+  | context [if ?b then _ else _] => destruct b
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x
+  | context [match ?x with pair _ _ => _ end] => destruct x
   end; congruence.
+Qed.
+
+(* A span's closer is the `]`, and its spec is right after it. *)
+Lemma tok_at_span : forall s p b a l,
+  tok_at s p = Some (TSpan b a, l) ->
+  l = 1 /\ exists r, sdrop p s = String rbrack (String lbrace (b ++ String rbrace r)).
+Proof.
+  intros s p b a l H. unfold tok_at, next_tok, dollar_tok in H.
+  destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
+  repeat match type of H with
+  | context [sym_tok ?a] =>
+      let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
+      cbn iota beta in H
+  | context [auto_tok ?a] =>
+      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | context [verb_tok ?a ?b] =>
+      let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | (if ?b then _ else _) = _ => destruct b eqn:?
+  | (match ?x with _ => _ end) = _ => destruct x eqn:?
+  | context [if ?b then _ else _] => destruct b eqn:?
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x eqn:?
+  | context [match ?x with pair _ _ => _ end] => destruct x eqn:?
+  end; try congruence.
+  all: injection H as <- <- <-; split; [reflexivity|];
+    match goal with E : (?x =? rbrack)%char = true |- _ => apply Ascii.eqb_eq in E; subst x end;
+    match goal with E : starts_with lbrace ?rr = true |- _ =>
+      destruct rr as [|d r0]; [discriminate E|]; cbn [starts_with] in E;
+      apply Ascii.eqb_eq in E; subst d end;
+    match goal with E : spec_at _ = Some _ |- _ =>
+      destruct (spec_at_split _ _ _ E) as [r ->] end;
+    exists r; reflexivity.
 Qed.
 
 Lemma tok_at_dollars : forall s p k l, tok_at s p = Some (TDollars k, l) -> l = k.
@@ -861,6 +993,8 @@ Proof.
   | (if ?b then _ else _) = _ => destruct b
   | (match ?x with _ => _ end) = _ => destruct x
   | context [if ?b then _ else _] => destruct b
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x
+  | context [match ?x with pair _ _ => _ end] => destruct x
   end; congruence.
 Qed.
 
@@ -871,11 +1005,15 @@ Proof.
   destruct (tok_at s p) as [[t l]|] eqn:E; [|discriminate].
   pose proof (tok_at_len s p t l E) as Hl.
   destruct t; try (injection H as <-; lia).
-  destruct (is_closer m p); [|injection H as <-; lia].
-  unfold resume in H. destruct (region_end s p dest) as [e|] eqn:R.
-  - injection H as <-. apply region_end_bound in R. lia.
-  - pose proof (tok_at_close s p dest l E) as ->.
-    destruct dest; [injection H as <-; lia|discriminate].
+  - destruct (is_closer m p); [|injection H as <-; lia].
+    unfold resume in H. destruct (region_end s p dest) as [e|] eqn:R.
+    + injection H as <-. apply region_end_bound in R. lia.
+    + pose proof (tok_at_close s p dest l E) as ->.
+      destruct dest; [injection H as <-; lia|discriminate].
+  - destruct (is_closer m p); [|injection H as <-; lia]. injection H as <-.
+    destruct (tok_at_span s p body a l E) as [_ [r Er]].
+    pose proof (sdrop_length p s) as L. rewrite Er in L. cbn [String.length] in L.
+    rewrite length_append in L. cbn [String.length] in L. lia.
 Qed.
 
 (* The chain is one sequence: between two of its points, the next point
@@ -1113,7 +1251,8 @@ Definition ropen (i : nat) (k : key) (op : bool) (st : rstate) : rstate :=
 
 Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
   match t with
-  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ _ | TDollars _ | TAuto _ _ | TSymbol _ => st
+  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ _ | TDollars _ | TAuto _ _
+  | TSymbol _ | TAttr _ _ => st
   | TOpen => ropen i KBracket true st
   | TDelim k mr op cl =>
       match (if cl then pick (KDelim k mr) (rs_live st) else PNone) with
@@ -1132,6 +1271,11 @@ Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
           | None, true => RState (LBar i :: below) pairs (rs_os st)
           | _, _ => RState below pairs (rs_os st)
           end
+      | _ => st
+      end
+  | TSpan _ _ =>
+      match pick KBracket (rs_live st) with
+      | PFound p below => RState below ((p, i) :: rs_pairs st) (rs_os st)
       | _ => st
       end
   end.
@@ -1639,7 +1783,7 @@ Proof.
     - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
     - intros k Hk. congruence. }
   (* text, a break and the escapes neither open nor close *)
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa]; try (apply Text; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa']; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Hop : open_key s n = if op then Some K else None)
@@ -1679,7 +1823,7 @@ Proof.
            destruct (chain_between s m n p Hchp Hch Hpn) as (q & Hq & Hqn).
            unfold open_key, tok_of in Hop'. unfold tok_end in *. unfold chain_next in Hq.
            destruct (tok_at s p) as [[tp lp]|]; [|discriminate].
-           destruct tp; try (injection Hq as <-; lia). discriminate Hop'.
+           destruct tp; try (injection Hq as <-; lia); discriminate Hop'.
     + (* barred: text *)
       destruct (pick_barred K lv (ri_desc s n st I) P) as [Hnl [q Hq]].
       apply (NC false K); [discriminate| |apply (UN false K (Nolive K (or_introl P)) HK)].
@@ -1725,6 +1869,19 @@ Proof.
       * intros d. rewrite Hbar. split; [intros H; left; exact H|].
         intros [H|(_ & E & _)]; [exact H|congruence].
       * exact Db.
+  - (* a `]` that may close a span *)
+    assert (HK : close_key s n = Some KBracket) by (rewrite Hck; reflexivity).
+    destruct (pick KBracket lv) as [p below| |] eqn:P.
+    2,3: apply (NC false KBracket); [discriminate| |];
+         [ split; [intros H; contradiction|intros ([k' Hk'] & _); rewrite Hok in Hk'; discriminate]
+         | apply (UN false KBracket (Nolive KBracket ltac:(auto)) HK) ].
+    destruct (pick_below s n st KBracket p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
+    unfold st in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
+    apply (rinv_pair s n st p KBracket below I Hch HK Hcl
+             (fun H => ltac:(discriminate H)) Hlv).
+    + intros d. rewrite Hbar. split; [intros H; left; exact H|].
+      intros [H|(_ & E & _)]; [exact H|congruence].
+    + exact Db.
 Qed.
 
 (* A step adds at most a pair closing at the token and the token as an
@@ -1742,7 +1899,7 @@ Proof.
             /\ (rs_os (ropen i k op st') = os \/ rs_os (ropen i k op st') = i :: os)).
   { intros k [|] st' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
       split; [left|right|left|left]; reflexivity. }
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa]; try (split; left; reflexivity).
+  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa']; try (split; left; reflexivity).
   - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
       [destruct (Nat.ltb (tok_end s p) i)| |];
       try (apply Ro; reflexivity); try (split; left; reflexivity).
@@ -1751,6 +1908,8 @@ Proof.
   - destruct (pick KBracket lv) as [p below| |]; try (split; left; reflexivity).
     destruct (region_end s i b), b; cbn;
       (split; [right; exists p; reflexivity|left; reflexivity]).
+  - destruct (pick KBracket lv) as [p below| |]; try (split; left; reflexivity).
+    cbn. split; [right; exists p; reflexivity|left; reflexivity].
 Qed.
 
 (* Past the last token of the chain the invariant is the rules. *)
@@ -1855,7 +2014,12 @@ What a matching describes, read along its chain: each pair of
 delimiters becomes its row's node around the tokens between, a bracket
 pair with a region that ends becomes a link to the region's text, and
 every other token is text.  Adjacent text is one `Str`, as the scanner
-writes it. *)
+writes it.
+
+An attribute spec waits, where it stands among the nodes of its pair,
+until the pair closes, and then lands on what is before it (`attach`).
+Text on either side of a waiting spec is not adjacent: a hard break
+trims only the whitespace written right before its backslash. *)
 
 Definition str_snoc (s : string) (out : inlines) : inlines :=
   match out with
@@ -1893,6 +2057,8 @@ Definition tok_text (t : token) : string :=
   | TDollars k => chars dollar k
   | TAuto src ok => (String lt src ++ if ok then one gt else EmptyString)%string
   | TSymbol a => (String ":"%char a ++ one ":"%char)%string
+  | TAttr b _ => (String lbrace b ++ one rbrace)%string
+  | TSpan _ _ => one rbrack
   end.
 
 (* A run escaped by a backslash is a non-breaking space and the rest of
@@ -1901,18 +2067,6 @@ Definition nbsp_rest (ws : string) : option string :=
   match ws with
   | String c rest => if Ascii.eqb c " "%char then Some rest else None
   | EmptyString => None
-  end.
-
-(* "Spaces and tab characters before the backslash are ignored" (O4): a
-   hard break trims the text right before it. *)
-Definition str_trim (out : inlines) : inlines :=
-  match out with
-  | Node p [] (Str t) :: rest =>
-      match strip_trailing_ws t with
-      | EmptyString => rest
-      | t' => Node p [] (Str t') :: rest
-      end
-  | _ => out
   end.
 
 (* A destination is written without its line breaks. *)
@@ -1950,33 +2104,102 @@ Definition region_node (dest : bool) (kids : inlines) (txt : string) : inline :=
 
 Inductive tkind : Type := TKDelim (k : dstyle) | TKBracket.
 
+(* What a pair holds while it is open: a node, or a spec waiting. *)
+Inductive titem : Type := TIn (n : node inline) | TMark (a : attr).
+
+(* Text after the content so far: it joins the text right before it. *)
+Definition item_snoc (s : string) (out : list titem) : list titem :=
+  match out with
+  | TIn (Node p [] (Str t)) :: rest => TIn (Node p [] (Str (t ++ s))) :: rest
+  | _ => TIn (mk (Str s)) :: out
+  end.
+
+(* "Spaces and tab characters before the backslash are ignored" (O4): a
+   hard break trims the text right before it. *)
+Definition item_trim (out : list titem) : list titem :=
+  match out with
+  | TIn (Node p [] (Str t)) :: rest =>
+      match strip_trailing_ws t with
+      | EmptyString => rest
+      | t' => TIn (Node p [] (Str t')) :: rest
+      end
+  | _ => out
+  end.
+
+(* Where a spec lands, given the nodes before it, latest first.  "They
+   must immediately follow the inline element to which they are attached
+   (with no intervening whitespace)": after plain text that element is
+   its last word, and an empty spec leaves the text whole; after any
+   other node it is that node, whose attributes the spec is merged into;
+   after whitespace, after a soft break or with nothing before it the
+   spec attaches to nothing. *)
+Definition attach (a : attr) (out : inlines) : inlines :=
+  match out with
+  | Node p [] (Str s) :: rest =>
+      let '(pre, w) := last_ws_split s in
+      if nonempty_str w
+      then match a with
+           | [] => out
+           | _ => Node p a (Str w)
+                  :: (if nonempty_str pre then Node p [] (Str pre) :: rest else rest)
+           end
+      else out
+  | Node _ _ SoftBreak :: _ | [] => out
+  | Node p a' v :: rest => Node p (Attr.merge a a') v :: rest
+  end.
+
+(* A node after the nodes before it, plain text merging. *)
+Definition push (n : node inline) (out : inlines) : inlines :=
+  match n with
+  | Node _ [] (Str s) => str_snoc s out
+  | _ => n :: out
+  end.
+
+(* What a pair holds once it closes: its nodes, each spec attached in
+   its turn.  Latest first, as the content is. *)
+Fixpoint resolve_rev (acc : list titem) : inlines :=
+  match acc with
+  | [] => []
+  | TIn n :: rest => push n (resolve_rev rest)
+  | TMark a :: rest => attach a (resolve_rev rest)
+  end.
+
+Definition resolve (acc : list titem) : inlines := List.rev (resolve_rev acc).
+
 (* The frames of the open pairs, innermost first, each with its kind and
    its content reversed, above the reversed top level. *)
-Definition tframes : Type := list (tkind * inlines).
+Definition tframes : Type := list (tkind * list titem).
 
-Definition temit (n : node inline) (fs : tframes) (top : inlines)
-  : tframes * inlines :=
+Definition temit (n : node inline) (fs : tframes) (top : list titem)
+  : tframes * list titem :=
   match fs with
-  | [] => ([], n :: top)
-  | (k, acc) :: rest => ((k, n :: acc) :: rest, top)
+  | [] => ([], TIn n :: top)
+  | (k, acc) :: rest => ((k, TIn n :: acc) :: rest, top)
   end.
 
-Definition temit_str (s : string) (fs : tframes) (top : inlines)
-  : tframes * inlines :=
+Definition temit_str (s : string) (fs : tframes) (top : list titem)
+  : tframes * list titem :=
   match fs with
-  | [] => ([], str_snoc s top)
-  | (k, acc) :: rest => ((k, str_snoc s acc) :: rest, top)
+  | [] => ([], item_snoc s top)
+  | (k, acc) :: rest => ((k, item_snoc s acc) :: rest, top)
   end.
 
-Definition ttrim (fs : tframes) (top : inlines) : tframes * inlines :=
+Definition ttrim (fs : tframes) (top : list titem) : tframes * list titem :=
   match fs with
-  | [] => ([], str_trim top)
-  | (k, acc) :: rest => ((k, str_trim acc) :: rest, top)
+  | [] => ([], item_trim top)
+  | (k, acc) :: rest => ((k, item_trim acc) :: rest, top)
+  end.
+
+(* A spec, waiting where it stands. *)
+Definition tmark (a : attr) (fs : tframes) (top : list titem) : tframes * list titem :=
+  match fs with
+  | [] => ([], TMark a :: top)
+  | (k, acc) :: rest => ((k, TMark a :: acc) :: rest, top)
   end.
 
 (* Nodes in order, plain text merging at the seams. *)
-Fixpoint temit_all (ns : inlines) (fs : tframes) (top : inlines)
-  : tframes * inlines :=
+Fixpoint temit_all (ns : inlines) (fs : tframes) (top : list titem)
+  : tframes * list titem :=
   match ns with
   | [] => (fs, top)
   | Node _ [] (Str s) :: rest =>
@@ -2000,7 +2223,7 @@ Definition verb_node (pre : nat) (raw : option string) (body : string) : inline 
    break, which a break right after is part of.  A reference label that
    never ends is text, brackets and all, to the paragraph's end. *)
 Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
-  (fs : tframes) (top : inlines) : tframes * inlines :=
+  (fs : tframes) (top : list titem) : tframes * list titem :=
   match t with
   | TText _ => temit_str (tok_text t) fs top
   | TEsc c => temit_str (esc_text c) fs top
@@ -2019,11 +2242,12 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   | TDollars _ => temit_str (tok_text t) fs top
   | TAuto src ok => if ok then temit (mk (auto_node src)) fs top else temit_str (tok_text t) fs top
   | TSymbol a => temit (mk (Symbol a)) fs top
+  | TAttr _ a => tmark a fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
   | TDelim k _ _ _ =>
       if is_opener m i then ((TKDelim k, []) :: fs, top)
       else match is_closer m i, fs with
-           | true, (TKDelim k', acc) :: fs0 => temit (mk (dnode k' (List.rev acc))) fs0 top
+           | true, (TKDelim k', acc) :: fs0 => temit (mk (dnode k' (resolve acc))) fs0 top
            | _, _ => temit_str (tok_text t) fs top
            end
   | TOpen =>
@@ -2032,7 +2256,7 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   | TClose b =>
       match is_closer m i, fs with
       | true, (_, acc) :: fs0 =>
-          let kids := List.rev acc in
+          let kids := resolve acc in
           match region_end s i b with
           | Some e => temit (mk (region_node b kids (region_text s i e b))) fs0 top
           | None =>
@@ -2042,10 +2266,15 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
           end
       | _, _ => temit_str (tok_text t) fs top
       end
+  | TSpan _ a =>
+      match is_closer m i, fs with
+      | true, (_, acc) :: fs0 => temit (Node NoPos a (Span EmptyString (resolve acc))) fs0 top
+      | _, _ => temit_str (tok_text t) fs top
+      end
   end.
 
 Fixpoint tgo (s : string) (m : matching) (fuel i : nat) (hard : bool)
-  (fs : tframes) (top : inlines) : tframes * inlines :=
+  (fs : tframes) (top : list titem) : tframes * list titem :=
   match fuel with
   | O => (fs, top)
   | S f =>
@@ -2063,6 +2292,6 @@ Fixpoint tgo (s : string) (m : matching) (fuel i : nat) (hard : bool)
 (* A valid matching closes every pair it opens, so no frame is left at
    the end. *)
 Definition tree_of (s : string) (m : matching) : inlines :=
-  List.rev (snd (tgo s m (S (String.length s)) 0 false [] [])).
+  resolve (snd (tgo s m (S (String.length s)) 0 false [] [])).
 
 End WithTable.

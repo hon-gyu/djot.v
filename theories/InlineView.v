@@ -647,6 +647,22 @@ Fixpoint note_label_safe_from (esc : bool) (label : string) : bool :=
 
 Definition note_label_safe : string -> bool := note_label_safe_from false.
 
+(* The run an attribute spec attaches to when text precedes it:
+   everything after the last whitespace.  The split is on whitespace, not
+   on word characters: `foo bar{.a}` attributes `bar`, and `a-b{.a}` all
+   of `a-b`.  The result satisfies `s = pre ++ w` with `w`
+   whitespace-free, so an attributed `Str` never contains a space. *)
+Fixpoint last_ws_split (s : string) : string * string :=
+  match s with
+  | EmptyString => (EmptyString, EmptyString)
+  | String c rest =>
+      match last_ws_split rest with
+      | (EmptyString, w) =>
+          if is_ws c then (one c, w) else (EmptyString, String c w)
+      | (pre, w) => (String c pre, w)
+      end
+  end.
+
 (*
 Autolinks
 ---------

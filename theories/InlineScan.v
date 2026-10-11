@@ -651,22 +651,6 @@ Proof.
   rewrite IH, <- List.app_assoc. reflexivity.
 Qed.
 
-(* The run an attribute spec attaches to when text precedes it:
-   everything after the last whitespace.  The split is on whitespace, not
-   on word characters: `foo bar{.a}` attributes `bar`, and `a-b{.a}` all
-   of `a-b`.  The result satisfies `s = pre ++ w` with `w`
-   whitespace-free, so an attributed `Str` never contains a space. *)
-Fixpoint last_ws_split (s : string) : string * string :=
-  match s with
-  | EmptyString => (EmptyString, EmptyString)
-  | String c rest =>
-      match last_ws_split rest with
-      | (EmptyString, w) =>
-          if is_ws c then (one c, w) else (EmptyString, String c w)
-      | (pre, w) => (String c pre, w)
-      end
-  end.
-
 (* A last word can only come from text there was. *)
 Local Lemma last_ws_split_nonempty :
   forall s, nonempty_str (snd (last_ws_split s)) = true -> nonempty_str s = true.

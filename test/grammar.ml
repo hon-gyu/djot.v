@@ -20,13 +20,16 @@ module G = Djot_fixtures.InlineGrammar
 let table = Djot.Inline.djot_table
 
 (* Delimiters bare and braced, brackets with what may follow them,
-   parens for destinations, escapes, backticks, and text. *)
+   parens for destinations, escapes, backticks, and text.  The larger
+   pool adds the tokens that are one token to the grammar, attribute
+   specs and spans among them. *)
 let small = [| "_"; "*"; "{_"; "_}"; "["; "]"; "("; ")"; "a"; " "; "\\"; "`" |]
 
 let pieces =
   [| "_"; "*"; "^"; "~"; "{_"; "_}"; "{*"; "*}"; "{="; "=}"; "{+"; "+}";
      "["; "]"; "]("; "]["; "("; ")"; "a"; "b"; " "; "\\"; "\\*"; "\\]";
-     "\\("; "[a]("; "[a]["; "`"; "``"; "`a`"; "`*`"; "$"; "$`a`"; "$$`*`"; "`a`{=x}"; "{=" ; "<"; ">"; "<x@y>"; "<*a>"; ":"; ":a:"; ":_a_:"; "<h://x>" |]
+     "\\("; "[a]("; "[a]["; "`"; "``"; "`a`"; "`*`"; "$"; "$`a`"; "$$`*`"; "`a`{=x}"; "{=" ; "<"; ">"; "<x@y>"; "<*a>"; ":"; ":a:"; ":_a_:"; "<h://x>";
+     "{#i}"; "{k=v}"; "{}"; "{%c%}"; "]{#i}"; "]{}"; "[a]{k=v}"; "]{_a=b}"; "a{#i}"; "}" |]
 
 let sort_pairs m = List.sort compare m
 let sort_os os = List.sort_uniq compare os
