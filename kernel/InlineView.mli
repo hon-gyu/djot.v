@@ -6,6 +6,8 @@ open InlineTable
 open Line
 open List0
 open ListDef
+open Nat0
+open PeanoNat
 open Strings
 
 val dchar : dtable -> dstyle -> char
@@ -123,6 +125,24 @@ val auto_email : string -> bool
 val is_alpha : char -> bool
 
 val symbol_char : char -> bool
+
+val ellipsis : string
+
+val endash : string
+
+val emdash : string
+
+val periods : bool -> string
+
+val typography_ellipsis : dtable -> string
+
+val srep : string -> int -> string
+
+val dash_counts : int -> (int * int) * int
+
+val dashes : int -> string
+
+val typography_dashes : dtable -> int -> string
 
 val auto_node : string -> inline
 

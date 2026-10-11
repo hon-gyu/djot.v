@@ -6,12 +6,11 @@ open InlineTable
 open InlineView
 open List0
 open Nat0
+open PeanoNat
 open String0
 open Strings
 
-val self_row : dtable -> dstyle -> bool
-
-val bare_opens : dtable -> dstyle -> bool
+val hyphen_row_ok : dtable -> bool
 
 val in_alphabet : dtable -> char -> bool
 
@@ -43,6 +42,16 @@ val spec_ahead : dtable -> string -> bool
 
 val raw_ahead : dtable -> string -> bool
 
+val note_go : bool -> string -> string option
+
+val note_at : dtable -> string -> string option
+
+val note_plain : string -> bool
+
+val note_ahead : dtable -> string -> bool
+
+val run_of : char -> string -> int
+
 val follow_ok : dtable -> char -> string -> bool
 
 val over_alphabet : dtable -> string -> bool
@@ -51,7 +60,7 @@ type token =
 | TText of char
 | TBreak
 | TDelim of dstyle * bool * bool * bool
-| TOpen
+| TOpen of bool
 | TClose of bool
 | TEsc of char
 | TEscWs of string
@@ -62,6 +71,9 @@ type token =
 | TSymbol of string
 | TAttr of string * attr
 | TSpan of string * attr
+| TNote of string
+| TDots of int
+| TDash of int
 
 val ws_run : string -> string
 
@@ -84,6 +96,14 @@ val dollar_tok : dtable -> string -> token * int
 val at_rbrace : char option -> bool
 
 val esc_tok : string -> token * int
+
+val dots_tok : string -> token * int
+
+val dash_tok : dtable -> string -> token * int
+
+val bang_tok : string -> token * int
+
+val lbrack_tok : dtable -> string -> token * int
 
 val rbrack_tok : dtable -> string -> token * int
 
@@ -149,11 +169,13 @@ val dest_text : bool -> string -> string
 
 val region_text : string -> int -> int -> bool -> string
 
-val region_node : bool -> inlines -> string -> inline
+val region_node : bool -> bool -> inlines -> string -> inline
 
 type tkind =
 | TKDelim of dstyle
-| TKBracket
+| TKBracket of bool
+
+val tk_image : tkind -> bool
 
 type titem =
 | TIn of inline node
@@ -186,6 +208,10 @@ val temit_all : inlines -> tframes -> titem list -> tframes * titem list
 val is_hard : token -> bool
 
 val verb_node : int -> string option -> string -> inline
+
+val delim_lit : dtable -> dstyle -> bool -> bool -> bool -> string
+
+val dots : dtable -> int -> string
 
 val tstep :
   dtable -> string -> matching -> int -> token -> bool -> tframes -> titem

@@ -6,6 +6,8 @@ open InlineTable
 open Line
 open List0
 open ListDef
+open Nat0
+open PeanoNat
 open Strings
 
 (** val dchar : dtable -> dstyle -> char **)
@@ -589,6 +591,81 @@ let symbol_char c =
       ((||) ((||) (is_alpha c) ((&&) (leb '0' c) (leb c '9'))) ((=) c '_'))
       ((=) c '+'))
     ((=) c '-')
+
+(** val ellipsis : string **)
+
+let ellipsis =
+  "\226\128\166"
+
+(** val endash : string **)
+
+let endash =
+  "\226\128\147"
+
+(** val emdash : string **)
+
+let emdash =
+  "\226\128\148"
+
+(** val periods : bool -> string **)
+
+let periods = function
+| true ->
+  (* If this appears, you're using String internals. Please don't *)
+  (fun (c, s) -> String.make 1 c ^ s)
+
+    (period, (one period))
+| false -> one period
+
+(** val typography_ellipsis : dtable -> string **)
+
+let typography_ellipsis t =
+  if smart_typography t
+  then ellipsis
+  else chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))
+
+(** val srep : string -> int -> string **)
+
+let rec srep s n =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> "")
+    (fun m -> (^) s (srep s m))
+    n
+
+(** val dash_counts : int -> (int * int) * int **)
+
+let dash_counts n =
+  if ( = ) (Nat.modulo n (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))) 0
+  then (((Nat.div n (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))), 0), 0)
+  else if ( = ) (Nat.modulo n (Stdlib.succ (Stdlib.succ 0))) 0
+       then ((0, (Nat.div n (Stdlib.succ (Stdlib.succ 0)))), 0)
+       else if ( = ) n (Stdlib.succ 0)
+            then ((0, 0), (Stdlib.succ 0))
+            else if ( = )
+                      (Nat.modulo n (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                        (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))))))
+                      (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                      (Stdlib.succ 0)))))
+                 then (((Nat.div (sub n (Stdlib.succ (Stdlib.succ 0)))
+                          (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))),
+                        (Stdlib.succ 0)), 0)
+                 else (((Nat.div
+                          (sub n (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                            (Stdlib.succ 0)))))
+                          (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))),
+                        (Stdlib.succ (Stdlib.succ 0))), 0)
+
+(** val dashes : int -> string **)
+
+let dashes n =
+  let (p, lit) = dash_counts n in
+  let (em, en) = p in
+  (^) (srep emdash em) ((^) (srep endash en) (chars hyphen lit))
+
+(** val typography_dashes : dtable -> int -> string **)
+
+let typography_dashes t n =
+  if smart_typography t then dashes n else chars hyphen n
 
 (** val auto_node : string -> inline **)
 
