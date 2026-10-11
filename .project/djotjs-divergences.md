@@ -2512,3 +2512,56 @@ concatenated, which gives `b\c` read literally; djot.js reads the
 backslash and the line break together as a hard-break escape and drops
 both.  Ours stands for now; pending the maintainer's decision.  The
 inline specification will state whichever is chosen.
+
+## 2026-10-11 -- OURS: a spec after a hard break or a non-breaking space attaches to nothing
+
+Found while probing attribute specs for the inline specification
+(`261010.plan.attributes-and-spans.md`).  Decided by the maintainer
+(2026-10-11).
+
+| Input | djot.js | ours before | ours now |
+| --- | --- | --- | --- |
+| `a\` / `{#i}b` | the hard break has `id=i` | as djot.js | no attribute |
+| `a\ {#i}b` | the non-breaking space has `id=i` | as djot.js | no attribute |
+
+AT1 asks that a spec "*immediately follow* the inline element to which
+they are attached (with no intervening whitespace)".  A soft break and
+a space already took no spec; a hard break is a break and a
+non-breaking space is a space, so they take none either
+(`oattach_list`, and `attach` in `Precedence.v`).  The HTML is the same
+either way: neither node prints attributes.  Pinned by
+`attr_after_hard_break_attaches_to_nothing` and
+`attr_after_nbsp_attaches_to_nothing` in `dev/InlineExamples.v`.
+
+## 2026-10-11 -- OURS stands: spaces before a spec that attaches to nothing, before a hard break
+
+| Input | djot.js | Ours |
+| --- | --- | --- |
+| `a  {#i}\` / `b` | `a  `, a hard break, `b` | the same |
+
+O4 ignores "spaces and tab characters before the backslash".  Here the
+spec is before the backslash and the spaces are before the spec, so
+they stay, although the spec attaches to nothing.  Decided by the
+maintainer (2026-10-11): leave it.  A dropped spec still holds its
+place, as in `a {#i}b`, where the space stays too.
+
+## 2026-10-11 -- OURS, to do: a `]{` whose spec fails
+
+| Input | djot.js | Ours | By the reference |
+| --- | --- | --- | --- |
+| `[a]{_b_}` | a span around `a` with no attributes, emphasised `b` | `[a]{_b_}`, all text | `[a]` as text, emphasised `b` |
+
+N1 makes a span of bracketed text "followed immediately by an
+attribute", and `{_b_}` is none.  On `]{` the scanner closes the
+bracket and reads a spec (`ISpan`) with no ordinary reading beside it,
+so when the spec fails the `{` is already text and `{_` opens nothing.
+A plain spec (`IAttr`) keeps that reading and falls back to it.
+
+Decided by the maintainer (2026-10-11): fix it, with the same fallback
+for `ISpan`, so that a failed attempt leaves no trace, as a failed
+plain spec, an unclosed destination and a failed autolink already do.
+`[a]{_b_}` is then `[a]` and an emphasised `b`, and in
+`[x [a]{_ y](u)` the `](u)` pairs with the inner `[`.  Not done.  Until
+then the inline specification admits a `]{` only before a spec that
+closes.
+

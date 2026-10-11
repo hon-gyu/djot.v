@@ -487,18 +487,23 @@ For it:
 To settle before building:
 
 1. A comment-only line, `{% note %}`, gives a block with no attributes.
-   What the source renderer prints for it is not said above.  `{}` loses
-   the comment; printing nothing breaks the round trip.  Either the
-   block keeps its source text or the canonical form is `{}`.
+   Decided by the maintainer (2026-10-11): the canonical form is `{}`
+   and the comment is lost, for now.  No spec keeps its comments today
+   (`{.a %note%}` on a block keeps the class only), so this block does
+   not either.  To revisit: keeping comments for every spec, attached or
+   not, which would have the block print its comment back.
 2. Whether a dangling `{#x}` reserves `x` in the document pass
-   (duplicates, heading identifiers, link targets).  Suggested: no, it
-   attaches to nothing.  Today the question cannot arise.
-3. Stacked specs as one block put two source lines in one node.  Check
-   that located spans and replace-in-place want that; one block per line
-   is the other option.
+   (duplicates, heading identifiers, link targets).  Decided by the
+   maintainer (2026-10-11): no, it attaches to nothing and reserves
+   nothing.
+3. Stacked specs with no block after them.  Decided by the maintainer
+   (2026-10-11): one block, the attributes merged.  It holds two source
+   lines, which located spans and replace-in-place have to take as one
+   node.
 4. The end of a container with no blank (`- a` / `  {.x}` ending an
-   item) emits the block through `finish`, not `step`.  It needs a
-   pinned example of its own.
+   item) emits the block through `finish`, not `step`.  Decided by the
+   maintainer (2026-10-11): it dangles, as at the end of the document.
+   It needs a pinned example of its own.
 
 What to expect of the theorems.  `run_safe` has two parts.  The block
 removes the reason for the end condition.  The per-line part
