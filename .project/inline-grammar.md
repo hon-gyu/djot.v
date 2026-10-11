@@ -5,7 +5,8 @@ ai-disclosure: ai-generated
 
 A grammar for the precedence rules, the third statement of them beside
 `valid` (the rules as conditions on a reading) and `ref_read` (a stack
-machine), both in `theories/Precedence.v`.  It is the one to learn the
+machine), both in `theories/Precedence.v`, with their proofs in
+`theories/PrecedenceFacts.v`.  It is the one to learn the
 rules from: each rule is a clause of the syntax reference, and a
 paragraph's reading is a derivation you can write by hand.
 
@@ -141,10 +142,10 @@ it is the one side condition.  Neither matters for its use here.
 | --- | --- | --- |
 | the kinds on the stack | `live`, `closest_live` | `S` |
 | an opener above another of its kind | `closest_live` | `F` |
-| the check `S p < i` | `needs_content`, clause 2 | `p` |
+| the check `tok_end s p < i` | `needs_content`, clause 2 | `p` |
 | cutting the stack to `below` on a pair | `dead` | R4 to R7 restoring `S` |
 | `LBar`, `PBarred` | `behind`, `barred` | R6, `B` |
-| `RInert` | `inert` | R5's region, R7 |
+| `rgo` stepping by `chain_next` | `chain` | R5's region, R7 |
 
 ## The enumerator
 

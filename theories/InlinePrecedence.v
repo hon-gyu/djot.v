@@ -7,7 +7,7 @@
 
 From Stdlib Require Import String Ascii List Bool Lia Arith Sorted.
 From DjotV Require Import Strings Ast Attributes InlineTable InlineView InlineScan
-  InlineInvert Precedence.
+  InlineInvert Precedence PrecedenceFacts.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -1916,7 +1916,7 @@ Local Lemma tok_at_label : forall s n,
 Proof.
   intros s n Hat. replace (S (S n)) with (n + 2) by lia. replace (S n) with (n + 1) by lia.
   rewrite <- !sdrop_sdrop.
-  unfold tok_at, next_tok, dollar_tok in Hat. destruct (sdrop n s) as [|c r]; [discriminate|].
+  unfold tok_at, next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in Hat. destruct (sdrop n s) as [|c r]; [discriminate|].
   injection Hat as Hat.
   repeat match type of Hat with
   | context [sym_tok ?a] =>
@@ -3693,7 +3693,7 @@ Proof. intros k E. pose proof (dchar_punct k) as P. rewrite E in P. discriminate
 
 Local Lemma next_tok_prev : forall p1 p2 s,
   nonspace_at p1 = nonspace_at p2 -> next_tok p1 s = next_tok p2 s.
-Proof. intros p1 p2 [|c r] H; [reflexivity|]. unfold next_tok. rewrite H. reflexivity. Qed.
+Proof. intros p1 p2 [|c r] H; [reflexivity|]. unfold next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok. rewrite H. reflexivity. Qed.
 
 Local Lemma auto_tok_app : forall r after,
   no_char nl_char r = true -> line_end after -> auto_tok (r ++ after) = auto_tok r.
@@ -3772,7 +3772,7 @@ Proof.
     apply Ascii.eqb_neq. intros E. apply Hx. symmetry. exact E. }
   assert (Pf : forall k s', prefix (dtoken k) (s' ++ after) = prefix (dtoken k) s')
     by (intros k s'; unfold dtoken; apply prefix_chars_app; [apply dchar_not_nl|exact Ha]).
-  cbn [append]. unfold next_tok. f_equal.
+  cbn [append]. unfold next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok. f_equal.
   rewrite (line_rest_app rest after Hn Ha).
   destruct (Ascii.eqb c nl_char); [reflexivity|].
   destruct (is_bslash c).
@@ -4473,7 +4473,7 @@ Proof.
   intros k prev rest Hk Hr. destruct (dchar_plain k) as (Hlb & _ & Hlk & Hrk).
   assert (Hpre : prefix (dtoken k) (dtoken k ++ rest) = true) by (apply prefix_chars; lia).
   destruct (dtoken_cons k) as (w & Ew & Ed).
-  rewrite Ed at 1. cbn [append next_tok]. rewrite dchar_nl, dchar_nb, dchar_tick, dchar_dollar, dchar_lt, dchar_colon, Hlk, Hrk, Hlb, Hk.
+  rewrite Ed at 1. cbn [append next_tok]. unfold delim_tok. rewrite dchar_nl, dchar_nb, dchar_tick, dchar_dollar, dchar_lt, dchar_colon, Hlk, Hrk, Hlb, Hk.
   replace (String (dchar k) (chars (dchar k) w ++ rest))
     with (dtoken k ++ rest)%string by (rewrite Ed; reflexivity).
   rewrite Hpre. unfold dtoken. rewrite Ew, get_chars, Hr. reflexivity.
@@ -4487,7 +4487,7 @@ Proof.
   assert (Hpre : prefix (dtoken k) (dtoken k ++ String rbrace r) = true)
     by (apply prefix_chars; lia).
   destruct (dtoken_cons k) as (w & Ew & Ed).
-  rewrite Ed at 1. cbn [append next_tok]. rewrite dchar_nl, dchar_nb, dchar_tick, dchar_dollar, dchar_lt, dchar_colon, Hlk, Hrk, Hlb, Hk.
+  rewrite Ed at 1. cbn [append next_tok]. unfold delim_tok. rewrite dchar_nl, dchar_nb, dchar_tick, dchar_dollar, dchar_lt, dchar_colon, Hlk, Hrk, Hlb, Hk.
   replace (String (dchar k) (chars (dchar k) w ++ String rbrace r))
     with (dtoken k ++ String rbrace r)%string by (rewrite Ed; reflexivity).
   rewrite Hpre. unfold dtoken. rewrite Ew, get_chars. cbn [get at_rbrace].
@@ -4501,7 +4501,7 @@ Proof.
   intros k prev rest Hk.
   assert (Hpre : prefix (dtoken k) (dtoken k ++ rest) = true) by (apply prefix_chars; lia).
   destruct (dtoken_cons k) as (w & Ew & Ed).
-  cbn [next_tok]. change (Ascii.eqb lbrace nl_char) with false.
+  cbn [next_tok]. unfold lbrace_tok. change (Ascii.eqb lbrace nl_char) with false.
   change (is_bslash lbrace) with false. change (is_tick lbrace) with false. try change (Ascii.eqb lbrace dollar) with false.
   try change (Ascii.eqb lbrace lt) with false. try change (Ascii.eqb lbrace ":"%char) with false.
   change (Ascii.eqb lbrace lbrack) with false.
@@ -4519,7 +4519,7 @@ Local Lemma nt_short : forall k j prev rest,
   next_tok prev (String (dchar k) (chars (dchar k) j ++ rest)) = Some (TText (dchar k), 1).
 Proof.
   intros k j prev rest Hk Hj Hr. destruct (dchar_plain k) as (Hlb & _ & Hlk & Hrk).
-  cbn [next_tok]. rewrite dchar_nl, dchar_nb, dchar_tick, dchar_dollar, dchar_lt, dchar_colon, Hlk, Hrk, Hlb, Hk.
+  cbn [next_tok]. unfold delim_tok. rewrite dchar_nl, dchar_nb, dchar_tick, dchar_dollar, dchar_lt, dchar_colon, Hlk, Hrk, Hlb, Hk.
   change (String (dchar k) (chars (dchar k) j ++ rest))
     with (chars (dchar k) (S j) ++ rest)%string.
   unfold dtoken. rewrite (prefix_chars_short (dchar k) (dwidth k) (S j) rest Hj Hr).
@@ -4533,7 +4533,7 @@ Local Lemma nt_lbrace_short : forall k j prev rest,
   next_tok prev (String lbrace (chars (dchar k) (S j) ++ rest)) = Some (TText lbrace, 1).
 Proof.
   intros k j prev rest Hk Hj Hr.
-  cbn [next_tok]. change (Ascii.eqb lbrace nl_char) with false.
+  cbn [next_tok]. unfold lbrace_tok. change (Ascii.eqb lbrace nl_char) with false.
   change (is_bslash lbrace) with false. change (is_tick lbrace) with false. try change (Ascii.eqb lbrace dollar) with false.
   try change (Ascii.eqb lbrace lt) with false. try change (Ascii.eqb lbrace ":"%char) with false.
   change (Ascii.eqb lbrace lbrack) with false.
@@ -4554,7 +4554,7 @@ Local Lemma nt_byte : forall c prev rest,
   Ascii.eqb c lbrace = false -> dstyle_of c = None ->
   next_tok prev (String c rest) = Some (TText c, 1).
 Proof.
-  intros c prev rest H H0 Ht Hdl Hlt' Hco H1 H2 H3 H4. cbn [next_tok].
+  intros c prev rest H H0 Ht Hdl Hlt' Hco H1 H2 H3 H4. cbn [next_tok]. unfold delim_tok.
   rewrite H, H0, Ht, Hdl, Hlt', Hco, H1, H2, H3, H4.
   reflexivity.
 Qed.
@@ -4580,7 +4580,7 @@ Local Lemma nt_bs : forall p s, no_char nl_char s = true ->
                | EmptyString => (THard EmptyString, 1)
                end).
 Proof.
-  intros p s H. cbn [next_tok]. change (Ascii.eqb bslash nl_char) with false.
+  intros p s H. cbn [next_tok]. unfold esc_tok. change (Ascii.eqb bslash nl_char) with false.
   change (is_bslash bslash) with true. cbn iota. rewrite (line_rest_line s H). reflexivity.
 Qed.
 
@@ -4873,7 +4873,7 @@ Local Lemma tok_at_verb : forall ps p d m body cl r l,
     /\ verb_tok d w = (TVerb d m body cl r, l - d) /\ d < l /\ (d = 0 \/ math_enabled = true).
 Proof.
   intros ps p d m body cl r l H.
-  unfold tok_at, next_tok in H. destruct (sdrop p ps) as [|c r0] eqn:Es; [discriminate|].
+  unfold tok_at, next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok in H. destruct (sdrop p ps) as [|c r0] eqn:Es; [discriminate|].
   injection H as H.
   destruct (Ascii.eqb c nl_char); [discriminate|].
   destruct (is_bslash c).
@@ -5246,7 +5246,7 @@ Local Lemma nt_attr : forall prev s b a,
   starts_row s = false -> spec_at s = Some (b, a) ->
   next_tok prev (String lbrace s) = Some (TAttr b a, S (S (String.length b))).
 Proof.
-  intros prev s b a Hr Hs. cbn [next_tok]. change (Ascii.eqb lbrace nl_char) with false.
+  intros prev s b a Hr Hs. cbn [next_tok]. unfold lbrace_tok. change (Ascii.eqb lbrace nl_char) with false.
   change (is_bslash lbrace) with false. change (is_tick lbrace) with false.
   try change (Ascii.eqb lbrace dollar) with false.
   try change (Ascii.eqb lbrace lt) with false. try change (Ascii.eqb lbrace ":"%char) with false.
@@ -6829,7 +6829,7 @@ Proof.
   { (* a verbatim *)
     unfold is_tick in Etk. apply Ascii.eqb_eq in Etk. subst c.
     assert (Htk : exists m body cl r l, tok_at ps n = Some (TVerb 0 m body cl r, l)).
-    { unfold tok_at. rewrite Hs. unfold next_tok. cbn [append].
+    { unfold tok_at. rewrite Hs. unfold next_tok, esc_tok, rbrack_tok, lbrace_tok, delim_tok. cbn [append].
       change (Ascii.eqb tick nl_char) with false. change (is_bslash tick) with false.
       change (is_tick tick) with true. cbv iota.
       destruct (verb_tok_shape 0 (String tick (s' ++ after))) as (m & b & cl & r & l & E).
