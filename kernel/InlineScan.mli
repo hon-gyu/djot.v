@@ -171,10 +171,6 @@ val bclosed_lit :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
   ostate -> 'a1 * ostate
 
-val bspan_lit :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
-  string -> ostate -> 'a1 * ostate
-
 val battr_lit :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
   ostate -> 'a1 * ostate
@@ -221,7 +217,7 @@ type 'buf iscan_g =
 | IDash of int * 'buf * char option * ostate
 | IBang of 'buf * char option * ostate
 | IClosed of 'buf * ostate
-| ISpan of inlines * bool * span * aparser * 'buf * ostate
+| ISpan of inlines * bool * span * aparser * 'buf * 'buf iscan_g * ostate
 | IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
 | IReference of inlines * bool * span * bool * 'buf * ostate
 | INote of bool * bool * 'buf * span * ostate
@@ -296,7 +292,8 @@ val ospan_bang : coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate
 
 val ispan_feed :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-  inlines -> bool -> span -> aparser -> 'a1 -> ostate -> 'a1 iscan_g
+  inlines -> bool -> span -> aparser -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1
+  iscan_g
 
 val inote_step :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool
