@@ -116,6 +116,8 @@ val note_label_safe_from : bool -> string -> bool
 
 val note_label_safe : string -> bool
 
+val last_ws_split : string -> string * string
+
 val auto_email : string -> bool
 
 val is_alpha : char -> bool

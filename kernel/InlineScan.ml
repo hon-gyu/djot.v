@@ -357,38 +357,6 @@ let tag_push h h0 name start o =
     fr_open = (pspan h { span_start = start; span_stop = h0.cursor_stop });
     fr_out = [] } :: o.os_stk); os_word_start = o.os_word_start }
 
-(** val last_ws_split : string -> string * string **)
-
-let rec last_ws_split s =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ("", ""))
-    (fun c rest ->
-    let (pre, w) = last_ws_split rest in
-    ((* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-       (fun _ ->
-       if is_ws c
-       then ((one c), w)
-       else ("",
-              ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-              (c, w))))
-       (fun _ _ ->
-       (((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-       (c, pre)), w))
-       pre))
-    s
-
 (** val split_text_pos : pos -> spot option -> pos * pos **)
 
 let split_text_pos p word_start =

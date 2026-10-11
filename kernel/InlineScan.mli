@@ -117,8 +117,6 @@ val dpush : bool -> span -> ostate -> ostate
 val tag_push :
   coq_PosPolicy -> coq_InlineCursor -> string -> spot -> ostate -> ostate
 
-val last_ws_split : string -> string * string
-
 val split_text_pos : pos -> spot option -> pos * pos
 
 val oattach_list :

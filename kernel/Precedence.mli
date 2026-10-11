@@ -33,6 +33,14 @@ val symbol_run : string -> int
 
 val colon_ok : string -> bool
 
+val spec_go : aparser -> string -> (string * attr) option
+
+val spec_plain : aparser -> string -> bool
+
+val spec_at : dtable -> string -> (string * attr) option
+
+val spec_ahead : dtable -> string -> bool
+
 val raw_ahead : dtable -> string -> bool
 
 val follow_ok : dtable -> char -> string -> bool
@@ -52,6 +60,8 @@ type token =
 | TDollars of int
 | TAuto of string * bool
 | TSymbol of string
+| TAttr of string * attr
+| TSpan of string * attr
 
 val ws_run : string -> string
 
@@ -150,8 +160,6 @@ val tok_text : dtable -> token -> string
 
 val nbsp_rest : string -> string option
 
-val str_trim : inlines -> inlines
-
 val no_nl : string -> string
 
 val dest_text : bool -> string -> string
@@ -164,26 +172,44 @@ type tkind =
 | TKDelim of dstyle
 | TKBracket
 
-type tframes = (tkind * inlines) list
+type titem =
+| TIn of inline node
+| TMark of attr
 
-val temit : inline node -> tframes -> inlines -> tframes * inlines
+val item_snoc : string -> titem list -> titem list
 
-val temit_str : string -> tframes -> inlines -> tframes * inlines
+val item_trim : titem list -> titem list
 
-val ttrim : tframes -> inlines -> tframes * inlines
+val attach : attr -> inlines -> inlines
 
-val temit_all : inlines -> tframes -> inlines -> tframes * inlines
+val push : inline node -> inlines -> inlines
+
+val resolve_rev : titem list -> inlines
+
+val resolve : titem list -> inlines
+
+type tframes = (tkind * titem list) list
+
+val temit : inline node -> tframes -> titem list -> tframes * titem list
+
+val temit_str : string -> tframes -> titem list -> tframes * titem list
+
+val ttrim : tframes -> titem list -> tframes * titem list
+
+val tmark : attr -> tframes -> titem list -> tframes * titem list
+
+val temit_all : inlines -> tframes -> titem list -> tframes * titem list
 
 val is_hard : token -> bool
 
 val verb_node : int -> string option -> string -> inline
 
 val tstep :
-  dtable -> string -> matching -> int -> token -> bool -> tframes -> inlines
-  -> tframes * inlines
+  dtable -> string -> matching -> int -> token -> bool -> tframes -> titem
+  list -> tframes * titem list
 
 val tgo :
-  dtable -> string -> matching -> int -> int -> bool -> tframes -> inlines ->
-  tframes * inlines
+  dtable -> string -> matching -> int -> int -> bool -> tframes -> titem list
+  -> tframes * titem list
 
 val tree_of : dtable -> string -> matching -> inlines
