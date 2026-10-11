@@ -520,7 +520,7 @@ proofs over it.
 | Group | Cases | Status |
 | --- | --- | --- |
 | A | the basic ones | agreed with djot.js, except the open code block, now decided by the proposal |
-| B | 4 shapes where we differ from djot.js on purpose | decided by an agent from the reference; B1 confirmed upstream, B2 to B4 not |
+| B | 4 shapes where we differ from djot.js on purpose | decided from the reference; B1 confirmed upstream, B2 to B4 kept by the maintainer (2026-10-11) |
 | C | 2 shapes the reference does not decide | decided by the proposal (2026-10-05) |
 | D | 2 shapes where our parser was inconsistent | both fixed; D1 decided by the maintainer (2026-10-06) |
 | | attributes with no block after them | a block of their own, the maintainer's proposal (2026-10-06); the parser's tightness follows it, the AST block and the theorems without `run_safe` are not done |
@@ -598,8 +598,9 @@ A blank inside a definition list nested in an item: tight.
 
 ## B. We differ from djot.js on purpose
 
-Each was decided by reading the reference.  The log marks all four
-"closed", but only B1 has the djot author's agreement.
+Each was decided by reading the reference.  B1 has the djot author's
+agreement.  B2 to B4 were an agent's verdicts; the maintainer keeps all
+three (2026-10-11), as the readings that agree with the proposal above.
 
 ### B1. A blank before an item that starts with a nested list, or before an empty last item
 
@@ -637,8 +638,9 @@ Each was decided by reading the reference.  The log marks all four
 - Ours: tight.
 - Why: no line of the input is blank.  djot.js tests for a blank after
   the closing fence has been consumed, so the fence counts as one.
-- Standing: reported upstream; no answer recorded here.  We first
-  matched djot.js (2026-08-22) and reversed it (2026-09-29).
+- Standing: kept by the maintainer (2026-10-11).  Reported upstream; no
+  answer recorded here.  We first matched djot.js (2026-08-22) and
+  reversed it (2026-09-29).
 - Pinned: `list_div_closer_not_blank`.
 
 ### B3. A blank after a footnote in an item
@@ -662,7 +664,7 @@ Each was decided by reading the reference.  The log marks all four
   both parsers, and the reference does not treat the two differently.
   djot.js drops the blank because the footnote is a third container
   level and it looks only two levels up.
-- Standing: an agent's verdict.  Not reported upstream.
+- Standing: kept by the maintainer (2026-10-11).  Not reported upstream.
 - Pinned: `list_blank_after_footnote_in_item`,
   `list_blank_after_footnote_between_items`.
 
@@ -680,7 +682,7 @@ Each was decided by reading the reference.  The log marks all four
 - Why: the reference says a caption may follow the table "directly ...
   or there can be an intervening blank line", so the blank is inside
   the table.
-- Standing: an agent's verdict.  Not reported upstream.
+- Standing: kept by the maintainer (2026-10-11).  Not reported upstream.
 - Pinned: `list_blank_before_caption`, with `list_blank_after_table`
   for the loose neighbour (a paragraph in place of the caption).
 
@@ -923,7 +925,7 @@ This does not depend on C2.
 
 ## Decisions wanted
 
-1. B2 to B4: keep each against djot.js, or wait for upstream.
+None.  B2 to B4 are kept (2026-10-11).
 
 ## Where it lives
 
