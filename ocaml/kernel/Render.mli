@@ -64,6 +64,7 @@ type cblock =
 | CTable of ctrow list
 | CId of string * cblock
 | CKey of cinline * cblock
+| CAttrs
 
 val cb_lines : dtable -> cblock -> string list
 
@@ -100,6 +101,8 @@ val items_seps_loosen : dtable -> cblock list list -> bool
 val is_clist : cblock -> bool
 
 val is_cid : cblock -> bool
+
+val is_cattrs : cblock -> bool
 
 val ends_clist : cblock -> bool
 
