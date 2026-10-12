@@ -303,7 +303,18 @@ let p_inline_precedence =
     (always (Conditional
       "For every inline construct. A few shapes are not covered: an attribute specifier, a footnote label or a symbol left unclosed on its line; a backslash in a specifier, a footnote label or an autolink candidate; a specifier right after a code span; a second bracket right after a bracket; an exclamation mark right before a footnote reference; two or more hyphens right before a closing brace.")) }
 
+(** val p_inline_grammar : property **)
+
+let p_inline_grammar =
+  { p_id = "inline-grammar"; p_group = precedence; p_statement =
+    "The same rules, written as a grammar over a paragraph's delimiters, give every paragraph exactly one parse, and it is the reading the rules allow.";
+    p_implication =
+    "A paragraph's reading can be derived by hand, one grammar rule at a time.";
+    p_theorems =
+    ("parses_ref_read" :: ("parses_valid" :: ("valid_parses" :: ("parses_unique" :: []))));
+    p_status = (always Proved) }
+
 (** val all : property list **)
 
 let all =
-  p_block_no_backtracking :: (p_inline_no_backtracking :: (p_incremental_reparse :: (p_block_replace :: (p_positions :: (p_linear_time :: (p_quote_uniformity :: (p_list_uniformity :: (p_definition_list_uniformity :: (p_div_uniformity :: (p_footnote_uniformity :: (p_lazy_lines :: (p_list_tightness :: (p_indent_uniformity :: (p_reference_locality :: (p_reference_shape :: (p_hard_wrap_paragraph :: (p_hard_wrap_heading :: (p_block_structure_first :: (p_inline_precedence :: [])))))))))))))))))))
+  p_block_no_backtracking :: (p_inline_no_backtracking :: (p_incremental_reparse :: (p_block_replace :: (p_positions :: (p_linear_time :: (p_quote_uniformity :: (p_list_uniformity :: (p_definition_list_uniformity :: (p_div_uniformity :: (p_footnote_uniformity :: (p_lazy_lines :: (p_list_tightness :: (p_indent_uniformity :: (p_reference_locality :: (p_reference_shape :: (p_hard_wrap_paragraph :: (p_hard_wrap_heading :: (p_block_structure_first :: (p_inline_precedence :: (p_inline_grammar :: []))))))))))))))))))))
