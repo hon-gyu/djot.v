@@ -339,7 +339,11 @@ Inductive cblock : Type :=
   | CId (id : string) (inner : cblock)
   (* One inline label, then a child at the same column on the next line,
      or a paragraph's first line after the colon (`key_lines`). *)
-  | CKey (label : cinline) (inner : cblock).
+  | CKey (label : cinline) (inner : cblock)
+  (* Block attributes with no block after them, as the empty spec.  A
+     spec that sets something has the same lines as an id wrapper's, and
+     the view keeps one spelling per tree. *)
+  | CAttrs.
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
@@ -376,6 +380,7 @@ Fixpoint cb_lines (cb : cblock) : list string :=
   | CKey label inner =>
       key_lines (ci_text [label])
         (match inner with CPara _ => true | _ => false end) (cb_lines inner)
+  | CAttrs => ["{}"%string]
   end.
 
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
@@ -399,6 +404,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CTable rows => mk (Table (mk []) (map (fun r => mk (map mk r)) (ctable_cells [] rows)))
   | CId id inner => add_attr [("id", id)] (cb_ast inner)
   | CKey label inner => mk (Ext_keyed [ci_ast label] (cb_ast inner))
+  | CAttrs => mk AttrBlock
   end.
 
 (* The container equations.  All hold by conversion: an inlined
@@ -450,6 +456,7 @@ Definition cblock_ind2
   (htable : forall rows, P (CTable rows))
   (hid : forall id inner, P inner -> P (CId id inner))
   (hkey : forall label inner, P inner -> P (CKey label inner))
+  (hattrs : P CAttrs)
   (hnil : Q [])
   (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
   (hrnil : R [])
@@ -483,6 +490,7 @@ Definition cblock_ind2
     | CTable rows => htable rows
     | CId id inner => hid id inner (go inner)
     | CKey label inner => hkey label inner (go inner)
+    | CAttrs => hattrs
     end.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
@@ -616,6 +624,9 @@ Definition is_clist (cb : cblock) : bool :=
 
 Definition is_cid (cb : cblock) : bool :=
   match cb with CId _ _ => true | _ => false end.
+
+Definition is_cattrs (cb : cblock) : bool :=
+  match cb with CAttrs => true | _ => false end.
 
 (* What the parser still has open when the block's lines run out.  An id
    wrapper is a line in front of its block and changes nothing about the
@@ -988,12 +999,15 @@ Fixpoint cb_ok (cb : cblock) : bool :=
   | CTable rows => btables && nonempty rows && forallb ctrow_ok rows
   (* Nested wrappers would render as consecutive specs, whose later id
      overwrites the earlier one.  That source has only one AST value, so
-     it is not canonical. *)
+     it is not canonical.  Nor is a wrapper around attributes alone: the
+     id is then one of them, and the tree renders as its one spec. *)
   | CId id inner =>
-      battrs && explicit_id_ok id && negb (is_cid inner) && cb_ok inner
+      battrs && explicit_id_ok id && negb (is_cid inner || is_cattrs inner)
+      && cb_ok inner
   | CKey label inner =>
       bkeyed && ckey_label_ok label && cb_ok inner
       && key_content_ok (cb_lines inner) (PPara [])
+  | CAttrs => battrs
   end.
 
 Lemma cb_ok_key_parts :
@@ -1008,7 +1022,8 @@ Qed.
 Lemma cb_ok_id :
   forall id inner,
     cb_ok (CId id inner)
-    = (battrs && explicit_id_ok id && negb (is_cid inner) && cb_ok inner)%bool.
+    = (battrs && explicit_id_ok id && negb (is_cid inner || is_cattrs inner)
+      && cb_ok inner)%bool.
 Proof. reflexivity. Qed.
 
 (* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
@@ -1444,11 +1459,12 @@ Lemma render_node_lines_mk :
   forall x, render_node_lines (mk x) = render_block_lines x.
 Proof. reflexivity. Qed.
 
-(* No canonical block is attributes alone. *)
-Lemma cb_ast_not_attr : forall cb x, is_cid cb = false -> cb_ast cb = mk x -> x <> AttrBlock.
+(* Only the one canonical block is attributes alone. *)
+Lemma cb_ast_not_attr : forall cb x,
+  is_cid cb = false -> is_cattrs cb = false -> cb_ast cb = mk x -> x <> AttrBlock.
 Proof.
-  intros cb x H E ->. destruct cb as [| | | | | | | |k sp items| | | |]; try discriminate E;
-    try discriminate H.
+  intros cb x H Ha E ->. destruct cb as [| | | | | | | |k sp items| | | | |];
+    try discriminate E; try discriminate H; try discriminate Ha.
   destruct k; discriminate E.
 Qed.
 

@@ -2633,3 +2633,28 @@ item does not end inside a spec.
 Pinned: `parse_attr_blank_ends_spec`,
 `parse_attr_indented_blank_ends_spec` and
 `parse_attr_comment_blank_ends_spec` in `dev/ParserExamples.v`.
+
+## 2026-10-12 -- OURS: a blank after an item that ends with attributes alone
+
+Not a new ruling: the case of `list-tightness.md`, "Dangling block
+attributes".  Recorded because the generated corpus now has it.  The
+canonical view gained attributes with no block after them (`CAttrs`,
+the line `{}`), which took the generated differential run from 8687
+documents to 8875 and its mismatches from 1667 to 1673.  All six new
+ones are one shape, an item whose last line is `{}`, in a quote or a
+nested list, with a blank after it:
+
+```
+- - {}
+
+- t
+```
+
+| | |
+| --- | --- |
+| djot.js (`d7c3904`) | tight |
+| ours | loose |
+
+The attributes are a block, the blank is between two items, and the
+reference says a list is loose when a blank line separates two items.
+

@@ -494,9 +494,21 @@ off (`battrs`), `{.x}` is paragraph text and nothing dangles.
   something open.  It replaced four local arguments.
 - A key takes the block (`.project/keyed-blocks.md`, 6.2): decided by
   the agent, as what "a block of their own" says.
-- Not done: no canonical form, so the roundtrip theorem does not reach a
-  document holding the block (the generated corpus has none); the JSON
-  writes it as `block_attributes`, which djot.js's AST does not have.
+- Roundtrip (2026-10-12, by an agent, not reviewed by a human): the
+  canonical view has the block as `Render.CAttrs`, the line `{}`, so
+  `roundtrip_blocks` covers it and the generated corpus holds it
+  (83,374 documents at depth 3, from 81,845).  Where it is canonical:
+  anywhere at top level and in a quote, a div or a callout; in a list
+  only as a whole item (`- {}`).  Not canonical: beside another block
+  in an item, which `item_ok` refuses through `run_safe` and
+  `item_end_ok`; under a key, which `key_content_ok` refuses; and with
+  any attribute in it, since `{#i}` alone and an id wrapper around the
+  block would be two spellings of one tree.  Pinned in
+  `dev/Generate.v` (`attrs_accepted`,
+  `item_attrs_beside_a_block_rejected`).  Lifting the item limit is
+  the same work as taking `run_safe` out of `item_ok`.
+- The JSON writes the block as `block_attributes`, which djot.js's AST
+  does not have.
 - The function that removes the blocks is `Document.DropAttrBlocks`
   (2026-10-12): `of_doc` on a document, its notes included, and
   `Html.html_tree_drop_attr_blocks` says the HTML is the same.  An

@@ -516,7 +516,7 @@ Proof.
             (fun items => flat_map (flat_map cb_dests)
                             (map (map (cb_map_dest f)) items)
                           = map f (flat_map (flat_map cb_dests) items))
-            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
     try reflexivity.
   - intros ls. apply css_dests_map.
   - intros lvl ls. apply css_dests_map.
@@ -846,7 +846,7 @@ Proof.
                 -> map (cb_map_dest f) cbs = cbs)
     (fun items => (forall s, In s (flat_map (flat_map cb_dests) items) -> f s = s)
                   -> map (map (cb_map_dest f)) items = items)
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
   - intros ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
   - intros lvl ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
   - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].

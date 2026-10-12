@@ -26,13 +26,13 @@
 
 open Djot_test
 
-let plain_counts = [ (1, 344); (2, 5453); (3, 81845) ]
-let keyed_counts = [ (1, 7984); (2, 123820) ]
-let wiki_counts = [ (1, 374); (2, 5483); (3, 81875) ]
-let callout_counts = [ (1, 369); (2, 5478); (3, 81870) ]
-let dollar_counts = [ (1, 371); (2, 5480); (3, 81872) ]
-let tags_counts = [ (1, 396); (2, 5505); (3, 81897) ]
-let holes_counts = [ (1, 371); (2, 5480); (3, 81872) ]
+let plain_counts = [ (1, 356); (2, 5567); (3, 83374) ]
+let keyed_counts = [ (1, 8208); (2, 126304) ]
+let wiki_counts = [ (1, 386); (2, 5597); (3, 83404) ]
+let callout_counts = [ (1, 381); (2, 5592); (3, 83399) ]
+let dollar_counts = [ (1, 383); (2, 5594); (3, 83401) ]
+let tags_counts = [ (1, 408); (2, 5619); (3, 83426) ]
+let holes_counts = [ (1, 383); (2, 5594); (3, 83401) ]
 
 let run ~pool depth r verbose =
   let t0 = Unix.gettimeofday () in

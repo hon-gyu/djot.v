@@ -53,6 +53,7 @@ Definition leaves : list cblock :=
   ; CCode "" ["x"]
   ; CRaw "html" ["x"]
   ; CRef "r" "u"
+  ; CAttrs
   (* Both table shapes: a body row alone, and a header governing one.
      The header is right-aligned so that the separator carries something
      the AST has to give back. *)
@@ -567,13 +568,36 @@ Definition ok_content (c : cblock) : bool := item_ok bullet (cb_lines c).
    from them.  The sequences are the informative half: `item_ok` on a
    sequence is not implied by `item_ok` on each block, since the
    run_safe scan threads state across the blank between them. *)
+(* An item does not go on after attributes alone: `run_safe` refuses a
+   line met by a spec that is still to become a block
+   (`item_attrs_beside_a_block_rejected`). *)
+Definition blank_may_follow (c : cblock) : bool :=
+  run_safe [""] (snd (run_lines (cb_lines c) (PPara []))).
+
 Definition item_pool : list (list string) :=
   (map cb_lines (filter ok_content (enum_cblock 2))
    ++ map (fun cs => sep_lines (map cb_lines cs))
-        (filter (forallb ok_content) (seqs (filter ok_content (enum_cblock 1)))))%list.
+        (filter (fun cs => forallb ok_content cs
+                           && forallb blank_may_follow (removelast cs))%bool
+           (seqs (filter ok_content (enum_cblock 1)))))%list.
 
 Example uniformity_applies : forallb (item_ok bullet) item_pool = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(* Attributes alone are canonical anywhere in a quote or a div.  In a
+   list they are canonical only as a whole item: `item_ok` refuses an
+   item that goes on after them (`run_safe`) or ends with them after
+   something else (`item_end_ok`). *)
+Example attrs_accepted :
+  cb_ok (CQuote [CAttrs; cpara ["b"]]) = true
+  /\ cb_ok (CDiv "" [cpara ["b"]; CAttrs]) = true
+  /\ cb_ok (CList LKBullet Tight [[cpara ["a"]]; [CAttrs]]) = true.
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
+Example item_attrs_beside_a_block_rejected :
+  item_ok bullet ["{}"; ""; "t"] = false
+  /\ item_ok bullet ["a"; ""; "{}"] = false.
+Proof. split; vm_compute; reflexivity. Qed.
 
 (* The fragment contains lists whose items are themselves lists. *)
 Example nested_list_accepted :
