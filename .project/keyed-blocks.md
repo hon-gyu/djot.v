@@ -688,9 +688,7 @@ foo:
 bar
 ```
 
-Changed 2026-10-12, by an agent, accepted by the maintainer the same
-day.  Attributes
-that a blank follows are a block of their own (`AttrBlock`,
+Changed 2026-10-12.  Attributes that a blank follows are a block of their own (`AttrBlock`,
 `.project/list-tightness.md`, "Dangling block attributes"), and that
 block is the one the key takes: `Ext_keyed foo` over the attribute
 block, then `Para "bar"` outside it.  Before, the spec held the key

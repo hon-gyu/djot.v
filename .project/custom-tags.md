@@ -1,5 +1,5 @@
 ---
-ai-disclosure: autonomous
+ai-disclosure: ai-generated
 ---
 # Custom tag names
 

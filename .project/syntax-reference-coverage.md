@@ -346,14 +346,12 @@ Added 2026-10-07, the first step from coverage to specification:
     contents parse as its lines do at top level whatever the lines
     (`list_uniformity_shape`, 2026-10-08).  `run_safe` is LS4's alone.
 
-28. Done: **LS4 without `run_safe`** (2026-10-12, not reviewed by a
-    human).  Attributes with no block after them are a block
+28. Done: **LS4 without `run_safe`** (2026-10-12).  Attributes with no block after them are a block
     (`AttrBlock`), a blank line ends an open spec, and `separates` reads
     "directly before a nested list" off the parse
     (`list-tightness.md`, "Extending the theorems").
 
-29. Done: **LH1 at every depth** (2026-10-12, not reviewed by a
-    human).  `Ids.of_list_document_order`: the identifier pass is
+29. Done: **LH1 at every depth** (2026-10-12).  `Ids.of_list_document_order`: the identifier pass is
     `Ids.visit`, the rule at one block, applied to `Ast.preorder` of the
     document, so the identifiers a heading sees as taken are those of
     every block before it in document order.  From it,

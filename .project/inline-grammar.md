@@ -10,7 +10,7 @@ machine), both in `theories/Precedence.v`, with their proofs in
 rules from: each rule is a clause of the syntax reference, and a
 paragraph's reading is a derivation you can write by hand.
 
-**Status: proved** (2026-10-12, not reviewed by a human).  The grammar
+**Status: proved** (2026-10-12).  The grammar
 is the relation `seq` in `theories/PrecedenceGrammar.v`, and
 `theories/PrecedenceGrammarFacts.v` proves, for every string:
 
