@@ -42,7 +42,7 @@
    to none (`Step.list_settle`), as if the attributes were a block of
    their own. *)
 
-From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
+From Stdlib Require Import String Ascii List Bool PeanoNat Wf_nat Lia.
 From DjotV Require Import Strings Line Ast Attributes Inline Step Uniformity ListUniformity.
 Import ListNotations.
 
@@ -655,13 +655,14 @@ Proof.
 Qed.
 
 Lemma step_fuel_ok : forall n off l st,
-  String.length l + pstate_depth st < n -> pad_safe st = true -> state_ok st ->
+  String.length l + pstate_depth st < n -> state_ok st ->
   step_ok st l (step_fuel n off l st).
 Proof.
-  induction n as [|n IH]; intros off l st Hn Hp Hs; [lia|].
+  induction n as [n IH0] using lt_wf_ind; intros off l st Hn Hs.
+  destruct n as [|n]; [lia|]. pose proof (IH0 n (Nat.lt_succ_diag_r n)) as IH.
   assert (Hd : forall rest, String.length rest < String.length l ->
             step_ok (PPara []) rest (step_fuel n (off + consumed l rest) rest (PPara []))).
-  { intros rest Hr. apply IH; [cbn [pstate_depth]; lia|reflexivity|exact I]. }
+  { intros rest Hr. apply IH; [cbn [pstate_depth]; lia|exact I]. }
   assert (Hol : forall k, classify l = k -> k <> KBlank ->
             fresh (fst (open_line (fun rest => step_fuel n (off + consumed l rest) rest (PPara [])) (off + indent_of l) l k))
                   (snd (open_line (fun rest => step_fuel n (off + consumed l rest) rest (PPara [])) (off + indent_of l) l k))).
@@ -716,17 +717,17 @@ Proof.
     + apply fresh_step_ok, fresh_emit; [discriminate|].
       cbn [ends_list map last]. nopos. unfold div_block.
       destruct bdiv_names; [|destruct (String.eqb dcls "")]; reflexivity.
-    + cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn.
+    + cbn [state_ok pstate_depth] in Hs, Hn.
       assert (Hin : step_ok dinner l (step_fuel n off l dinner))
-        by (apply IH; [lia|exact Hp|exact Hs]).
+        by (apply IH; [lia|exact Hs]).
       destruct (step_fuel n off l dinner) as [bs inner']. destruct Hin as [Hs' _].
       apply fresh_step_ok. eapply fresh_single;
         [exact Hs'|reflexivity|cbn [finish]; nopos; reflexivity|].
       unfold div_block. destruct bdiv_names; [|destruct (String.eqb dcls "")]; reflexivity.
   - (* list *)
-    cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn.
+    cbn [state_ok pstate_depth] in Hs, Hn.
     assert (Hin : state_ok (snd (step_fuel n off l inner)))
-      by (apply IH; [lia|exact Hp|exact Hs]).
+      by (apply IH; [lia|exact Hs]).
     destruct (classify l) eqn:E.
     1: { destruct (step_fuel n off l inner) as [bs inner'].
          apply fresh_step_ok, fresh_absorbing; [reflexivity|exact Hin]. }
@@ -743,8 +744,45 @@ Proof.
     all: unfold is_lazy in Hlz; try discriminate Hlz.
     all: apply fresh_step_ok, fresh_absorbing; [reflexivity|].
     all: exact (proj1 (feed_lazy_ok l inner Hlz Hs)).
-  - (* an attribute spec is excluded *)
-    discriminate Hp.
+  - (* an attribute spec: every line leaves a spec, a paragraph of the
+       lines it took, or what the line opens under the attributes *)
+    assert (Hrec : forall k,
+              fresh (fst (pend_result apend aspecs (step_fuel n off l (para_recover k aslices))))
+                    (snd (pend_result apend aspecs (step_fuel n off l (para_recover k aslices))))).
+    { intros k. destruct (is_blank l) eqn:Hb.
+      - destruct n as [|n']; [cbn [pstate_depth] in Hn; lia|].
+        unfold para_recover. cbn [step_fuel].
+        rewrite (classify_blank l Hb). destruct (bunderline_of l).
+        all: cbn [close_reopen open_kind finish app];
+          apply (fresh_pend_result apend aspecs _ (PPara [])); apply fresh_emit;
+          [discriminate|cbn [ends_list map last]; nopos; reflexivity].
+      - pose proof (step_ok_fresh _ l _ Hb
+                      (IH off l (para_recover k aslices)
+                         ltac:(unfold para_recover; cbn [pstate_depth] in *; lia) I)) as Hf.
+        destruct (step_fuel n off l (para_recover k aslices)) as [bs st'].
+        exact (fresh_pend_result _ _ bs st' Hf). }
+    destruct (ap_done aap).
+    2: { destruct (Nat.ltb aind (off + indent_of l)).
+         - destruct (ap_failed (attr_feed l aap)); [apply fresh_step_ok, Hrec|].
+           apply fresh_step_ok, fresh_absorbing; [reflexivity|exact I].
+         - destruct (is_blank l); [|apply fresh_step_ok, Hrec].
+           apply fresh_step_ok. eapply fresh_single;
+             [cbn [state_ok]; split; [exact I|reflexivity]|reflexivity
+             |cbn [finish para_recover is_idle]; nopos; reflexivity|reflexivity]. }
+    destruct n as [|n']; [cbn [pstate_depth] in Hn; lia|]. cbn [step_fuel is_idle].
+    destruct (classify l) eqn:E.
+    1: { apply fresh_step_ok, fresh_emit;
+           [discriminate|unfold attr_block; cbn [ends_list map last]; nopos; reflexivity]. }
+    7: { apply fresh_step_ok. unfold open_attr.
+         destruct battrs;
+           [apply fresh_absorbing; [reflexivity|exact I]
+           |eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity]]. }
+    all: assert (Hb : is_blank l = false) by (apply (nonblank_of_kind l _ E); discriminate).
+    all: pose proof (step_ok_fresh _ l _ Hb
+                       (IH0 n' ltac:(lia) off l (PPara [])
+                          ltac:(cbn [pstate_depth] in *; lia) I)) as Hf.
+    all: destruct (step_fuel n' off l (PPara [])) as [bs st'].
+    all: apply fresh_step_ok; exact (fresh_pend_result _ _ bs st' Hf).
   - (* the recovery's paragraph *)
     destruct (bunderline_of l) as [ulvl|].
     { apply fresh_step_ok. apply fresh_emit; [discriminate|cbn [ends_list map last]; nopos; reflexivity]. }
@@ -757,12 +795,12 @@ Proof.
     destruct (if Nat.ltb rind (off + indent_of l) then ref_cont l else None).
     + apply fresh_step_ok; eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity].
     + assert (Hr : step_ok (PPara []) l (step_fuel n off l (PPara [])))
-        by (apply IH; [cbn [pstate_depth] in *; lia|reflexivity|exact I]).
+        by (apply IH; [cbn [pstate_depth] in *; lia|exact I]).
       destruct (step_fuel n off l (PPara [])) as [bs st'].
       apply (emit_step_ok _ l _ (bs, st')); [reflexivity|exact Hr].
   - (* footnote *)
-    cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn. destruct Hs as [Hsi Hti].
-    assert (Hin : step_ok finner l (step_fuel n off l finner)) by (apply IH; [lia|exact Hp|exact Hsi]).
+    cbn [state_ok pstate_depth] in Hs, Hn. destruct Hs as [Hsi Hti].
+    assert (Hin : step_ok finner l (step_fuel n off l finner)) by (apply IH; [lia|exact Hsi]).
     assert (Hcont : forall r, step_ok finner l r ->
               step_ok (PFoot frng find flbl fdone finner) l
                 (let (bs, inner') := r in
@@ -781,7 +819,7 @@ Proof.
         by (rewrite !map_app, Hm; reflexivity).
       exact (Hti Ha').
     + assert (Hr : step_ok (PPara []) l (step_fuel n off l (PPara [])))
-        by (apply IH; [cbn [pstate_depth]; lia|reflexivity|exact I]).
+        by (apply IH; [cbn [pstate_depth]; lia|exact I]).
       destruct (step_fuel n off l (PPara [])) as [bs st'].
       apply fresh_step_ok. cbn [fst snd]. apply (fresh_prefix [_]).
       exact (step_ok_fresh _ l (bs, st') Hb Hr).
@@ -789,7 +827,7 @@ Proof.
     assert (Htb : forall r rows cap, fresh [] (PTable r rows cap))
       by (intros; eapply fresh_single; [exact I|reflexivity|reflexivity|reflexivity]).
     assert (Hr : step_ok (PPara []) l (step_fuel n off l (PPara [])))
-      by (apply IH; [cbn [pstate_depth] in *; lia|reflexivity|exact I]).
+      by (apply IH; [cbn [pstate_depth] in *; lia|exact I]).
     destruct tcap as [parts|parts|parts start cur].
     + destruct (caption_open l); [apply fresh_step_ok, Htb|].
       destruct (is_blank l); [apply fresh_step_ok, Htb|].
@@ -805,14 +843,14 @@ Proof.
       * apply fresh_step_ok, fresh_emit; [discriminate|reflexivity].
       * apply fresh_step_ok, Htb.
   - (* pending attributes *)
-    cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn. destruct Hs as [Hsi Hni].
+    cbn [state_ok pstate_depth] in Hs, Hn. destruct Hs as [Hsi Hni].
     assert (Hin : step_ok pinner l (step_fuel n off l pinner))
-      by (apply IH; [lia|exact Hp|exact Hsi]).
+      by (apply IH; [lia|exact Hsi]).
     destruct (classify l); rewrite ?Hni; apply pend_step_ok; assumption.
   - (* key *)
-    cbn [pad_safe state_ok pstate_depth] in Hp, Hs, Hn.
+    cbn [state_ok pstate_depth] in Hs, Hn.
     assert (Hin : step_ok kinner l (step_fuel n off l kinner))
-      by (apply IH; [lia|exact Hp|exact Hs]).
+      by (apply IH; [lia|exact Hs]).
     destruct (is_blank l && is_idle kinner)%bool eqn:Hbi.
     + apply fresh_step_ok, fresh_emit; [discriminate|].
       cbn [ends_list map last]. nopos. reflexivity.
@@ -820,23 +858,22 @@ Proof.
 Qed.
 
 Lemma step_ok_step : forall l st,
-  pad_safe st = true -> state_ok st -> step_ok st l (step l st).
-Proof. intros l st Hp Hs. unfold step. apply step_fuel_ok; [lia|exact Hp|exact Hs]. Qed.
+  state_ok st -> step_ok st l (step l st).
+Proof. intros l st Hs. unfold step. apply step_fuel_ok; [lia|exact Hs]. Qed.
 
 Lemma tail_ok_idle_nil : tail_ok [] (PPara []).
 Proof. intros _. reflexivity. Qed.
 
 (* Over a run: the invariant holds at every line boundary. *)
-Lemma run_ok : forall A R st E,
-  run_safe (A ++ R)%list st = true -> state_ok st -> tail_ok E st ->
+Lemma run_ok : forall A st E,
+  state_ok st -> tail_ok E st ->
   state_ok (snd (run_lines A st)) /\ tail_ok (E ++ fst (run_lines A st))%list (snd (run_lines A st)).
 Proof.
-  induction A as [|l A IH]; intros R st E Hsafe Hs Ht.
+  induction A as [|l A IH]; intros st E Hs Ht.
   - cbn [run_lines fst snd]. rewrite app_nil_r. split; assumption.
-  - cbn [app run_safe] in Hsafe. apply andb_true_iff in Hsafe as [Hp Hsafe].
-    destruct (step_ok_step l st Hp Hs) as [Hs' [Ht' _]].
+  - destruct (step_ok_step l st Hs) as [Hs' [Ht' _]].
     cbn [run_lines]. destruct (step l st) as [bs st'] eqn:Es. cbn [fst snd] in *.
-    destruct (IH R st' (E ++ bs)%list Hsafe Hs' (Ht' E Ht)) as [Hs'' Ht''].
+    destruct (IH st' (E ++ bs)%list Hs' (Ht' E Ht)) as [Hs'' Ht''].
     destruct (run_lines A st') as [more st''] eqn:Er. cbn [fst snd] in *.
     rewrite app_assoc. split; assumption.
 Qed.
@@ -1756,7 +1793,7 @@ Proof.
     cbn [fst snd finish app list_blank ls_loose ls_items].
     rewrite rev_app_distr, rev_involutive, <- app_assoc, (IH Hsafe Hok).
     (* no attributes wait on either side of the blank *)
-    pose proof (step_ok_step l inner Hsafe Hok) as (Hok' & _).
+    pose proof (step_ok_step l inner Hok) as (Hok' & _).
     unfold stops_waiting.
     rewrite (ok_attr_waits inner Hsafe Hok),
       (ok_attr_waits _ (blank_pad_safe l inner Hl Hsafe) Hok').
@@ -1928,7 +1965,7 @@ Proof.
                   |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hp Hs Hh; cbv zeta;
     pose proof (blank_pad_safe b _ Hb Hp) as Hp';
-    pose proof (proj1 (step_ok_step b _ Hp Hs)) as Hs';
+    pose proof (proj1 (step_ok_step b _ Hs)) as Hs';
     pose proof (blank_finish_ok b _ Hb Hp Hs) as Hfin;
     cbn [holds_blank] in Hh; try discriminate Hh; cbn [pad_safe] in Hp; try discriminate Hp.
   - (* a code block keeps every line after the blank *)
@@ -1988,7 +2025,7 @@ Proof.
       * rewrite indent_of_blanks_x. exact Hcol.
   - (* pending attributes wait over what is under them *)
     cbn [state_ok] in Hs. destruct Hs as [Hsi Hni].
-    pose proof (step_ok_step b pinner Hp Hsi) as (_ & _ & _ & Hidle).
+    pose proof (step_ok_step b pinner Hsi) as (_ & _ & _ & Hidle).
     destruct (IH Hp Hsi Hh) as (Hnil & Hpi & Hsi' & Hhi & Hfini & Hcli). cbv zeta in *.
     destruct (step b pinner) as [bs inner'] eqn:Es. cbn [fst snd] in *. subst bs.
     specialize (Hidle Hni eq_refl).
@@ -2134,7 +2171,7 @@ Lemma run_safe_attr_waits : forall A R,
   attr_waits (snd (run_lines A (PPara []))) = false.
 Proof.
   intros A R Hsafe.
-  destruct (run_ok A R (PPara []) [] Hsafe I tail_ok_idle_nil) as [Hs _].
+  destruct (run_ok A (PPara []) [] I tail_ok_idle_nil) as [Hs _].
   pose proof (run_safe_app A R _ Hsafe) as HR.
   destruct R as [|x R]; cbn [run_safe] in HR.
   - exact (blank_safe_attr_waits _ HR).
@@ -2152,7 +2189,7 @@ Proof.
     try discriminate H.
   2: { rewrite (run_safe_attr_waits A R Hsafe) in Hw. discriminate Hw. }
   exists (length A).
-  destruct (run_ok A (b :: B ++ l :: C)%list (PPara []) [] Hsafe I tail_ok_idle_nil)
+  destruct (run_ok A (PPara []) [] I tail_ok_idle_nil)
     as [Hs Ht].
   pose proof (run_safe_app A _ _ Hsafe) as HsafeA.
   set (sA := snd (run_lines A (PPara []))) in *.
