@@ -707,6 +707,32 @@ the largest single site at 10%.  Enlarging the minor heap does not
 change the time, so the collector is not the cost.  The breakdown and
 what to do about it are in [[261001.plan.line-allocation]].
 
+2026-10-12, baseline `7adb470`, dev profile.  `make bench` prints what a
+parse allocates per input byte.  The loops of `drop_leading_ws`,
+`indent_of`, `strip_trailing_ws`, `drop_ws_upto`, `thematic_count`,
+`take_while` and `count_run` now take what they read as arguments, so
+none allocates a closure.  Old and new extraction linked in one
+throwaway executable: the seven functions and `Html.convert` on every
+string over a 10-byte alphabet of whitespace and block markers up to
+length 6, 4000 random ones at each length 7 to 60, 20000 random byte
+strings up to 199 bytes, and the djot.js test files; 32331312
+comparisons, no difference, and a planted one was caught.
+
+Old -> new, three alternating runs, the best of each:
+
+| input | parse time, ms | allocated, bytes per input byte |
+| --- | ---: | ---: |
+| short paragraphs, 329 KB | 8.8 -> 8.7 | 114 -> 92 |
+| one paragraph of short lines, 320 KB | 6.9 -> 6.7 | 86 -> 66 |
+| nested list items, 184 KB | 13.3 -> 13.3 | 187 -> 149 |
+| table rows, 320 KB | 41.0 -> 41.1 | 454 -> 388 |
+| `readme.dj` x64 (`parse_blocks`, best of 30) | 29.8 -> 29.1 | not measured |
+
+Allocation fell 15% to 23% and time by 2.5% at most, which is the
+plan's gate failing: allocation is not what the constant factor is made
+of.  The first-byte dispatch of that plan was not started.  What is
+next is a time profile of `readme.dj` x64.
+
 ## Open, ranked by what they cost a real document
 
 Measured 2026-09-26 at `537dba9`, release profile, parse (`parse_doc`)
