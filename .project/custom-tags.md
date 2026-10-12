@@ -10,9 +10,8 @@ implementation cost. It is not updated when the rules change.
 
 Status: **implemented** (2026-10-03), from
 [[261001.plan.custom-tags]]. The six decisions the plan lists were made
-by an agent. A human review amended D2 (2026-10-03); D1, D3, D4 and
-D5 were reviewed by an agent at the maintainer's request and accepted
-(2026-10-12). D6 is open (9.1). `dev/check/Tag.v` pins every row of
+by an agent. A human review amended D2 (2026-10-03) and D6
+(2026-10-12); the other four stand. `dev/check/Tag.v` pins every row of
 sections 1, 3 and 7, the HTML of section 5 and the source ranges, and
 the roundtrip test has a tags pool: the ordinary documents plus named
 spans and divs in each container, rendered to djot and read back with
@@ -252,14 +251,13 @@ incrementality, single-pass and precedence theorems shows nothing.
 
 ## 9. Open questions
 
-### 9.1 The decisions under review
+### 9.1 The reviewed decisions
 
-Reviewed 2026-10-12: D1, D3, D4 and D5 stand. D6 does not cover two
-names a browser reads as void elements. Its list has the void elements
+Reviewed 2026-10-12: D1, D3, D4 and D5 stand. D6 did not cover two
+names a browser reads as void elements. Its list had the void elements
 of the HTML standard, but the parser also treats `keygen` as void and
-rewrites `image` to `img`, so `:image[x]` and `:keygen[x]` render as an
-empty element followed by `x`, as `:br[x]` would without the fallback.
-Adding both to the list closes it.
+rewrites `image` to `img`, so `:image[x]` and `:keygen[x]` rendered as
+an empty element followed by `x`. Both are on the list now.
 
 The ones with the most user-visible consequence, as written before the
 review:

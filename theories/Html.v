@@ -367,12 +367,14 @@ Local Fixpoint tag_tail_ok (s : string) : bool :=
       && tag_tail_ok rest
   end.
 
-(* Void elements, which hold no children; raw-text and escapable
-   raw-text elements, whose content the tokenizer does not read as
-   markup; and the legacy elements that switch the tokenizer too. *)
+(* Void elements, which hold no children, with `keygen`, which the
+   parser still reads as void, and `image`, which it reads as `img`;
+   raw-text and escapable raw-text elements, whose content the tokenizer
+   does not read as markup; and the legacy elements that switch the
+   tokenizer too. *)
 Local Definition unordinary_elements : list string :=
   ["area"; "base"; "br"; "col"; "embed"; "hr"; "img"; "input"; "link";
-   "meta"; "param"; "source"; "track"; "wbr";
+   "meta"; "param"; "source"; "track"; "wbr"; "keygen"; "image";
    "script"; "style"; "textarea"; "title";
    "xmp"; "iframe"; "noembed"; "noframes"; "plaintext"; "noscript"].
 

@@ -195,10 +195,12 @@ Proof. vm_compute. reflexivity. Qed.
 (* Raw-text and void elements, and names HTML does not spell, keep the
    default element. *)
 Example html_fallbacks :
-  (Html ":script[alert(1)]", Html ":br[x]", Html ":a_b[x]")
+  (Html ":script[alert(1)]", Html ":br[x]", Html ":image[x]", Html ":a_b[x]")
   = ("<p><span data-tag=""script"">alert(1)</span></p>
 ",
      "<p><span data-tag=""br"">x</span></p>
+",
+     "<p><span data-tag=""image"">x</span></p>
 ",
      "<p><span data-tag=""a_b"">x</span></p>
 ").

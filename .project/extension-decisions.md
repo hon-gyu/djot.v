@@ -641,15 +641,13 @@ falls back to literal bullet content, and their per-item statuses remain the
 one deferred canonical-roundtrip case. GFM tables similarly wait for a
 distinct recognizer before `btables` becomes a dialect mode.
 
-## Pinned and reviewed, except D6: custom tag names
+## Pinned and reviewed: custom tag names
 
 **Ask.** <https://github.com/jgm/djot/issues/240>: a div and a span each gain a name, `::: details`
 and `:kbd[...]`. Specified in [[custom-tags]]; the reasoning for each
 decision is [[261001.plan.custom-tags]]'s, which an agent wrote. D2
-was amended in review (2026-10-03); D1, D3, D4 and D5 were reviewed by
-an agent at the maintainer's request and accepted (2026-10-12). D6 is
-open: its list of elements with special content misses `image` and
-`keygen` ([[custom-tags]] 9.1). The entries are pinned by examples in
+was amended in review (2026-10-03), and D6 (2026-10-12: `image` and
+`keygen` fall back, [[custom-tags]] 9.1). The entries are pinned by examples in
 `dev/check/Tag.v`.
 
 **Baseline.** `baseline_inline_alone`, `baseline_inline_then_bracket`,

@@ -329,7 +329,7 @@ let rec tag_tail_ok s =
 (** val unordinary_elements : string list **)
 
 let unordinary_elements =
-  "area" :: ("base" :: ("br" :: ("col" :: ("embed" :: ("hr" :: ("img" :: ("input" :: ("link" :: ("meta" :: ("param" :: ("source" :: ("track" :: ("wbr" :: ("script" :: ("style" :: ("textarea" :: ("title" :: ("xmp" :: ("iframe" :: ("noembed" :: ("noframes" :: ("plaintext" :: ("noscript" :: [])))))))))))))))))))))))
+  "area" :: ("base" :: ("br" :: ("col" :: ("embed" :: ("hr" :: ("img" :: ("input" :: ("link" :: ("meta" :: ("param" :: ("source" :: ("track" :: ("wbr" :: ("keygen" :: ("image" :: ("script" :: ("style" :: ("textarea" :: ("title" :: ("xmp" :: ("iframe" :: ("noembed" :: ("noframes" :: ("plaintext" :: ("noscript" :: [])))))))))))))))))))))))))
 
 (** val html_tag_ok : string -> bool **)
 
