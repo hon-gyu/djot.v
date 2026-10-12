@@ -1562,7 +1562,10 @@ let rec blank_safe = function
 | PFence (_, _, _, _, _) -> false
 | PDiv (_, _, _, _, _, inner) -> blank_safe inner
 | PList (_, _, inner) -> blank_safe inner
-| PAttr (_, _, _, _, _, _) -> false
+| PAttr (_, _, _, _, ap, slices) ->
+  (||) (ap_done ap) (match slices with
+                     | [] -> false
+                     | _ :: _ -> true)
 | PFoot (_, _, _, _, inner) -> blank_safe inner
 | PPend (_, _, inner) -> (&&) (blank_safe inner) (negb (is_idle inner))
 | PKey (_, _, _, inner) ->
