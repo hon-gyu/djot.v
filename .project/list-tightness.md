@@ -498,7 +498,12 @@ off (`battrs`), `{.x}` is paragraph text and nothing dangles.
 - Not done: no canonical form, so the roundtrip theorem does not reach a
   document holding the block (the generated corpus has none); the JSON
   writes it as `block_attributes`, which djot.js's AST does not have;
-  the tightness theorems; a function that removes the blocks.
+  the tightness theorems.
+- The function that removes the blocks is `Document.DropAttrBlocks`
+  (2026-10-12): `of_doc` on a document, its notes included, and
+  `Html.html_tree_drop_attr_blocks` says the HTML is the same.  An
+  attribute block that is a key's one block stays, since a key has to
+  hold a block.  Not extracted and not in the OCaml package.
 
 #### Extending the theorems: probe and first step (2026-10-12, by an agent, not reviewed by a human)
 

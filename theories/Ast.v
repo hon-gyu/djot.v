@@ -817,6 +817,30 @@ Proof.
     constructor; assumption.
 Qed.
 
+(* A block with its children replaced: `g` on each list of blocks under
+   it, `h` on the one block of a key.  A pass that rebuilds the tree
+   without state is one call, as a reading pass is one `fold_children`,
+   and `g` may drop or add blocks. *)
+Definition map_children (g : blocks -> blocks) (h : node block -> node block)
+  (b : block) : block :=
+  let item {A : Type} (f : A -> A) (it : node A) : node A :=
+    match it with Node p a x => Node p a (f x) end in
+  match b with
+  | Section bs => Section (g bs)
+  | BlockQuote bs => BlockQuote (g bs)
+  | Div name bs => Div name (g bs)
+  | FootnoteDef lbl bs => FootnoteDef lbl (g bs)
+  | Ext_callout kind fold title bs => Ext_callout kind fold title (g bs)
+  | Ext_keyed lbl n => Ext_keyed lbl (h n)
+  | OrderedList oa sp items => OrderedList oa sp (map (item g) items)
+  | BulletList bc sp items => BulletList bc sp (map (item g) items)
+  | TaskList sp items => TaskList sp (map (item (fun x => (fst x, g (snd x)))) items)
+  | DefinitionList sp items =>
+      DefinitionList sp (map (item (fun x => (fst x, item g (snd x)))) items)
+  | Para _ | Heading _ _ | CodeBlock _ _ | ThematicBreak | Table _ _ | RawBlock _ _
+  | RefDef _ _ | AttrBlock => b
+  end.
+
 (*
 Assembling blocks
 -----------------

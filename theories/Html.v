@@ -1640,6 +1640,123 @@ Proof.
   apply render_document_foot_reference_shape.
 Qed.
 
+(*
+Attribute blocks
+----------------
+
+An attribute block renders to nothing, so the tree without them
+(`Document.DropAttrBlocks`) renders the same.
+*)
+
+Local Lemma render_bs_foot_cons : forall refs st t p a b rest,
+  render_bs_foot refs st t (Node p a b :: rest)
+  = let '(st1, s1) := render_block_foot refs st t b a in
+    let '(st2, s2) := render_bs_foot refs st1 t rest in
+    (st2, (s1 ++ s2)%list).
+Proof. reflexivity. Qed.
+
+Local Lemma render_block_foot_drop :
+  forall b refs st tight a,
+    render_block_foot refs st tight (DropAttrBlocks.of_block b) a
+    = render_block_foot refs st tight b a.
+Proof.
+  intros b. induction b using block_ind2 with
+    (Q := fun bs => forall refs st t,
+       render_bs_foot refs st t (DropAttrBlocks.of_list bs) = render_bs_foot refs st t bs)
+    (R := fun its => forall refs st sp,
+       render_items_foot refs st sp
+         (map (fun it => match it with Node p a x => Node p a (DropAttrBlocks.of_list x) end) its)
+       = render_items_foot refs st sp its)
+    (K := fun its => forall refs st sp,
+       render_task_items_foot refs st sp
+         (map (fun it => match it with
+                         | Node p a x => Node p a (fst x, DropAttrBlocks.of_list (snd x))
+                         end) its)
+       = render_task_items_foot refs st sp its)
+    (D := fun its => forall refs t st,
+       render_def_items_foot refs t st
+         (map (fun it => match it with
+                         | Node p a x =>
+                             Node p a (fst x, match snd x with
+                                              | Node q c y => Node q c (DropAttrBlocks.of_list y)
+                                              end)
+                         end) its)
+       = render_def_items_foot refs t st its).
+  all: try (intros; rewrite ?DropAttrBlocks.of_block_children;
+            unfold render_bs_foot, render_items_foot, render_task_items_foot,
+              render_def_items_foot in *;
+            cbn [render_block_foot map_children]; rewrite ?IHb; reflexivity).
+  (* what a container renders is its children's rendering *)
+  Local Ltac same_children H :=
+    match goal with
+    | |- (let '(_, _) := ?l in _) = (let '(_, _) := ?r in _) =>
+        replace l with r by (symmetry; apply H); reflexivity
+    end.
+  1-3: intros; rewrite DropAttrBlocks.of_block_children;
+       cbn [map_children render_block_foot]; same_children IHb.
+  - (* a key keeps its block, an attribute block included *)
+    intros. rewrite DropAttrBlocks.of_block_children.
+    cbn [map_children render_block_foot].
+    destruct (render_inlines_foot refs st label) as [st1 s1]. destruct b as [p' a' x].
+    destruct (DropAttrBlocks.is_attr_block x) eqn:Hx.
+    + destruct x; try discriminate Hx. reflexivity.
+    + specialize (IHb refs st1 tight). unfold DropAttrBlocks.of_list in IHb.
+      cbn [flat_map node_contents] in IHb. rewrite Hx in IHb. cbn [app] in IHb.
+      same_children IHb.
+  - intros. rewrite DropAttrBlocks.of_block_children.
+    cbn [map_children render_block_foot].
+    destruct (render_inlines_foot refs st title) as [st1 s1]. same_children IHb.
+  - intros. unfold DropAttrBlocks.of_list. cbn [flat_map node_contents].
+    change (flat_map _ rest) with (DropAttrBlocks.of_list rest).
+    destruct (DropAttrBlocks.is_attr_block b) eqn:Hb.
+    + destruct b; try discriminate Hb. cbn [app]. rewrite IHb0, render_bs_foot_cons.
+      cbn [render_block_foot render_block].
+      destruct (render_bs_foot refs st t rest). reflexivity.
+    + cbn [app DropAttrBlocks.of_node]. rewrite !render_bs_foot_cons, IHb.
+      destruct (render_block_foot refs st t b a) as [st1 s1]. rewrite IHb0. reflexivity.
+  - intros. cbn [map render_items_foot]. rewrite IHb.
+    destruct (render_bs_foot refs st _ it) as [st1 s1]. rewrite IHb0. reflexivity.
+  - intros. destruct term as [tp ta term]. cbn [map fst snd render_def_items_foot].
+    destruct (render_inlines_foot refs st term) as [st1 s1]. rewrite IHb.
+    destruct (render_bs_foot refs st1 t it) as [st2 s2]. rewrite IHb0. reflexivity.
+  - intros. cbn [map fst snd render_task_items_foot]. rewrite IHb.
+    destruct (render_bs_foot refs st _ it) as [st1 s1]. rewrite IHb0. reflexivity.
+Qed.
+
+Local Lemma render_blocks_foot_drop : forall refs bs st,
+  render_blocks_foot refs st (DropAttrBlocks.of_list bs) = render_blocks_foot refs st bs.
+Proof.
+  intros refs. induction bs as [|[p a b] rest IH]; intros st; [reflexivity|].
+  unfold DropAttrBlocks.of_list. cbn [flat_map node_contents].
+  change (flat_map _ rest) with (DropAttrBlocks.of_list rest).
+  destruct (DropAttrBlocks.is_attr_block b) eqn:Hb.
+  - destruct b; try discriminate Hb. cbn [app]. rewrite IH, render_blocks_foot_cons.
+    cbn [render_block_foot render_block]. destruct (render_blocks_foot refs st rest). reflexivity.
+  - cbn [app DropAttrBlocks.of_node]. rewrite !render_blocks_foot_cons, render_block_foot_drop.
+    destruct (render_block_foot refs st false b a) as [st1 s1]. rewrite IH. reflexivity.
+Qed.
+
+Local Lemma render_note_defs_drop : forall refs notes st,
+  render_note_defs refs st (map (fun note => (fst note, DropAttrBlocks.of_list (snd note))) notes)
+  = render_note_defs refs st notes.
+Proof.
+  intros refs. induction notes as [|[label bs] rest IH]; intros st; [reflexivity|].
+  cbn [map fst snd render_note_defs]. rewrite render_blocks_foot_drop.
+  destruct (render_blocks_foot refs st bs) as [st1 body]. rewrite IH. reflexivity.
+Qed.
+
+(** Removing the attribute blocks leaves the HTML as it was. *)
+Theorem html_tree_drop_attr_blocks : forall d,
+  html_tree (DropAttrBlocks.of_doc d) = html_tree d.
+Proof.
+  intros [bs notes refs arefs ids]. unfold html_tree, doc_refs, render_document_foot.
+  cbn [DropAttrBlocks.of_doc doc_blocks doc_footnotes doc_references doc_auto_references].
+  rewrite render_blocks_foot_drop.
+  destruct (render_blocks_foot (refs ++ arefs)%list foot_initial bs) as [st1 body].
+  destruct (Nat.eqb (foot_next st1) 1); [reflexivity|].
+  rewrite render_note_defs_drop. reflexivity.
+Qed.
+
 Definition render_html (d : doc) : string := serialize_flat (html_tree d).
 
 (* The document renderer: djot in, HTML out. *)

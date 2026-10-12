@@ -1617,6 +1617,40 @@ Qed.
 End WithTable.
 End Undo.
 
+(* The tree without its attribute blocks, for a consumer that wants
+   block attributes only where they attach.  One stays: an attribute
+   block that is the one block of a key, which a key cannot be without.
+   Nothing else changes, a list's spacing included, and the HTML is the
+   same (`Html.html_tree_drop_attr_blocks`). *)
+Module DropAttrBlocks.
+
+Definition is_attr_block (b : block) : bool :=
+  match b with AttrBlock => true | _ => false end.
+
+Fixpoint of_block (b : block) {struct b} : block :=
+  let node (n : node block) : node block :=
+    match n with Node p a x => Node p a (of_block x) end in
+  map_children
+    (flat_map (fun n => if is_attr_block (node_contents n) then [] else [node n]))
+    node b.
+
+Definition of_node (n : node block) : node block :=
+  match n with Node p a x => Node p a (of_block x) end.
+
+Definition of_list (bs : blocks) : blocks :=
+  flat_map (fun n => if is_attr_block (node_contents n) then [] else [of_node n]) bs.
+
+Lemma of_block_children : forall b,
+  of_block b = map_children of_list of_node b.
+Proof. intros b. destruct b; reflexivity. Qed.
+
+Definition of_doc (d : doc) : doc :=
+  Doc (of_list (doc_blocks d))
+      (map (fun note => (fst note, of_list (snd note))) (doc_footnotes d))
+      (doc_references d) (doc_auto_references d) (doc_auto_identifiers d).
+
+End DropAttrBlocks.
+
 (* The sections taken back off, ids kept: a section is its blocks, and
    its attributes go back to the heading it opens with.  A section that
    opens with anything else loses them.  Top level only, which is where
