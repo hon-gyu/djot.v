@@ -36,7 +36,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 
 | Section | T | T~ | E | D | none | n/a |
 | --- | --- | --- | --- | --- | --- | --- |
-| Inline | 11 | 41 | 0 | 0 | 0 | 5 |
+| Inline | 11 | 41 | 0 | 0 | 0 | 4 |
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 17 | 2 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 13 | 0 | 3 | 0 | 0 | 2 |
@@ -395,10 +395,6 @@ canonical marker (`definition_list_uniformity`); the rest stays at
 examples.  DL1's term split is an AST function stated
 once (`def_split`); proving it would restate it.
 
-This list is why inline syntax is mostly E.  It records a choice, not a
-limit: a formal statement of inline syntax beyond precedence would
-reopen it.
-
 ### Spec gaps
 
 Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
@@ -407,8 +403,9 @@ Logged in `djotjs-divergences.md` with the `SPEC-GAP` verdict:
   lazily inside a quote (2026-09-28).  Any block opener ends a heading
   (2026-10-05).
 - LI7: a lone ambiguous marker reads as roman (2026-09-28).
-- LS4: a div left open at the end of an item ends before the blank
-  after it (2026-09-30).
+- LS4: a div or a code block left open at the end of an item ends at
+  the item's last nonblank line, so the blank after it loosens
+  (2026-09-30, the code block since 2026-10-05).
 - BQ1: a tab or CR after `>` counts as the space (2026-09-30).
 - LI1, LI5, TK1: a tab or CR after a list marker or a checkbox counts as
   the space (2026-10-05).
