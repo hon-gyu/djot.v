@@ -313,12 +313,25 @@ Local Definition plain_texts (ns : list (node inline)) : string :=
 Rendering, against the document's reference map
 ===============================================
 
-`refs` is the map a `Reference` target resolves against: the document's
-explicit definitions followed by the implicit heading ones, appended so
-that `alist_lookup`'s first-match rule prefers the explicit one.  It is a
-section variable rather than a threaded argument because every recursion
-here would otherwise carry it unchanged.
+`refs` resolves a `Reference` target.  For a document it is `resolve` of
+the explicit definitions followed by the implicit heading ones, appended
+so that the first-match rule prefers the explicit one.  It is a section
+variable rather than a threaded argument because every recursion here
+would otherwise carry it unchanged.
 *)
+
+Definition resolver : Type := string -> option (string * attr).
+
+(* `lookup_reference` in `m`, through a tree built once: a walk of the
+   map at each use is quadratic in a document that uses its
+   definitions. *)
+Definition resolve (m : reference_map) : resolver :=
+  let t := alist_table m in
+  fun label => StrMap.find (normalize_label label) t.
+
+Lemma resolve_spec : forall m label,
+  resolve m label = lookup_reference label m.
+Proof. intros m label. apply alist_table_find. Qed.
 
 (*
 Element names
@@ -389,7 +402,7 @@ Example named_elem_cases :
 Proof. reflexivity. Qed.
 
 Section WithRefs.
-Context (refs : reference_map).
+Context (refs : resolver).
 
 (* A node's own attributes render on its own tag, after any the
    construct contributes itself.  A `Str` has no tag of its own, so an
@@ -433,7 +446,7 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
   | Link ils (Direct url) =>
       [HElem "a" 0 (("href", url) :: a) (render_ils ils)]
   | Link ils (Reference label) =>
-      match lookup_reference label refs with
+      match refs label with
       | Some (url, a0) =>
           [HElem "a" 0
              (("href", url) :: ref_extra a0 a ++ a)%list (render_ils ils)]
@@ -444,7 +457,7 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
       [HVoid "img" false
          (("alt", plain_texts ils) :: ("src", url) :: a)]
   | Image ils (Reference label) =>
-      match lookup_reference label refs with
+      match refs label with
       | Some (url, a0) =>
           [HVoid "img" false
              (("alt", plain_texts ils) :: ("src", url)
@@ -687,20 +700,24 @@ Definition render_blocks (bs : blocks) : list helt :=
    leaves the latter useful for its existing local callers while making the
    document entry point agree with djot.js. *)
 Record foot_state : Type := FootState
-  { foot_numbers : list (string * nat)
+  { (* the numbered labels, newest first: the last is note 1 *)
+    foot_labels : list string
+  ; (* each one's number *)
+    foot_index : StrMap.t nat
   ; foot_next : nat
   }.
 
-Definition foot_initial : foot_state := FootState [] 1.
+Definition foot_initial : foot_state := FootState [] (@StrMap.empty nat) 1.
 
 Local Definition number_footnote (label : string) (st : foot_state)
   : foot_state * nat * bool :=
   let label := normalize_label label in
-  match alist_lookup label (foot_numbers st) with
+  match StrMap.find label (foot_index st) with
   | Some n => (st, n, false)
   | None =>
       let n := foot_next st in
-      (FootState ((foot_numbers st ++ [(label, n)])%list) (S n), n, true)
+      (FootState (label :: foot_labels st) (StrMap.add label n (foot_index st)) (S n),
+       n, true)
   end.
 
 Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
@@ -744,7 +761,7 @@ Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
       match target with
       | Direct url => (st', [HElem "a" 0 (("href", url) :: a) s])
       | Reference label =>
-          match lookup_reference label refs with
+          match refs label with
           | Some (url, a0) =>
               (st', [HElem "a" 0
                        (("href", url) :: ref_extra a0 a ++ a)%list s])
@@ -976,29 +993,20 @@ Local Fixpoint render_note_defs (st : foot_state) (notes : note_map)
       (st2, (label, body) :: rendered)
   end.
 
-Local Fixpoint label_at (n : nat) (numbers : list (string * nat)) : option string :=
-  match numbers with
-  | [] => None
-  | (label, n') :: rest =>
-      if Nat.eqb n n' then Some label else label_at n rest
-  end.
+(* The body rendered for `label`, the first if the map has several. *)
+Local Definition rendered_note (rendered : StrMap.t (list helt)) (label : string)
+  : list helt :=
+  match StrMap.find label rendered with Some s => s | None => [] end.
 
-Local Definition rendered_note_at (n : nat) (st : foot_state)
-  (rendered : list (string * list helt)) : list helt :=
-  match label_at n (foot_numbers st) with
-  | None => []
-  | Some label =>
-      match alist_lookup label rendered with Some s => s | None => [] end
-  end.
-
-Local Fixpoint render_note_items (fuel n : nat) (st : foot_state)
-  (rendered : list (string * list helt)) : list helt :=
-  match fuel with
-  | O => []
-  | S fuel' =>
+(* One item per label, numbered from `n`. *)
+Local Fixpoint render_note_items (n : nat) (labels : list string)
+  (rendered : StrMap.t (list helt)) : list helt :=
+  match labels with
+  | [] => []
+  | label :: rest =>
       HElem "li" 2 [("id", "fn" ++ nat_str n)]
-        (add_backlink (rendered_note_at n st rendered) n)
-      :: render_note_items fuel' (S n) st rendered
+        (add_backlink (rendered_note rendered label) n)
+      :: render_note_items (S n) rest rendered
   end.
 
 Local Definition render_document_foot (blocks : blocks) (notes : note_map)
@@ -1011,7 +1019,8 @@ Local Definition render_document_foot (blocks : blocks) (notes : note_map)
      ++ [HElem "section" 2 [("role", "doc-endnotes")]
            [HVoid "hr" false []; HText nl;
             HElem "ol" 2 []
-              (render_note_items (foot_next st2 - 1) 1 st2 rendered)]])%list.
+              (render_note_items 1 (rev (foot_labels st2))
+                 (alist_table rendered))]])%list.
 
 End WithRefs.
 
@@ -1044,13 +1053,13 @@ Proof.
             exact (H refs refs')).
   - destruct tgt as [url|label].
     + cbn [map erase_helt_attrs]. f_equal. f_equal. exact (H refs refs').
-    + destruct (lookup_reference label refs) as [[url a0]|];
-        destruct (lookup_reference label refs') as [[url' a0']|];
+    + destruct (refs label) as [[url a0]|];
+        destruct (refs' label) as [[url' a0']|];
         cbn [map erase_helt_attrs]; f_equal; f_equal;
         exact (H refs refs').
   - destruct tgt as [url|label]; [reflexivity|].
-    destruct (lookup_reference label refs) as [[url a0]|];
-      destruct (lookup_reference label refs') as [[url' a0']|]; reflexivity.
+    destruct (refs label) as [[url a0]|];
+      destruct (refs' label) as [[url' a0']|]; reflexivity.
   - destruct (named_elem "span" name a) as [t a'].
     cbn [map erase_helt_attrs]. f_equal. f_equal. exact (H refs refs').
   - destruct qt; cbn [map erase_helt_attrs]; repeat rewrite map_app;
@@ -1100,8 +1109,8 @@ Proof.
     try (eapply foot_shape_elem; exact (H st refs refs')).
   - destruct tgt as [url|label].
     + eapply foot_shape_elem. exact (H st refs refs').
-    + destruct (lookup_reference label refs) as [[url a0]|];
-        destruct (lookup_reference label refs') as [[url' a0']|];
+    + destruct (refs label) as [[url a0]|];
+        destruct (refs' label) as [[url' a0']|];
         eapply foot_shape_elem; exact (H st refs refs').
   - unfold foot_shape. cbn [fst snd].
     split; [reflexivity|apply render_inline_reference_shape].
@@ -1249,7 +1258,7 @@ Proof.
   split; [exact Ht|]. rewrite He, Ho. reflexivity.
 Qed.
 
-Local Definition render_bs_foot (refs : reference_map) (st : foot_state)
+Local Definition render_bs_foot (refs : resolver) (st : foot_state)
   (tight : bool) (bs : blocks) : foot_state * list helt :=
   (fix go (st0 : foot_state) (t : bool) (ns : blocks)
      : foot_state * list helt :=
@@ -1261,7 +1270,7 @@ Local Definition render_bs_foot (refs : reference_map) (st : foot_state)
          (st2, (s1 ++ s2)%list)
      end) st tight bs.
 
-Local Definition render_items_foot (refs : reference_map)
+Local Definition render_items_foot (refs : resolver)
   : foot_state -> list_spacing -> list (node blocks) -> foot_state * list helt :=
   fix goi (st : foot_state) (sp : list_spacing) (items : list (node blocks))
     {struct items} : foot_state * list helt :=
@@ -1274,7 +1283,7 @@ Local Definition render_items_foot (refs : reference_map)
         (st2, HElem "li" 2 ia s1 :: s2)
     end.
 
-Local Definition render_task_items_foot (refs : reference_map)
+Local Definition render_task_items_foot (refs : resolver)
   : foot_state -> list_spacing -> list (node (task_status * blocks))
     -> foot_state * list helt :=
   fix got (st : foot_state) (sp : list_spacing)
@@ -1289,7 +1298,7 @@ Local Definition render_task_items_foot (refs : reference_map)
         (st2, HElem "li" 2 [] (checkbox_elt chk :: HText nl :: s1) :: s2)
     end.
 
-Local Definition render_def_items_foot (refs : reference_map) (tight : bool)
+Local Definition render_def_items_foot (refs : resolver) (tight : bool)
   : foot_state -> list (node (node inlines * node blocks)) -> foot_state * list helt :=
   fix god (st : foot_state) (items : list (node (node inlines * node blocks)))
     {struct items} : foot_state * list helt :=
@@ -1410,13 +1419,12 @@ Proof.
   destruct (String.eqb k k'); [reflexivity|exact IH].
 Qed.
 
-Local Lemma rendered_note_at_reference_shape : forall n st r r',
+Local Lemma rendered_note_reference_shape : forall label r r',
   erase_rendered r = erase_rendered r' ->
-  map erase_helt_attrs (rendered_note_at n st r) =
-  map erase_helt_attrs (rendered_note_at n st r').
+  map erase_helt_attrs (rendered_note (alist_table r) label) =
+  map erase_helt_attrs (rendered_note (alist_table r') label).
 Proof.
-  intros n st r r' Hr. unfold rendered_note_at.
-  destruct (label_at n (foot_numbers st)) as [label|]; [|reflexivity].
+  intros label r r' Hr. unfold rendered_note. rewrite !alist_table_find.
   pose proof (alist_lookup_erase_rendered label r) as E.
   rewrite Hr, alist_lookup_erase_rendered in E.
   destruct (alist_lookup label r), (alist_lookup label r');
@@ -1446,16 +1454,16 @@ Proof.
   rewrite !map_app, Hkids, Ht. reflexivity.
 Qed.
 
-Local Lemma render_note_items_reference_shape : forall fuel n st r r',
+Local Lemma render_note_items_reference_shape : forall labels n r r',
   erase_rendered r = erase_rendered r' ->
-  map erase_helt_attrs (render_note_items fuel n st r) =
-  map erase_helt_attrs (render_note_items fuel n st r').
+  map erase_helt_attrs (render_note_items n labels (alist_table r)) =
+  map erase_helt_attrs (render_note_items n labels (alist_table r')).
 Proof.
-  induction fuel as [|fuel IH]; intros n st r r' Hr; [reflexivity|].
+  induction labels as [|label labels IH]; intros n r r' Hr; [reflexivity|].
   cbn [render_note_items map erase_helt_attrs].
   rewrite (add_backlink_reference_shape _ _ n
-             (rendered_note_at_reference_shape n st r r' Hr)).
-  rewrite (IH (S n) st r r' Hr). reflexivity.
+             (rendered_note_reference_shape label r r' Hr)).
+  rewrite (IH (S n) r r' Hr). reflexivity.
 Qed.
 
 Theorem render_document_foot_reference_shape : forall bs notes refs refs',
@@ -1474,11 +1482,11 @@ Proof.
   destruct (render_note_defs refs' s1 notes) as [s2' r'].
   destruct Hn as [Hs Hr]. cbn [fst snd] in Hs, Hr. subst s2'.
   rewrite !map_app, Hb. cbn [map erase_helt_attrs].
-  rewrite (render_note_items_reference_shape _ 1 s2 r r' Hr). reflexivity.
+  rewrite (render_note_items_reference_shape _ 1 r r' Hr). reflexivity.
 Qed.
 
 (* The local block renderer uses this recursion at each container. *)
-Local Definition render_bs_at (refs : reference_map) (tight : bool) (bs : blocks)
+Local Definition render_bs_at (refs : resolver) (tight : bool) (bs : blocks)
   : list helt :=
   (fix go (t : bool) (ns : blocks) : list helt :=
      match ns with
@@ -1627,7 +1635,7 @@ Local Definition doc_refs (d : doc) : reference_map :=
 (* The output tree of a whole document, named because the safety
    statements below are about it rather than about its serialization. *)
 Definition html_tree (d : doc) : list helt :=
-  render_document_foot (doc_refs d) (doc_blocks d) (doc_footnotes d).
+  render_document_foot (resolve (doc_refs d)) (doc_blocks d) (doc_footnotes d).
 
 (* Reference definitions reach the output only through link and image
    attributes, and footnote numbering does not depend on them. *)
@@ -1752,7 +1760,7 @@ Proof.
   intros [bs notes refs arefs ids]. unfold html_tree, doc_refs, render_document_foot.
   cbn [DropAttrBlocks.of_doc doc_blocks doc_footnotes doc_references doc_auto_references].
   rewrite render_blocks_foot_drop.
-  destruct (render_blocks_foot (refs ++ arefs)%list foot_initial bs) as [st1 body].
+  destruct (render_blocks_foot (resolve (refs ++ arefs)%list) foot_initial bs) as [st1 body].
   destruct (Nat.eqb (foot_next st1) 1); [reflexivity|].
   rewrite render_note_defs_drop. reflexivity.
 Qed.
@@ -2318,7 +2326,7 @@ Proof. vm_compute. reflexivity. Qed.
 (* The chosen keyed-block HTML shape.  `.project/keyed-blocks.md` 9.3
    records why the label is a term rather than an attribute or heading. *)
 Example render_keyed_description_list :
-  serialize (render_blocks []
+  serialize (render_blocks (resolve [])
     [mk (Ext_keyed [mk (Str "foo")] (mk (Para [mk (Str "bar")])))])
   = "<dl class=""keyed"">
 <dt>foo</dt>
@@ -2333,7 +2341,7 @@ Proof. vm_compute. reflexivity. Qed.
    a block's each take an index, where the stateless fallback would have
    dropped both. *)
 Example render_keyed_numbers_both_notes :
-  foot_next (fst (render_blocks_foot [] foot_initial
+  foot_next (fst (render_blocks_foot (resolve []) foot_initial
     [mk (Ext_keyed [mk (FootnoteReference "a")]
            (mk (Para [mk (FootnoteReference "b")])))])) = 3.
 Proof. vm_compute. reflexivity. Qed.

@@ -125,6 +125,24 @@ Qed.
 End WithValue.
 End Assign.
 
+(* A tree that answers as `alist_lookup` does on `m`: of two entries
+   with one key, the earlier is found. *)
+Definition alist_table {A : Type} (m : list (string * A)) : StrMap.t A :=
+  fold_left (fun t e => StrMap.add (fst e) (snd e) t) (rev m) (StrMap.empty A).
+
+Lemma alist_table_find : forall (A : Type) (k : string) (m : list (string * A)),
+  StrMap.find k (alist_table m) = alist_lookup k m.
+Proof.
+  intros A k m. unfold alist_table.
+  induction m as [|[k0 v0] m IH]; [apply StrMapFacts.empty_o|].
+  cbn [rev alist_lookup]. rewrite fold_left_app. cbn [fold_left fst snd].
+  rewrite StrMapFacts.add_o.
+  destruct (OrderedTypeEx.String_as_OT.eq_dec k0 k) as [e|n].
+  - subst k0. rewrite String.eqb_refl. reflexivity.
+  - destruct (String.eqb k k0) eqn:E; [|exact IH].
+    apply String.eqb_eq in E. congruence.
+Qed.
+
 Local Open Scope string_scope.
 
 (* The delimiter table this file is read at.  Implicit, so nothing below
