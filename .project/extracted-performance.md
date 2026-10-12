@@ -12,9 +12,10 @@ Status: document-size and paragraph-length quadratics fixed (`split_lines`,
 removed unary arithmetic and character classification through unary
 `nat` and roughly halved ordinary-prose parse time.  The HTML renderer
 is linear, and so is heading-identifier assignment up to a log factor.
-Long single lines are linear in the inline and block paths.  Not
-production ready: nesting depth on one line, many definitions, and
-some degenerate repetitions still grow superlinearly (ranked below).  The last comparison
+Long single lines are linear in the inline and block paths.  Collecting
+many definitions is linear up to a log factor.  Not production ready:
+rendering many used references or footnotes, nesting depth on one line,
+and some degenerate repetitions still grow superlinearly (ranked below).  The last comparison
 against cmarkit predates the `int` change; re-measure before quoting it.
 
 The extracted package now exposes location-on block and document parses
@@ -549,6 +550,26 @@ best of 3, and of 2 for `m.dj`):
 Positions now cost 1.5 to 1.75 times the plain parse at every size, and
 the ratio no longer grows with the document.
 
+Many definitions (2026-10-12, baseline `3b7d941`).  The reference and
+footnote maps were built by `alist_set` at each definition, which walks
+the map: n definitions cost O(n^2).  `Refs.of_list` and `Notes.of_list`
+stay the specification.  `doc_pass` calls `Refs.collect` and
+`Notes.collect`, which gather the assignments in one traversal and hand
+them to `Assign.all`: a `StrMap` of each key's latest value and the keys
+in first-assigned order, read back once.  `Assign.all_spec` proves it
+equal to the `alist_set` fold, and `Refs.collect_spec` and
+`Notes.collect_spec` prove the two passes equal to the specification.
+No trusted code, and no extracted module added.  The test suite and
+generated HTML runs, the depth-3 roundtrip (83374/83374) and
+`make check-axioms` pass.
+
+`parse_doc`, dev profile, `make bench` `definitions`, before -> after,
+milliseconds:
+
+| 19 KB | 79 KB | 336 KB |
+| ---: | ---: | ---: |
+| 22.3 -> 3.2 | 371.6 -> 15.8 | not run -> 75.6 |
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -732,14 +753,23 @@ documents nest a few levels.  Fixing it means passing offsets through
 slice (a string and a start offset), where `String c s'` is O(1) and
 the realizations above would be rewritten against slices.
 
-### 2. Many definitions
+### 2. Many used references or footnotes, in the HTML renderer
 
-The reference and footnote maps are association lists with JS-object
-semantics (`Ast.alist_set`: first position, last value), so n
-definitions cost O(n^2) to collect and each lookup O(n).  6500
-reference definitions (79 KB) parse in 394 ms, 17x per 4x.  A fix
-changes the map representation, or builds a reversed list and
-deduplicates once, with a proof against the `alist_set` fold.
+Found 2026-10-12 with the `references` and `footnotes` shapes of
+`make bench`, dev profile.  The parse is linear; `Html.convert` is not:
+
+| shape | 18 KB | 78 KB | 324 KB |
+| --- | ---: | ---: | ---: |
+| `references` (each definition used once) | 8.2 ms | 68.0 ms | 988 ms |
+| `footnotes` (each note referenced once) | 26.3 ms | 406.6 ms | 5515 ms |
+
+A reference is resolved by `lookup_reference`, a walk of the map, at
+each use.  A footnote costs more: `number_footnote` looks the label up
+in `foot_numbers` and appends to it, and `rendered_note_at` walks
+`foot_numbers` and the rendered bodies once per note.  A fix gives the
+renderer a tree to look up in, built once per document, with the list
+maps kept as the specification.  The reference map is an argument of
+every render function, so this touches their statements.
 
 ### 3. Degenerate repetitions
 
@@ -770,8 +800,8 @@ Linear already: nested lists and deep list nesting (160 KB in 22 ms and
 
 ## Order
 
-Many definitions first, as the one open cost a real document can reach.
-Keep the nested-list shape in `make bench`: it guards the `finish`
+The renderer's lookups first, as the one open cost a real document can
+reach.  Keep the nested-list shape in `make bench`: it guards the `finish`
 fix, whose regression is exponential, and inline links, to catch a
 recurrence.
 
