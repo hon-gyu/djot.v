@@ -764,12 +764,6 @@ type note_map = (string * blocks) list
 
 type reference_map = (string * (string * attr)) list
 
-(** val lookup_reference :
-    string -> reference_map -> (string * attr) option **)
-
-let lookup_reference label m =
-  alist_lookup (normalize_label label) m
-
 type doc = { doc_blocks : blocks; doc_footnotes : note_map;
              doc_references : reference_map;
              doc_auto_references : reference_map;

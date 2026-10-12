@@ -1528,16 +1528,22 @@ let step t k lI p l st =
   step_fuel t k lI p (Stdlib.succ (( + ) (String.length l) (pstate_depth st)))
     0 l st
 
+(** val parse_lines_loop :
+    dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> blocks -> string list
+    -> pstate -> blocks **)
+
+let rec parse_lines_loop t k lI p acc lines st =
+  match lines with
+  | [] -> rev_append acc (finish t k p st)
+  | l :: rest ->
+    let (bs, st') = step t k lI p l st in
+    parse_lines_loop t k lI p (rev_append bs acc) rest st'
+
 (** val parse_lines :
     dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string list -> pstate
     -> blocks **)
 
-let rec parse_lines t k lI p lines st =
-  match lines with
-  | [] -> finish t k p st
-  | l :: rest ->
-    let (bs, st') = step t k lI p l st in
-    app bs (parse_lines t k lI p rest st')
+let rec parse_lines = (fun t k li p lines st -> parse_lines_loop t k li p [] lines st)
 
 (** val parse_blocks :
     dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string -> blocks **)
