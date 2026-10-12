@@ -74,4 +74,6 @@ val p_block_structure_first : property
 
 val p_inline_precedence : property
 
+val p_inline_grammar : property
+
 val all : property list
