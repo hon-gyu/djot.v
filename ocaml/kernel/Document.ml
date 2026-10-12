@@ -16,6 +16,38 @@ module StrSet = Make(String_as_OT)
 
 module StrMap = FMapAVL.Make(OrderedTypeEx.String_as_OT)
 
+module Assign =
+ struct
+  type 'a state = string list * 'a StrMap.t
+
+  (** val step : 'a1 state -> (string * 'a1) -> 'a1 state **)
+
+  let step st e =
+    let (keys, tbl) = st in
+    ((match StrMap.find (fst e) tbl with
+      | Some _ -> keys
+      | None -> (fst e) :: keys),
+    (StrMap.add (fst e) (snd e) tbl))
+
+  (** val emit :
+      'a1 StrMap.t -> (string * 'a1) list -> string -> (string * 'a1) list **)
+
+  let emit tbl out k =
+    match StrMap.find k tbl with
+    | Some v -> (k, v) :: out
+    | None -> out
+
+  (** val read : 'a1 state -> (string * 'a1) list **)
+
+  let read = function
+  | (keys, tbl) -> fold_left (emit tbl) keys []
+
+  (** val all : (string * 'a1) list -> (string * 'a1) list **)
+
+  let all es =
+    read (fold_left step es ([], StrMap.empty))
+ end
+
 (** val inline_text : inline -> string **)
 
 let rec inline_text il =
@@ -316,64 +348,74 @@ let rec sect_bottom = function
 let sectionize p bs =
   sect_bottom (close_all p [] (fold_left (sect_step p) bs sect_init))
 
-(** val add_ref : pos -> attr -> block -> reference_map -> reference_map **)
+(** val ref_entries : attr -> block -> reference_map **)
 
-let add_ref _ a b m =
-  match b with
-  | RefDef (label, dest) ->
-    if nonempty_str label
-    then alist_set (normalize_label label) (dest, a) m
-    else m
-  | _ -> m
+let ref_entries a = function
+| RefDef (label, dest) ->
+  if nonempty_str label
+  then ((normalize_label label), (dest, a)) :: []
+  else []
+| _ -> []
 
 module Refs =
  struct
-  (** val of_block :
-      block -> pos -> attr -> reference_map -> reference_map **)
+  (** val entries_block : block -> attr -> reference_map -> reference_map **)
 
-  let rec of_block b p a m =
-    fold_children (fun acc n ->
-      let Node (p', a', x) = n in of_block x p' a' acc) b (add_ref p a b m)
+  let rec entries_block b a acc =
+    fold_children (fun acc0 n ->
+      let Node (_, a', x) = n in entries_block x a' acc0) b
+      (rev_append (ref_entries a b) acc)
 
-  (** val of_list : blocks -> reference_map -> reference_map **)
+  (** val entries_list : blocks -> reference_map -> reference_map **)
 
-  let rec of_list ns m =
+  let rec entries_list ns acc =
     match ns with
-    | [] -> m
-    | n :: rest -> let Node (p, a, b) = n in of_list rest (of_block b p a m)
+    | [] -> acc
+    | n :: rest ->
+      let Node (_, a, b) = n in entries_list rest (entries_block b a acc)
+
+  (** val collect : blocks -> reference_map **)
+
+  let collect ns =
+    Assign.all (rev (entries_list ns []))
  end
 
 module Notes =
  struct
-  (** val add_note : block -> note_map -> note_map **)
+  (** val note_entries : block -> note_map **)
 
-  let add_note b m =
-    match b with
-    | FootnoteDef (label, bs) -> alist_set (normalize_label label) bs m
-    | _ -> m
+  let note_entries = function
+  | FootnoteDef (label, bs) -> ((normalize_label label), bs) :: []
+  | _ -> []
 
-  (** val of_block : block -> note_map -> note_map **)
+  (** val entries_block : block -> note_map -> note_map **)
 
-  let rec of_block b m =
-    add_note b
-      (fold_children (fun acc n -> let Node (_, _, x) = n in of_block x acc) b
-        m)
+  let rec entries_block b acc =
+    rev_append (note_entries b)
+      (fold_children (fun acc0 n ->
+        let Node (_, _, x) = n in entries_block x acc0) b acc)
 
-  (** val of_list : blocks -> note_map -> note_map **)
+  (** val entries_list : blocks -> note_map -> note_map **)
 
-  let rec of_list ns m =
+  let rec entries_list ns acc =
     match ns with
-    | [] -> m
-    | n :: rest -> let Node (_, _, b) = n in of_list rest (of_block b m)
+    | [] -> acc
+    | n :: rest ->
+      let Node (_, _, b) = n in entries_list rest (entries_block b acc)
+
+  (** val collect : blocks -> note_map **)
+
+  let collect ns =
+    Assign.all (rev (entries_list ns []))
  end
 
 (** val doc_pass : coq_PosPolicy -> blocks -> doc **)
 
 let doc_pass p bs =
   let (st, bs') = Ids.of_list bs id_state_init in
-  { doc_blocks = (sectionize p bs'); doc_footnotes = (Notes.of_list bs' []);
-  doc_references = (Refs.of_list bs' []); doc_auto_references =
-  (rev st.id_refs); doc_auto_identifiers = (rev st.id_derived) }
+  { doc_blocks = (sectionize p bs'); doc_footnotes = (Notes.collect bs');
+  doc_references = (Refs.collect bs'); doc_auto_references = (rev st.id_refs);
+  doc_auto_identifiers = (rev st.id_derived) }
 
 (** val parse_doc : dtable -> bconfig -> coq_PosPolicy -> string -> doc **)
 
