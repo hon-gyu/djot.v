@@ -48,6 +48,11 @@ module Assign =
     read (fold_left step es ([], StrMap.empty))
  end
 
+(** val alist_table : (string * 'a1) list -> 'a1 StrMap.t **)
+
+let alist_table m =
+  fold_left (fun t0 e -> StrMap.add (fst e) (snd e) t0) (rev m) StrMap.empty
+
 (** val inline_text : inline -> string **)
 
 let rec inline_text il =

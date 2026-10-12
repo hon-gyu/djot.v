@@ -6,7 +6,6 @@ open Inline
 open InlineTable
 open List0
 open ListDef
-open Nat0
 open Step
 open Strings
 
@@ -147,7 +146,7 @@ let rec plain_text il =
    | RawInline (_, s) -> s
    | NonBreakingSpace -> " "
    | Quoted (_, ns) -> go ns
-   | Ext_wikilink (_, t, al) -> wiki_display t al
+   | Ext_wikilink (_, t0, al) -> wiki_display t0 al
    | Hole s -> s
    | _ -> nl)
 
@@ -155,6 +154,14 @@ let rec plain_text il =
 
 let plain_texts ns =
   String.concat "" (map (fun n -> plain_text (node_contents n)) ns)
+
+type resolver = string -> (string * attr) option
+
+(** val resolve : reference_map -> resolver **)
+
+let resolve m =
+  let t0 = alist_table m in
+  (fun label -> StrMap.find (normalize_label label) t0)
 
 (** val ascii_lower : char -> char **)
 
@@ -353,7 +360,7 @@ let named_elem default name a =
     else (default, (("data-tag", name) :: a)))
     name
 
-(** val render_inline : reference_map -> inline -> attr -> helt list **)
+(** val render_inline : resolver -> inline -> attr -> helt list **)
 
 let rec render_inline refs il a =
   let render_ils =
@@ -390,7 +397,7 @@ let rec render_inline refs il a =
       | Direct url ->
         (HElem ("a", 0, (("href", url) :: a), (render_ils ils))) :: []
       | Reference label ->
-        (match lookup_reference label refs with
+        (match refs label with
          | Some p ->
            let (url, a0) = p in
            (HElem ("a", 0, (("href", url) :: (app (ref_extra a0 a) a)),
@@ -402,7 +409,7 @@ let rec render_inline refs il a =
         (HVoid ("img", false, (("alt", (plain_texts ils)) :: (("src",
           url) :: a)))) :: []
       | Reference label ->
-        (match lookup_reference label refs with
+        (match refs label with
          | Some p ->
            let (url, a0) = p in
            (HVoid ("img", false, (("alt", (plain_texts ils)) :: (("src",
@@ -410,8 +417,8 @@ let rec render_inline refs il a =
          | None ->
            (HVoid ("img", false, (("alt", (plain_texts ils)) :: a))) :: []))
    | Span (name, ils) ->
-     let (t, a') = named_elem "span" name a in
-     (HElem (t, 0, a', (render_ils ils))) :: []
+     let (t0, a') = named_elem "span" name a in
+     (HElem (t0, 0, a', (render_ils ils))) :: []
    | FootnoteReference _ -> []
    | UrlLink url ->
      (HElem ("a", 0, (("href", url) :: a), ((HText url) :: []))) :: []
@@ -428,16 +435,16 @@ let rec render_inline refs il a =
         app ((HText ldquo) :: []) (app (render_ils ils) ((HText rdquo) :: [])))
    | SoftBreak -> (HText nl) :: []
    | HardBreak -> (HVoid ("br", false, [])) :: ((HText nl) :: [])
-   | Ext_wikilink (embed, t, al) ->
+   | Ext_wikilink (embed, t0, al) ->
      if embed
-     then (HVoid ("img", false, (("alt", (wiki_display t al)) :: (("src",
-            t) :: a)))) :: []
-     else (HElem ("a", 0, (("href", t) :: a), ((HText
-            (wiki_display t al)) :: []))) :: []
+     then (HVoid ("img", false, (("alt", (wiki_display t0 al)) :: (("src",
+            t0) :: a)))) :: []
+     else (HElem ("a", 0, (("href", t0) :: a), ((HText
+            (wiki_display t0 al)) :: []))) :: []
    | Hole s ->
      (HElem ("code", 0, (("data-hole", "") :: a), ((HText s) :: []))) :: [])
 
-(** val render_inlines : reference_map -> inlines -> helt list **)
+(** val render_inlines : resolver -> inlines -> helt list **)
 
 let rec render_inlines refs = function
 | [] -> []
@@ -453,7 +460,7 @@ let align_attr = function
 | AlignCenter -> ("style", "text-align: center;") :: []
 | AlignDefault -> []
 
-(** val render_cell : reference_map -> cell node -> helt **)
+(** val render_cell : resolver -> cell node -> helt **)
 
 let render_cell refs = function
 | Node (_, a, x) ->
@@ -464,13 +471,13 @@ let render_cell refs = function
   HElem (tag, (Stdlib.succ 0), (app (align_attr al) a),
   (render_inlines refs ils))
 
-(** val render_row : reference_map -> cell node list node -> helt **)
+(** val render_row : resolver -> cell node list node -> helt **)
 
 let render_row refs = function
 | Node (_, a, cs) ->
   HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), a, (map (render_cell refs) cs))
 
-(** val render_caption : reference_map -> inlines node -> helt list **)
+(** val render_caption : resolver -> inlines node -> helt list **)
 
 let render_caption refs = function
 | Node (_, a, ils) ->
@@ -479,14 +486,14 @@ let render_caption refs = function
    | _ :: _ ->
      (HElem ("caption", (Stdlib.succ 0), a, (render_inlines refs ils))) :: [])
 
-(** val render_block : reference_map -> bool -> block -> attr -> helt list **)
+(** val render_block : resolver -> bool -> block -> attr -> helt list **)
 
 let rec render_block refs tight b a =
   let render_bs_at =
-    let rec go t = function
+    let rec go t0 = function
     | [] -> []
     | n :: rest ->
-      let Node (_, a', x) = n in app (render_block refs t x a') (go t rest)
+      let Node (_, a', x) = n in app (render_block refs t0 x a') (go t0 rest)
     in go
   in
   let render_bs = render_bs_at tight in
@@ -553,8 +560,8 @@ let rec render_block refs tight b a =
           lang),
        ((HText code) :: []))) :: []))) :: []
    | Div (name, bs) ->
-     let (t, a') = named_elem "div" name a in
-     (HElem (t, (Stdlib.succ (Stdlib.succ 0)), a', (render_bs bs))) :: []
+     let (t0, a') = named_elem "div" name a in
+     (HElem (t0, (Stdlib.succ (Stdlib.succ 0)), a', (render_bs bs))) :: []
    | OrderedList (oa, sp, items) ->
      (HElem ("ol", (Stdlib.succ (Stdlib.succ 0)), (app (ol_attrs oa) a),
        (render_items sp items))) :: []
@@ -603,27 +610,29 @@ let rec render_block refs tight b a =
             (body :: [])))) :: [])
    | _ -> [])
 
-type foot_state = { foot_numbers : (string * int) list; foot_next : int }
+type foot_state = { foot_labels : string list; foot_index : int StrMap.t;
+                    foot_next : int }
 
 (** val foot_initial : foot_state **)
 
 let foot_initial =
-  { foot_numbers = []; foot_next = (Stdlib.succ 0) }
+  { foot_labels = []; foot_index = StrMap.empty; foot_next = (Stdlib.succ 0) }
 
 (** val number_footnote :
     string -> foot_state -> (foot_state * int) * bool **)
 
 let number_footnote label st =
   let label0 = normalize_label label in
-  (match alist_lookup label0 st.foot_numbers with
+  (match StrMap.find label0 st.foot_index with
    | Some n -> ((st, n), false)
    | None ->
      let n = st.foot_next in
-     (({ foot_numbers = (app st.foot_numbers ((label0, n) :: [])); foot_next =
-     (Stdlib.succ n) }, n), true))
+     (({ foot_labels = (label0 :: st.foot_labels); foot_index =
+     (StrMap.add label0 n st.foot_index); foot_next = (Stdlib.succ n) }, n),
+     true))
 
 (** val render_inline_foot :
-    reference_map -> foot_state -> inline -> attr -> foot_state * helt list **)
+    resolver -> foot_state -> inline -> attr -> foot_state * helt list **)
 
 let rec render_inline_foot refs st il a =
   let render_ils =
@@ -662,7 +671,7 @@ let rec render_inline_foot refs st il a =
      (match target with
       | Direct url -> (st', ((HElem ("a", 0, (("href", url) :: a), s)) :: []))
       | Reference label ->
-        (match lookup_reference label refs with
+        (match refs label with
          | Some p ->
            let (url, a0) = p in
            (st', ((HElem ("a", 0, (("href", url) :: (app (ref_extra a0 a) a)),
@@ -670,8 +679,8 @@ let rec render_inline_foot refs st il a =
          | None -> (st', ((HElem ("a", 0, a, s)) :: []))))
    | Span (name, ils) ->
      let (st', s) = render_ils st ils in
-     let (t, a') = named_elem "span" name a in
-     (st', ((HElem (t, 0, a', s)) :: []))
+     let (t0, a') = named_elem "span" name a in
+     (st', ((HElem (t0, 0, a', s)) :: []))
    | FootnoteReference label ->
      let (p, first) = number_footnote label st in
      let (st', n) = p in
@@ -690,7 +699,7 @@ let rec render_inline_foot refs st il a =
    | _ -> (st, (render_inline refs il a)))
 
 (** val render_inlines_foot :
-    reference_map -> foot_state -> inlines -> foot_state * helt list **)
+    resolver -> foot_state -> inlines -> foot_state * helt list **)
 
 let rec render_inlines_foot refs st = function
 | [] -> (st, [])
@@ -700,7 +709,7 @@ let rec render_inlines_foot refs st = function
   let (st2, s2) = render_inlines_foot refs st1 rest in (st2, (app s1 s2))
 
 (** val render_cell_foot :
-    reference_map -> foot_state -> cell node -> foot_state * helt **)
+    resolver -> foot_state -> cell node -> foot_state * helt **)
 
 let render_cell_foot refs st = function
 | Node (_, a, x) ->
@@ -712,7 +721,7 @@ let render_cell_foot refs st = function
   (st', (HElem (tag, (Stdlib.succ 0), (app (align_attr al) a), s)))
 
 (** val render_cells_foot :
-    reference_map -> foot_state -> cell node list -> foot_state * helt list **)
+    resolver -> foot_state -> cell node list -> foot_state * helt list **)
 
 let rec render_cells_foot refs st = function
 | [] -> (st, [])
@@ -721,8 +730,8 @@ let rec render_cells_foot refs st = function
   let (st2, es) = render_cells_foot refs st1 rest in (st2, (e :: es))
 
 (** val render_rows_foot :
-    reference_map -> foot_state -> cell node list node list ->
-    foot_state * helt list **)
+    resolver -> foot_state -> cell node list node list -> foot_state * helt
+    list **)
 
 let rec render_rows_foot refs st = function
 | [] -> (st, [])
@@ -733,7 +742,7 @@ let rec render_rows_foot refs st = function
   (st2, ((HElem ("tr", (Stdlib.succ (Stdlib.succ 0)), a, cells)) :: es))
 
 (** val render_caption_foot :
-    reference_map -> foot_state -> inlines node -> foot_state * helt list **)
+    resolver -> foot_state -> inlines node -> foot_state * helt list **)
 
 let render_caption_foot refs st = function
 | Node (_, a, ils) ->
@@ -744,17 +753,16 @@ let render_caption_foot refs st = function
      (st', ((HElem ("caption", (Stdlib.succ 0), a, s)) :: [])))
 
 (** val render_block_foot :
-    reference_map -> foot_state -> bool -> block -> attr -> foot_state * helt
-    list **)
+    resolver -> foot_state -> bool -> block -> attr -> foot_state * helt list **)
 
 let rec render_block_foot refs st tight b a =
   let render_bs_at =
-    let rec go st0 t = function
+    let rec go st0 t0 = function
     | [] -> (st0, [])
     | n :: rest ->
       let Node (_, a', x) = n in
-      let (st1, s1) = render_block_foot refs st0 t x a' in
-      let (st2, s2) = go st1 t rest in (st2, (app s1 s2))
+      let (st1, s1) = render_block_foot refs st0 t0 x a' in
+      let (st2, s2) = go st1 t0 rest in (st2, (app s1 s2))
     in go
   in
   let render_items =
@@ -762,10 +770,10 @@ let rec render_block_foot refs st tight b a =
     | [] -> (st0, [])
     | n :: rest ->
       let Node (_, ia, it) = n in
-      let t = match sp with
-              | Tight -> true
-              | Loose -> false in
-      let (st1, s1) = render_bs_at st0 t it in
+      let t0 = match sp with
+               | Tight -> true
+               | Loose -> false in
+      let (st1, s1) = render_bs_at st0 t0 it in
       let (st2, s2) = goi st1 sp rest in
       (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), ia, s1)) :: s2))
     in goi
@@ -776,10 +784,10 @@ let rec render_block_foot refs st tight b a =
     | n :: rest ->
       let Node (_, _, x) = n in
       let (chk, it) = x in
-      let t = match sp with
-              | Tight -> true
-              | Loose -> false in
-      let (st1, s1) = render_bs_at st0 t it in
+      let t0 = match sp with
+               | Tight -> true
+               | Loose -> false in
+      let (st1, s1) = render_bs_at st0 t0 it in
       let (st2, s2) = got st1 sp rest in
       (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
       ((checkbox_elt chk) :: ((HText nl) :: s1)))) :: s2))
@@ -818,8 +826,8 @@ let rec render_block_foot refs st tight b a =
      s)) :: []))
    | Div (name, bs) ->
      let (st', s) = render_bs_at st tight bs in
-     let (t, a') = named_elem "div" name a in
-     (st', ((HElem (t, (Stdlib.succ (Stdlib.succ 0)), a', s)) :: []))
+     let (t0, a') = named_elem "div" name a in
+     (st', ((HElem (t0, (Stdlib.succ (Stdlib.succ 0)), a', s)) :: []))
    | OrderedList (oa, sp, items) ->
      let (st', s) = render_items st sp items in
      (st', ((HElem ("ol", (Stdlib.succ (Stdlib.succ 0)),
@@ -872,7 +880,7 @@ let rec render_block_foot refs st tight b a =
    | _ -> (st, (render_block refs tight b a)))
 
 (** val render_blocks_foot :
-    reference_map -> foot_state -> blocks -> foot_state * helt list **)
+    resolver -> foot_state -> blocks -> foot_state * helt list **)
 
 let rec render_blocks_foot refs st = function
 | [] -> (st, [])
@@ -907,8 +915,8 @@ let add_backlink body n =
          ((note_backlink n) :: []))) :: []))
 
 (** val render_note_defs :
-    reference_map -> foot_state -> note_map -> foot_state * (string * helt
-    list) list **)
+    resolver -> foot_state -> note_map -> foot_state * (string * helt list)
+    list **)
 
 let rec render_note_defs refs st = function
 | [] -> (st, [])
@@ -918,40 +926,27 @@ let rec render_note_defs refs st = function
   let (st2, rendered) = render_note_defs refs st1 rest in
   (st2, ((label, body) :: rendered))
 
-(** val label_at : int -> (string * int) list -> string option **)
+(** val rendered_note : helt list StrMap.t -> string -> helt list **)
 
-let rec label_at n = function
-| [] -> None
-| p :: rest ->
-  let (label, n') = p in if ( = ) n n' then Some label else label_at n rest
-
-(** val rendered_note_at :
-    int -> foot_state -> (string * helt list) list -> helt list **)
-
-let rendered_note_at n st rendered =
-  match label_at n st.foot_numbers with
-  | Some label ->
-    (match alist_lookup label rendered with
-     | Some s -> s
-     | None -> [])
+let rendered_note rendered label =
+  match StrMap.find label rendered with
+  | Some s -> s
   | None -> []
 
 (** val render_note_items :
-    int -> int -> foot_state -> (string * helt list) list -> helt list **)
+    int -> string list -> helt list StrMap.t -> helt list **)
 
-let rec render_note_items fuel n st rendered =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> [])
-    (fun fuel' -> (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), (("id",
-    ((^) "fn" (nat_str n))) :: []),
-    (add_backlink (rendered_note_at n st rendered) n))) :: (render_note_items
-                                                             fuel'
+let rec render_note_items n labels rendered =
+  match labels with
+  | [] -> []
+  | label :: rest ->
+    (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), (("id",
+      ((^) "fn" (nat_str n))) :: []),
+      (add_backlink (rendered_note rendered label) n))) :: (render_note_items
                                                              (Stdlib.succ n)
-                                                             st rendered))
-    fuel
+                                                             rest rendered)
 
-(** val render_document_foot :
-    reference_map -> blocks -> note_map -> helt list **)
+(** val render_document_foot : resolver -> blocks -> note_map -> helt list **)
 
 let render_document_foot refs blocks0 notes =
   let (st1, body) = render_blocks_foot refs foot_initial blocks0 in
@@ -961,8 +956,8 @@ let render_document_foot refs blocks0 notes =
        app body ((HElem ("section", (Stdlib.succ (Stdlib.succ 0)), (("role",
          "doc-endnotes") :: []), ((HVoid ("hr", false, [])) :: ((HText
          nl) :: ((HElem ("ol", (Stdlib.succ (Stdlib.succ 0)), [],
-         (render_note_items (sub st2.foot_next (Stdlib.succ 0)) (Stdlib.succ
-           0) st2 rendered))) :: []))))) :: [])
+         (render_note_items (Stdlib.succ 0) (rev st2.foot_labels)
+           (alist_table rendered)))) :: []))))) :: [])
 
 (** val doc_refs : doc -> reference_map **)
 
@@ -972,7 +967,7 @@ let doc_refs d =
 (** val html_tree : doc -> helt list **)
 
 let html_tree d =
-  render_document_foot (doc_refs d) d.doc_blocks d.doc_footnotes
+  render_document_foot (resolve (doc_refs d)) d.doc_blocks d.doc_footnotes
 
 (** val render_html : doc -> string **)
 

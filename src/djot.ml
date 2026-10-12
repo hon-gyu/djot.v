@@ -910,7 +910,7 @@ module Doc = struct
   let auto_identifiers (d : t) : string list = d.kernel.doc_auto_identifiers
 
   let reference (d : t) (l : string) : (string * Attr.t) option =
-    K.Ast.lookup_reference l (references d @ auto_references d)
+    K.Ast.alist_lookup (K.Ast.normalize_label l) (references d @ auto_references d)
   ;;
 
   let textloc (d : t) (node : 'a node) : Textloc.t =

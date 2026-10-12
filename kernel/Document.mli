@@ -585,6 +585,8 @@ module Assign :
   val all : (string * 'a1) list -> (string * 'a1) list
  end
 
+val alist_table : (string * 'a1) list -> 'a1 StrMap.t
+
 val inline_text : inline -> string
 
 val inlines_text : inlines -> string

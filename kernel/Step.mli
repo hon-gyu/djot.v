@@ -331,6 +331,10 @@ val step :
   dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string -> pstate ->
   blocks * pstate
 
+val parse_lines_loop :
+  dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> blocks -> string list ->
+  pstate -> blocks
+
 val parse_lines :
   dtable -> bconfig -> coq_LineIx -> coq_PosPolicy -> string list -> pstate ->
   blocks
