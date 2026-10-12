@@ -915,8 +915,11 @@ Proof.
     destruct (step l pinner) as [bs st'] eqn:Hs.
     cbn [fst snd] in IH. cbn [pend_result]; nopos.
     destruct bs as [|b bs'].
-    + cbn [fst snd finish app]. rewrite <- IH. reflexivity.
-    + cbn [fst snd finish]. rewrite decorate_head_cons_app, <- IH. reflexivity.
+    + assert (Hi' : is_idle st' = false)
+        by (pose proof (blank_keeps_open l pinner Hl Hni) as Hk; rewrite Hs in Hk;
+            exact (Hk eq_refl)).
+      cbn [fst snd finish app]. rewrite Hni, Hi', <- IH. reflexivity.
+    + cbn [fst snd finish]. rewrite Hni, decorate_head_cons_app, <- IH. reflexivity.
   - (* an open key: with nothing under it the blank retracts, which is
        what `finish` would have done; otherwise the blank closes what is
        under it and `key_close` wraps the first block either way *)

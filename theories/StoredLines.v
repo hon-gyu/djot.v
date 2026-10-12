@@ -316,6 +316,7 @@ Inductive inl_all (I : inlines -> Prop) : node block -> Prop :=
   | ia_raw p a fmt c : inl_all I (Node p a (RawBlock fmt c))
   | ia_foot p a lbl bs : Forall (inl_all I) bs -> inl_all I (Node p a (FootnoteDef lbl bs))
   | ia_ref p a lbl dest : inl_all I (Node p a (RefDef lbl dest))
+  | ia_attr p a : inl_all I (Node p a AttrBlock)
   | ia_keyed p a lbl b : I lbl -> inl_all I b -> inl_all I (Node p a (Ext_keyed lbl b))
   | ia_callout p a kind fold title bs : I title -> Forall (inl_all I) bs ->
       inl_all I (Node p a (Ext_callout kind fold title bs)).
@@ -728,7 +729,8 @@ Proof.
   - destruct H as (Hi & Hd & Hs). constructor; [|constructor].
     apply inl_all_set_pos, inl_all_set_parts, list_block_ok; [exact Hi|].
     apply Forall_app. split; [apply Forall_rev, Hd|exact (IHst i Hs)].
-  - destruct (ap_done ap); [constructor|].
+  - destruct (ap_done ap);
+      [constructor; [apply inl_all_set_pos; constructor|constructor]|].
     apply inl_all_add_roles_head, inl_all_decorate_head, (finish_recover_ok i), H.
   - constructor; [|constructor]. apply inl_all_set_pos. constructor. apply (para_ok i), H.
   - constructor; [|constructor]. apply inl_all_set_pos. constructor.
@@ -736,7 +738,9 @@ Proof.
     apply inl_all_set_pos. constructor.
     apply Forall_app. split; [apply Forall_rev, Hd|exact (IHst i Hs)].
   - constructor; [|constructor]. apply inl_all_set_pos, inl_all_set_parts, (table_block_ok i), H.
-  - apply inl_all_add_roles_head, inl_all_decorate_head, (IHst i), H.
+  - destruct (is_idle st);
+      [constructor; [apply inl_all_set_pos; constructor|constructor]|].
+    apply inl_all_add_roles_head, inl_all_decorate_head, (IHst i), H.
   - contradiction.
 Qed.
 
@@ -1086,7 +1090,7 @@ Proof.
   - (* PPend *)
     destruct (classify l) eqn:Ec; try (destruct (is_idle st));
       try (apply pend_result_ok, IH; [exact Hl|exact Hst]).
-    + split; [constructor|exact I].
+    + split; [constructor; [apply inl_all_set_pos; constructor|constructor]|exact I].
     + unfold open_attr.
       destruct battrs; (split; [constructor|apply acc_push; [exact Hdl|exact I]]).
   - (* PKey *)
@@ -1170,7 +1174,7 @@ Proof.
         rewrite E
     end.
   all: try (inversion H0; subst; constructor; auto; fail).
-  - inversion H as [| | | | | | | | | | |? ? ? ? Hcap Hrows| | | | |]; subst.
+  - inversion H as [| | | | | | | | | | |? ? ? ? Hcap Hrows| | | | | |]; subst.
     constructor; [destruct caption; apply Hg; assumption|].
     rewrite Forall_map. refine (Forall_impl _ _ Hrows). intros [rp ra cs] Hr.
     cbn [Shift.row node_contents] in *.

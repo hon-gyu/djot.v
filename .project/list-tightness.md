@@ -346,8 +346,9 @@ Notes, not for the reference:
 
 Proposed by the maintainer 2026-10-06, as the reason for D1's verdict.
 The parser decides tightness as if the attributes were a block since
-2026-10-06; the AST does not have the block yet, and the parser still
-drops them.  Until it does, the tightness theorems keep `run_safe`.
+2026-10-06, and builds the block since 2026-10-12 (`AttrBlock`, "As
+built" below; not reviewed by a human).  The tightness theorems still
+keep `run_safe`: extending them is the part not done.
 
 Block attributes "attach to a block-level element" on "the line
 immediately before the block".  The reference defines them by that job
@@ -467,6 +468,37 @@ function that removes these blocks after parsing, next to the
 recorded, and the HTML is the same either way.  With block attributes
 off (`battrs`), `{.x}` is paragraph text and nothing dangles.
 
+#### As built (2026-10-12, by an agent, not reviewed by a human)
+
+- `AttrBlock` in `Ast.v`, no payload: the node has the attributes, and
+  its position runs from the first spec to the last (`Step.specs_span`).
+  Well formed, no HTML, and its source is its attribute line, or `{}`
+  with no attributes.
+- `Step.attr_block` is built in three places: a blank after pending
+  attributes, `finish` on pending attributes over nothing, and `finish`
+  on a spec that had just closed.  The last was a separate drop: a
+  finished spec resolves on the next line, and at the end of its
+  container there is none.
+- Inputs 1 to 5 above give the proposal's trees, the four decisions of
+  the review below hold, and each is pinned in `dev/ParserExamples.v`
+  (`parse_attr_blank_resets`, `parse_attr_alone`,
+  `parse_attr_stacked_dangling`, `parse_attr_comment_dangling`,
+  `parse_attr_ends_quote`, `parse_attr_ends_item`).  The HTML examples in
+  `dev/check/Reference.v` did not change.
+- Statements that changed.  `attr_uniformity`, `attr_accumulate` and
+  `attr_continuation` (BA1 to BA3) said a run of specs before nothing
+  gives nothing; they now ask that a line follows.
+  `Render.render_lines_noclass` leaves the block out.  No other theorem
+  changed its statement.
+- New: `Uniformity.blank_keeps_open`, a blank that closes nothing leaves
+  something open.  It replaced four local arguments.
+- A key takes the block (`.project/keyed-blocks.md`, 6.2): decided by
+  the agent, as what "a block of their own" says.
+- Not done: no canonical form, so the roundtrip theorem does not reach a
+  document holding the block (the generated corpus has none); the JSON
+  writes it as `block_attributes`, which djot.js's AST does not have;
+  the tightness theorems; a function that removes the blocks.
+
 #### Review of the proposal (2026-10-08, by an agent, not reviewed by a human)
 
 Written after `Reached.v` and `list_uniformity_shape`
@@ -528,7 +560,7 @@ proofs over it.
 | B | 4 shapes where we differ from djot.js on purpose | decided from the reference; B1 confirmed upstream, B2 to B4 kept by the maintainer (2026-10-11) |
 | C | 2 shapes the reference does not decide | decided by the proposal (2026-10-05) |
 | D | 2 shapes where our parser was inconsistent | both fixed; D1 decided by the maintainer (2026-10-06) |
-| | attributes with no block after them | a block of their own, the maintainer's proposal (2026-10-06); the parser's tightness follows it, the AST block and the theorems without `run_safe` are not done |
+| | attributes with no block after them | a block of their own, the maintainer's proposal (2026-10-06); the parser builds it (2026-10-12), the theorems without `run_safe` are not done |
 
 ## A. Agreed, not in question
 

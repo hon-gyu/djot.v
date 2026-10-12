@@ -13,6 +13,7 @@ djot.js writes. Recorded 2026-10-04.
 | Gap | djot.js | Ours | What closing it needs |
 | --- | ------- | ---- | --------------------- |
 | Smart punctuation | a `smart_punctuation` node with the source (`--`, `...`, an unmatched quote) | part of a `str`, as the rendered character | an inline constructor carrying its source; planned below |
+| Attributes with no block after them (2026-10-12) | no node: dropped, or put on a later block | a `block_attributes` node | a pass that removes the blocks before writing |
 
 ### Smart punctuation: the plan
 

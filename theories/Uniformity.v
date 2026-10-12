@@ -2087,7 +2087,7 @@ Local Definition pend_carriable (st : pstate) : bool :=
 
 (* The same question of a state and the line about to reach it.  An idle
    state is carriable for every line but the two `PPend` answers itself:
-   a blank drops the pending set and a spec merges into it. *)
+   a blank makes the pending set a block and a spec merges into it. *)
 Definition pend_ready (st : pstate) (l : string) : bool :=
   match st with
   | PPara [] => match classify l with KBlank | KAttr _ => false | _ => true end
@@ -2169,18 +2169,22 @@ Qed.
    either is gone or sits on a carriable state. *)
 Local Lemma parse_lines_pend :
   forall ls pend specs st,
-    match ls with [] => True | l :: _ => pend_ready st l = true end ->
+    match ls with [] => pend_carriable st = true | l :: _ => pend_ready st l = true end ->
     parse_lines ls (PPend pend specs st) = decorate_head pend (parse_lines ls st).
 Proof.
-  induction ls as [|l rest IH]; intros pend specs st H; [reflexivity|].
+  induction ls as [|l rest IH]; intros pend specs st H.
+  { cbn [parse_lines finish].
+    replace (is_idle st) with false
+      by (destruct st as [[|]| | | | | | | | | | | |]; (discriminate H || reflexivity)).
+    reflexivity. }
   cbn [parse_lines]. rewrite (step_pend_pass l pend specs st H).
   destruct (step l st) as [bs st'] eqn:Es. cbn [pend_result]; nopos.
   destruct bs as [|b bs'].
   - cbn [app]. apply IH.
-    destruct rest as [|l2 rest']; [exact I|].
-    apply pend_carriable_ready.
     pose proof (step_empty_carriable l st H) as Hc.
-    rewrite Es in Hc. cbn [fst snd] in Hc. exact (Hc eq_refl).
+    rewrite Es in Hc. cbn [fst snd] in Hc. specialize (Hc eq_refl).
+    destruct rest as [|l2 rest']; [exact Hc|].
+    apply pend_carriable_ready, Hc.
   - cbn [app]. rewrite decorate_head_cons_app. reflexivity.
 Qed.
 
@@ -2195,6 +2199,43 @@ Proof.
   intros l pend specs range ind ap slices H. unfold step at 1.
   cbn [step_fuel pstate_depth]. rewrite H.
   rewrite step_fuel_enough by (cbn [pstate_depth]; lia). reflexivity.
+Qed.
+
+(* A blank that closes nothing leaves something open. *)
+Lemma blank_keeps_open :
+  forall l st, classify l = KBlank -> is_idle st = false -> fst (step l st) = [] ->
+  is_idle (snd (step l st)) = false.
+Proof.
+  intros l st Hl.
+  assert (Car : forall st', pend_carriable st' = true -> is_idle st' = false)
+    by (intros [[|]| | | | | | | | | | | |]; (discriminate || reflexivity)).
+  assert (PR : forall pend specs k slices n,
+            S (String.length l + pstate_depth (para_recover k slices)) <= n ->
+            fst (pend_result pend specs (step_fuel n 0 l (para_recover k slices))) = [] ->
+            is_idle (snd (pend_result pend specs (step_fuel n 0 l (para_recover k slices))))
+            = false).
+  { intros pend specs k slices n Hn. rewrite (step_fuel_enough n l _ Hn).
+    destruct (step l (para_recover k slices)) as [bs st'].
+    cbn [pend_result fst snd] in *.
+    destruct bs as [|b bs]; [reflexivity|nopos; destruct b; discriminate]. }
+  induction st as [cur| | | | | |apend aspecs arng aind aap aslices| | | | |ppend pspecs pinner IH|];
+    intros Hi He;
+    try (apply Car, step_empty_carriable; [reflexivity|exact He]).
+  - destruct cur; [discriminate Hi|]. apply Car, step_empty_carriable; [reflexivity|exact He].
+  - destruct (ap_done aap) eqn:Hd.
+    + rewrite (step_attr_done l _ _ _ _ _ _ Hd) in He. unfold step in He.
+      cbn [step_fuel pstate_depth] in He. rewrite Hl in He. cbn [is_idle fst] in He.
+      discriminate He.
+    + revert He. unfold step. cbn [step_fuel pstate_depth]. rewrite Hd.
+      destruct (Nat.ltb aind (0 + indent_of l)).
+      * destruct (ap_failed (attr_feed l aap)); [|intros _; reflexivity].
+        apply PR. cbn [pstate_depth para_recover]. lia.
+      * rewrite (classify_kblank_blank l Hl). intros _. reflexivity.
+  - revert He. unfold step. cbn [step_fuel pstate_depth]. rewrite Hl.
+    destruct (is_idle pinner) eqn:Hip; [intros He; discriminate He|].
+    destruct (step_fuel (String.length l + S (pstate_depth pinner)) 0 l pinner) as [bs st'].
+    cbn [pend_result].
+    destruct bs as [|b bs]; [intros _; reflexivity|nopos; destruct b; discriminate].
 Qed.
 
 Local Lemma parse_lines_attr_done :
@@ -2233,7 +2274,7 @@ Local Lemma parse_lines_attr_run :
   forall lines aps ls pend specs range ind ap slices,
     battrs = true -> ap_done ap = true ->
     Forall2 attr_line lines aps ->
-    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    match ls with [] => False | l :: _ => pend_ready (PPara []) l = true end ->
     parse_lines (lines ++ ls)%list (PAttr pend specs range ind ap slices)
     = decorate_head
         (fold_left (fun acc a => Attr.merge (ap_attrs a) acc) aps
@@ -2246,7 +2287,7 @@ Proof.
     intros pend specs range ind ap slices Hdone Hready.
   - cbn [app fold_left].
     rewrite (parse_lines_attr_done _ _ _ _ _ _ _ Hdone).
-    apply parse_lines_pend, Hready.
+    apply parse_lines_pend. destruct ls; [destruct Hready|exact Hready].
   - cbn [app fold_left].
     rewrite (parse_lines_step _ _ _ _ _
                (step_attr_merge l a pend specs range ind ap slices Hattrs Hdone Hl)).
@@ -2256,12 +2297,13 @@ Qed.
 (** BA3: a run of complete specs, one per line, puts their attributes on
     the block after them, merged in order (`Attr.merge`: classes
     accumulate, a later value for a key replaces an earlier one).  The
-    side condition is the one line the run can still claim for itself: a
-    blank drops it, and a further spec would extend it. *)
+    side condition is that a block follows: a blank or the end of the
+    document makes the run a block of its own, and a further spec would
+    extend it. *)
 Theorem attr_accumulate :
   forall l ap lines aps ls,
     battrs = true -> attr_line l ap -> Forall2 attr_line lines aps ->
-    match ls with [] => True | l2 :: _ => pend_ready (PPara []) l2 = true end ->
+    match ls with [] => False | l2 :: _ => pend_ready (PPara []) l2 = true end ->
     parse_lines (l :: lines ++ ls)%list (PPara [])
     = decorate_head
         (fold_left (fun acc a => Attr.merge (ap_attrs a) acc) aps
@@ -2280,7 +2322,7 @@ Qed.
 Theorem attr_uniformity :
   forall l ap ls,
     battrs = true -> classify l = KAttr ap -> ap_done ap = true ->
-    match ls with [] => True | l2 :: _ => pend_ready (PPara []) l2 = true end ->
+    match ls with [] => False | l2 :: _ => pend_ready (PPara []) l2 = true end ->
     parse_lines (l :: ls) (PPara [])
     = decorate_head (Attr.merge (ap_attrs ap) []) (parse_lines ls (PPara [])).
 Proof.
@@ -2306,7 +2348,7 @@ Qed.
 Local Lemma parse_lines_attr_cont :
   forall ls2 ls pend specs range ind ap slices,
     spec_runs ap ls2 = true -> Forall (fun l => ind < indent_of l) ls2 ->
-    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    match ls with [] => False | l :: _ => pend_ready (PPara []) l = true end ->
     parse_lines (ls2 ++ ls)%list (PAttr pend specs range ind ap slices)
     = decorate_head (Attr.merge (ap_attrs (feed_lines ls2 ap)) pend)
         (parse_lines ls (PPara [])).
@@ -2314,7 +2356,7 @@ Proof.
   induction ls2 as [|l ls2 IH]; intros ls pend specs range ind ap slices Hr Hi Hready.
   - cbn [spec_runs] in Hr. cbn [app feed_lines fold_left].
     rewrite (parse_lines_attr_done _ _ _ _ _ _ _ Hr).
-    apply parse_lines_pend, Hready.
+    apply parse_lines_pend. destruct ls; [destruct Hready|exact Hready].
   - cbn [spec_runs] in Hr. apply andb_true_iff in Hr as [Hr Hrest].
     apply andb_true_iff in Hr as [Hd Hf]. apply negb_true_iff in Hd, Hf.
     inversion Hi as [|? ? Hl Hi']; subst.
@@ -2337,7 +2379,7 @@ Theorem attr_continuation :
     Forall (fun l => indent_of l1 < indent_of l /\
                      blank_to_eol (drop_leading_ws l) = false) ls2 ->
     attr_line (attr_join l1 ls2) apJ ->
-    match ls with [] => True | l :: _ => pend_ready (PPara []) l = true end ->
+    match ls with [] => False | l :: _ => pend_ready (PPara []) l = true end ->
     parse_lines (l1 :: ls2 ++ ls)%list (PPara [])
     = parse_lines (attr_join l1 ls2 :: ls) (PPara []).
 Proof.

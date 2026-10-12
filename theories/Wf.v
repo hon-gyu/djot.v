@@ -2870,8 +2870,10 @@ Proof.
   - (* a table: its rows are well-formed by construction, and its
        caption by the state's invariant *)
     cbn [finish]; nopos. apply table_block_wf.
-  - cbn [state_wf] in H. cbn [finish]; nopos.
-    rewrite wf_blocks_decorate_head. exact (IH H).
+  - cbn [state_wf] in H. cbn [finish].
+    match goal with |- context [is_idle ?s] => destruct (is_idle s) end;
+      [unfold attr_block; nopos; reflexivity|].
+    nopos. rewrite wf_blocks_decorate_head. exact (IH H).
   - cbn [state_wf] in H.
     rewrite finish_key; nopos. exact (key_close_wf _ _ _ _ (IH H)).
 Qed.
@@ -3576,7 +3578,7 @@ Local Fixpoint supported (b : block) : bool :=
       end in
   match b with
   | Para _ | ThematicBreak | CodeBlock _ _ | RawBlock _ _ | Heading _ _
-  | RefDef _ _ => true
+  | RefDef _ _ | AttrBlock => true
   (* A table's cells and caption hold inlines, so it recurses into
      nothing. *)
   | Table _ _ => true
@@ -3889,8 +3891,10 @@ Proof.
     rewrite supported_blocks_app, supported_blocks_rev, Hd, (IH Hi).
     reflexivity.
   - reflexivity.                        (* a table recurses into nothing *)
-  - cbn [state_supported] in H. cbn [finish]; nopos.
-    rewrite supported_blocks_decorate_head. exact (IH H).
+  - cbn [state_supported] in H. cbn [finish].
+    match goal with |- context [is_idle ?s] => destruct (is_idle s) end;
+      [unfold attr_block; nopos; reflexivity|].
+    nopos. rewrite supported_blocks_decorate_head. exact (IH H).
   - cbn [state_supported] in H. rewrite finish_key; nopos.
     pose proof (IH H) as Hi.
     destruct (finish kinner) as [|b rest]; [reflexivity|].

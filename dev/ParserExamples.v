@@ -310,12 +310,56 @@ A paragraph"
        (Para [mk (Str "A paragraph")])].
 Proof. reflexivity. Qed.
 
-(* A blank line drops them. *)
+(* A blank line makes them a block of their own. *)
 Example parse_attr_blank_resets :
   parse_blocks "{#id}
 
 A paragraph"
-  = [mk (Para [mk (Str "A paragraph")])].
+  = [Node NoPos [("id", "id")] AttrBlock; mk (Para [mk (Str "A paragraph")])].
+Proof. reflexivity. Qed.
+
+(* So does the end of the document. *)
+Example parse_attr_alone :
+  parse_blocks "{.x}" = [Node NoPos [("class", "x")] AttrBlock].
+Proof. reflexivity. Qed.
+
+(* Specs on consecutive lines with no block after them are one block,
+   their attributes merged. *)
+Example parse_attr_stacked_dangling :
+  parse_blocks "{.a}
+{#b}
+
+x"
+  = [Node NoPos [("class", "a"); ("id", "b")] AttrBlock; mk (Para [mk (Str "x")])].
+Proof. reflexivity. Qed.
+
+(* A comment has no attributes, and the block has none. *)
+Example parse_attr_comment_dangling :
+  parse_blocks "{% note %}
+
+x"
+  = [mk AttrBlock; mk (Para [mk (Str "x")])].
+Proof. reflexivity. Qed.
+
+(* The end of a container is the end for the attributes in it: they stay
+   inside the quote, and inside the item. *)
+Example parse_attr_ends_quote :
+  parse_blocks "> a
+>
+> {.x}
+b"
+  = [mk (BlockQuote [mk (Para [mk (Str "a")]); Node NoPos [("class", "x")] AttrBlock]);
+     mk (Para [mk (Str "b")])].
+Proof. reflexivity. Qed.
+
+Example parse_attr_ends_item :
+  parse_blocks "- a
+
+  {.x}
+- b"
+  = [mk (BulletList "-" Loose
+           [mk [mk (Para [mk (Str "a")]); Node NoPos [("class", "x")] AttrBlock];
+            mk [mk (Para [mk (Str "b")])]])].
 Proof. reflexivity. Qed.
 
 (* Consecutive specs merge: later values win, classes accumulate, and

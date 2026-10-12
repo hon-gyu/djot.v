@@ -204,22 +204,21 @@ Example a_lists_blank_is_not_the_keys :
            (mk (BulletList "-" Loose [mk [para "a"]; mk [para "b"]])))].
 Proof. vm_compute. reflexivity. Qed.
 
-(* 6.2, the corner: an attribute spec starts something without producing
-   a block, so the key does not retract at the blank and goes on to take
-   the paragraph below it.  Accepted rather than repaired. *)
-Example an_open_spec_holds_the_key_across_a_blank :
+(* 6.2, the corner: attributes that a blank follows are a block of their
+   own, and that block is the one the key takes.  The paragraph below is
+   outside it. *)
+Example a_key_takes_dangling_attributes :
   Key "foo:
 {#i}
 
 bar"
-  = [mk (Ext_keyed [mk (Str "foo")] (para "bar"))].
+  = [mk (Ext_keyed [mk (Str "foo")] (Node NoPos [("id", "i")] AttrBlock)); para "bar"].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The same corner at end of input goes the other way: a lone attribute
-   line contributes no block, so the key ends with none and retracts. *)
-Example a_spec_alone_leaves_the_key_with_no_block :
+(* The same at the end of input: the attributes are the key's block. *)
+Example a_key_takes_dangling_attributes_at_the_end :
   Key "foo:
-{#i}" = [para "foo:"].
+{#i}" = [mk (Ext_keyed [mk (Str "foo")] (Node NoPos [("id", "i")] AttrBlock))].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

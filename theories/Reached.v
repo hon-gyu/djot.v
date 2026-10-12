@@ -460,8 +460,12 @@ Proof.
     destruct (step "" pinner) as [bs st'] eqn:Hs.
     cbn [fst snd] in IH. cbn [pend_result]; nopos.
     destruct bs as [|b bs'].
-    + cbn [fst snd finish app]. rewrite <- IH. reflexivity.
-    + cbn [fst snd finish]. rewrite decorate_head_cons_app, <- IH. reflexivity.
+    + (* nothing closed, so what is open can still carry the attributes *)
+      assert (Hi' : is_idle st' = false)
+        by (pose proof (blank_keeps_open "" pinner Hl Hi) as Hk; rewrite Hs in Hk;
+            exact (Hk eq_refl)).
+      cbn [fst snd finish app]. rewrite Hi, Hi', <- IH. reflexivity.
+    + cbn [fst snd finish]. rewrite Hi, decorate_head_cons_app, <- IH. reflexivity.
   - discriminate Hr.
 Qed.
 

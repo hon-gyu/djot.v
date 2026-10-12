@@ -300,16 +300,20 @@ Proof.
   apply ends_list_map, key_close_ends. discriminate.
 Qed.
 
+(* Over an idle state the attributes are a block of their own, which
+   `state_ok` leaves out. *)
 Lemma finish_pend_ends : forall pend specs st,
+  is_idle st = false ->
   map ends_in_list (finish (PPend pend specs st)) = map ends_in_list (finish st).
-Proof. intros. cbn [finish]. nopos. apply decorate_head_ends. Qed.
+Proof. intros pend specs st H. cbn [finish]. rewrite H. nopos. apply decorate_head_ends. Qed.
 
 Lemma tail_ok_pend : forall E pend specs st,
+  is_idle st = false ->
   tail_ok E (PPend pend specs st) <-> tail_ok E st.
 Proof.
-  intros E pend specs st. unfold tail_ok. cbn [holds_blank].
+  intros E pend specs st H. unfold tail_ok. cbn [holds_blank].
   rewrite (ends_list_map (E ++ finish (PPend pend specs st))%list (E ++ finish st)%list)
-    by (rewrite !map_app, finish_pend_ends; reflexivity).
+    by (rewrite !map_app, (finish_pend_ends pend specs st H); reflexivity).
   reflexivity.
 Qed.
 
@@ -350,10 +354,10 @@ Proof.
   - cbn [pend_result fst snd]. split; [split; [exact Hs | exact (Hi eq_refl)]|].
     split; [|intros _; reflexivity]. intros Ha. cbn [holds_blank] in Ha.
     destruct (Hn Ha) as [Hne Hend]. cbn [app] in *.
-    rewrite (ends_list_map _ (finish st)) by apply finish_pend_ends.
+    rewrite (ends_list_map _ (finish st)) by apply (finish_pend_ends _ _ _ (Hi eq_refl)).
     split; [|exact Hend].
     intros H. apply Hne. apply (f_equal (map ends_in_list)) in H.
-    rewrite finish_pend_ends in H. destruct (finish st); [reflexivity|discriminate H].
+    rewrite (finish_pend_ends _ _ _ (Hi eq_refl)) in H. destruct (finish st); [reflexivity|discriminate H].
   - cbn [pend_result fst snd]. nopos. split; [exact Hs|]. split.
     + intros Ha. destruct (Hn Ha) as [Hne Hend]. split.
       * intros H. destruct b; discriminate H.
@@ -498,10 +502,10 @@ Proof.
     + intros Ha'. rewrite (ends_list_map _ _ Hmap). apply Ht. congruence.
     + unfold foot_block, mk. cbn [map].
       rewrite !ends_in_list_foot, (ends_list_map _ _ Hmap). reflexivity.
-  - destruct Hs as [Hs _]. destruct (IH Hl Hs) as [Hs' [Ha [Hm Hi]]].
+  - destruct Hs as [Hs Hni]. destruct (IH Hl Hs) as [Hs' [Ha [Hm Hi]]].
     cbn [feed_lazy holds_blank state_ok].
     split; [split; [exact Hs'|exact Hi]|split; [exact Ha|split; [|reflexivity]]].
-    rewrite !finish_pend_ends. exact Hm.
+    rewrite !finish_pend_ends by assumption. exact Hm.
   - destruct (IH Hl Hs) as [Hs' [Ha [Hm Hi]]].
     cbn [feed_lazy holds_blank state_ok finish]. nopos.
     assert (Hann : announces_end (feed_lazy l kinner) = announces_end kinner)
@@ -613,9 +617,9 @@ Proof.
   unfold step_ok. split; [|split; [|split]].
   - destruct bs; cbn [pend_result snd state_ok];
       [split; [exact Hs|exact (Hi Hni eq_refl)]|exact Hs].
-  - intros E HE. apply tail_ok_pend in HE. specialize (Ht E HE).
+  - intros E HE. apply (tail_ok_pend E pend specs inner Hni) in HE. specialize (Ht E HE).
     destruct bs as [|b bs']; cbn [pend_result fst snd].
-    + apply tail_ok_pend. exact Ht.
+    + apply (tail_ok_pend _ pend specs st' (Hi Hni eq_refl)). exact Ht.
     + nopos. intros Ha. rewrite <- (Ht Ha). apply ends_list_map.
       rewrite !map_app, decorate_head_ends. reflexivity.
   - intros Hl. pose proof (step_ok_fresh _ l _ Hl Hr) as Hf. cbn [fst snd] in Hf.
@@ -947,7 +951,7 @@ Proof.
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros H Hi; cbn [settled] in H; try contradiction; cbn [finish]; nopos; try discriminate.
   - destruct cur; [discriminate Hi|contradiction].
-  - destruct H as [H Hi']. specialize (IH H Hi').
+  - destruct H as [H Hi']. rewrite Hi'. specialize (IH H Hi').
     destruct (finish pinner) as [|[p a x] bs]; [contradiction|discriminate].
   - apply key_close_ne.
 Qed.
@@ -1103,7 +1107,7 @@ Proof.
     rewrite (step_fuel_enough (String.length l + S (pstate_depth pinner)) l pinner) by lia.
     rewrite IH. pose proof (settled_finish pinner Hset Hni) as Hne.
     destruct (finish pinner) as [|b bs] eqn:Ef; [contradiction|].
-    cbn [finish]. rewrite Ef. nopos.
+    cbn [finish]. rewrite Hni, Ef. nopos.
     assert (Hr : pend_result ppend pspecs
                    (((b :: bs) ++ fst (step l (PPara [])))%list, snd (step l (PPara [])))
                  = ((decorate_head ppend (b :: bs) ++ fst (step l (PPara [])))%list,
@@ -1297,7 +1301,10 @@ Proof.
     assert (Hr : length (fst (pend_result ppend pspecs (step y pinner))
                          ++ finish (snd (pend_result ppend pspecs (step y pinner))))%list = 1).
     { destruct (step y pinner) as [[|b bs] st']; cbn [pend_result fst snd app] in *.
-      - cbn [finish]. nopos. destruct (finish st') as [|[p a x] r]; [discriminate IH|exact IH].
+      - assert (Hi' : is_idle st' = false)
+          by (destruct st' as [[|]| | | | | | | | | | | |]; (reflexivity || discriminate IH)).
+        cbn [finish]. rewrite Hi'. nopos.
+        destruct (finish st') as [|[p a x] r]; [discriminate IH|exact IH].
       - nopos. destruct b. exact IH. }
     destruct (classify y); exact Hr.
   - destruct Hset as [Hset [Hni _]]. specialize (IH Hset Hk).
@@ -1578,8 +1585,9 @@ Proof.
   - destruct (IH Hs Ha) as [Hne Hend]. cbn [finish]. nopos. split; [discriminate|].
     unfold foot_block, mk, ends_list. cbn [map last]. rewrite ends_in_list_foot.
     rewrite ends_list_app by exact Hne. exact Hend.
-  - apply andb_true_iff in Hs as [Hs _]. destruct (IH Hs Ha) as [Hne Hend].
-    cbn [finish]. nopos. split.
+  - apply andb_true_iff in Hs as [Hs Hni]. apply negb_true_iff in Hni.
+    destruct (IH Hs Ha) as [Hne Hend].
+    cbn [finish]. rewrite Hni. nopos. split.
     + destruct (finish pinner) as [|[p a x] bs]; [contradiction|discriminate].
     + rewrite <- Hend. apply ends_list_map. apply decorate_head_ends.
   - apply andb_true_iff in Hs as [Hs Hann]. apply negb_true_iff in Hann.
@@ -1776,8 +1784,11 @@ Proof.
     destruct (step l pinner) as [bs st'] eqn:Hs.
     cbn [fst snd] in IH. cbn [pend_result]; nopos.
     destruct bs as [|b bs'].
-    + cbn [fst snd finish app]. rewrite <- IH. reflexivity.
-    + cbn [fst snd finish]. rewrite decorate_head_cons_app, <- IH. reflexivity.
+    + assert (Hi' : is_idle st' = false)
+        by (pose proof (blank_keeps_open l pinner Hl Hni) as Hk; rewrite Hs in Hk;
+            exact (Hk eq_refl)).
+      cbn [fst snd finish app]. rewrite Hni, Hi', <- IH. reflexivity.
+    + cbn [fst snd finish]. rewrite Hni, decorate_head_cons_app, <- IH. reflexivity.
   - destruct (is_idle kinner) eqn:Hidle.
     { destruct kinner as [cur| | | | | | | | | | | |]; try discriminate Hidle.
       destruct cur; [|discriminate Hidle].
@@ -1871,7 +1882,10 @@ Proof.
   - destruct (IH Hs Ha Hl) as [Hne Hend]. cbn [finish]. nopos. split; [discriminate|].
     unfold foot_block, mk, ends_list. cbn [map last]. rewrite ends_in_list_foot.
     rewrite ends_list_app by exact Hne. exact Hend.
-  - destruct (IH Hs Ha Hl) as [Hne Hend]. cbn [finish]. nopos. split.
+  - destruct (IH Hs Ha Hl) as [Hne Hend].
+    assert (Hni : is_idle pinner = false)
+      by (destruct pinner as [[|]| | | | | | | | | | | |]; (reflexivity || discriminate Ha)).
+    cbn [finish]. rewrite Hni. nopos. split.
     + destruct (finish pinner) as [|[p a x] bs]; [contradiction|discriminate].
     + rewrite <- Hend. apply ends_list_map. apply decorate_head_ends.
   - cbn [finish]. nopos. split; [apply key_close_ne|]. rewrite ends_list_key_close.
@@ -1997,11 +2011,12 @@ Proof.
         - rewrite Hidle. reflexivity. }
       rewrite Hst, Hry. rewrite <- Hfini in Hne.
       destruct (finish inner') as [|c cs] eqn:Ef; [contradiction|].
-      cbn [pend_result app finish]. rewrite Ef. nopos.
+      cbn [pend_result app finish]. rewrite Hidle, Ef. nopos.
       rewrite decorate_head_cons_app. reflexivity.
-    + cbn [finish]. nopos.
+    + cbn [finish]. rewrite Hni. nopos.
       destruct (finish pinner) as [|[p a x] bs]; [contradiction|discriminate].
-    + rewrite (ends_list_map _ (finish pinner)) by apply finish_pend_ends. exact Hend.
+    + rewrite (ends_list_map _ (finish pinner)) by apply (finish_pend_ends _ _ _ Hni).
+      exact Hend.
     + cbn [keeps_line]. exact Hkx.
   - (* a key: over a block that holds the blank, as that block does; over
        a code block or div whose end it announces, keeping every line *)

@@ -499,7 +499,9 @@ Proof.
       rewrite !Shape.blocks_app, !Shape.blocks_rev, Shape.blocks_idem, IHst;
       reflexivity.
   - apply table_block_shape. reflexivity.
-  - rewrite !Shape.blocks_add_roles_head, !Shape.blocks_decorate_head, IHst.
+  - rewrite is_idle_shape. destruct (is_idle st);
+      [unfold attr_block; rewrite !Shape.blocks_set_pos; reflexivity|].
+    rewrite !Shape.blocks_add_roles_head, !Shape.blocks_decorate_head, IHst.
     reflexivity.
   - (* a key retracts exactly when the state under it closed to nothing *)
     rewrite !Shape.blocks_pos_head.

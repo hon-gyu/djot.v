@@ -688,25 +688,25 @@ foo:
 bar
 ```
 
-At the blank, the key has an attribute spec open, so it does not
-retract, and it goes on to take `Para "bar"` from below the blank. That
-contradicts the first row of the table above, and it is accepted rather
-than repaired: the alternative is a notion of "started but may still
-vanish" that nothing else in the parser has, for a two-line shape nobody
-writes on purpose. Revisit it if it ever shows up in real documents.
+Changed 2026-10-12, by an agent, not reviewed by a human.  Attributes
+that a blank follows are a block of their own (`AttrBlock`,
+`.project/list-tightness.md`, "Dangling block attributes"), and that
+block is the one the key takes: `Ext_keyed foo` over the attribute
+block, then `Para "bar"` outside it.  Before, the spec held the key
+open across the blank and the key took `Para "bar"`.
 
-The same corner at end of input has to go the other way, and does:
+The same at the end of input:
 
 ```
 foo:
 {#i}
 ```
 
-A lone attribute line contributes no block at all (checked against
-djot.js: `{#i}` on its own renders nothing). So the key ends with no
-block and retracts, giving `Para "foo:"` and nothing else. The `{#i}`
-line vanishes exactly as it does today. Retraction reproduces the key
-line, never the lines that followed it.
+The key takes the attribute block.  Before, the attribute line gave no
+block and the key retracted to `Para "foo:"`.
+
+Pinned: `a_key_takes_dangling_attributes` and
+`a_key_takes_dangling_attributes_at_the_end` in `dev/check/Keyed.v`.
 
 ## 7. Worked examples
 

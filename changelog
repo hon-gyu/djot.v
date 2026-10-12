@@ -14,6 +14,8 @@ listed under the djot syntax reference it implements; moving to a newer
 reference is at least a minor release.
 
 ### [Unreleased]
+- block attributes with no block after them are a block of their own, `AttrBlock`, where a blank line or the end of their container follows; they were dropped. It renders to no HTML. `attr_uniformity`, `attr_accumulate` and `attr_continuation` now ask that a line follows the specs
+- the inline grammar as a relation, proved to give the valid reading: `parses_ref_read`, `parses_valid`, `valid_parses`, `parses_unique`
 - list, ordered list and definition list uniformity hold for items of any lines when keys are off: `list_uniformity_shape`, `ordered_uniformity_shape`, `definition_list_uniformity_shape`
 - `Reached.v`: states a run reaches, and that a blank line after them changes no block (`reached_blank_finish`)
 - a blank line at the end of the input changes no block when keys are off: `trailing_blank_line`
@@ -33,6 +35,7 @@ The `djot` opam package in `ocaml/`: the library, `djot.json` and the CLI.
 A new kernel is a new release of the package.
 
 ### [Unreleased]
+- `Block.AttrBlock`: block attributes with no block after them; `block_attributes` in the JSON
 - `Doc.source_blocks`: the blocks without the identifiers derived from heading text, for `Doc.make` to give the same document
 - `Profile.with_ext_holes` and `Inline.Hole`: holes, `` %`e` ``
 - `Mapper.holes_as_raw`: each hole as a raw inline in format `hole`, which `` `e`{=hole} `` also reads as

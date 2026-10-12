@@ -1315,6 +1315,19 @@ Definition open_fence_stop (opener : span) (acc : list stored_line) : spot :=
   | newest :: _ => stored_stop newest
   end.
 
+(* The lines of a run of specs: from the first one's start to the last
+   one's stop. *)
+Definition specs_span (specs : list span) : span :=
+  match specs with
+  | [] => null_span
+  | r :: _ => SrcSpan (span_start r) (span_stop (List.last specs r))
+  end.
+
+(* Block attributes that no block claimed are a block of their own
+   (`.project/list-tightness.md`, "Dangling block attributes"). *)
+Definition attr_block (pend : attr) (specs : list span) : blocks :=
+  [set_pos (prov_at (specs_span specs)) (Node NoPos pend AttrBlock)].
+
 Fixpoint finish (st : pstate) : blocks :=
   match st with
   | PPara [] => []
@@ -1351,12 +1364,14 @@ Fixpoint finish (st : pstate) : blocks :=
       [set_pos (prov_at (extent_span (ls_extent ls)))
          (set_parts (list_parts ls last) (list_block ls last))]
   (* A spec still wanting continuation lines never was one: its lines are
-     a paragraph.  A finished spec with no block after it contributes
-     nothing, which is `{#id}` alone in a document.  An earlier spec's
-     attributes were waiting on the block this one turned out to be, so
-     the recovered paragraph is what they attach to. *)
-  | PAttr pend specs _ _ ap slices =>
-      if ap_done ap then []
+     a paragraph.  A finished spec with no block after it is a block of
+     its own with the specs before it, which is `{#id}` alone in a
+     document.  An earlier spec's attributes were waiting on the block
+     this one turned out to be, so the recovered paragraph is what they
+     attach to. *)
+  | PAttr pend specs range _ ap slices =>
+      if ap_done ap
+      then attr_block (Attr.merge (ap_attrs ap) pend) (specs ++ [extent_span range])%list
       else add_roles_head (attr_roles specs)
              (decorate_head pend (finish_para_recover slices))
   | PRef range _ lbl val =>
@@ -1365,7 +1380,8 @@ Fixpoint finish (st : pstate) : blocks :=
       [set_pos (prov_at (extent_span range))
          (foot_block lbl (rev done ++ finish inner)%list)]
   | PPend pend specs inner =>
-      add_roles_head (attr_roles specs) (decorate_head pend (finish inner))
+      if is_idle inner then attr_block pend specs
+      else add_roles_head (attr_roles specs) (decorate_head pend (finish inner))
   | PKey range lbl src inner =>
       pos_head (prov_at (extent_span range))
         (key_close (extent_start range) lbl src (finish inner))
@@ -2335,12 +2351,12 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                 :: bs)%list, st')
       | PPend pend specs inner =>
           (* Two lines are the pending attributes' own business, and only
-             while nothing has claimed them yet: a blank line drops them,
-             and another spec merges into them.  Every other line goes
+             while nothing has claimed them yet: a blank line makes them
+             a block of their own, and another spec merges into them.  Every other line goes
              down to `inner` and gets decorated by whatever it closes. *)
           match classify l with
           | KBlank =>
-              if is_idle inner then ([], PPara [])
+              if is_idle inner then (attr_block pend specs, PPara [])
               else pend_result pend specs (step_fuel n' off l inner)
           | KAttr ap =>
               if is_idle inner
@@ -2745,12 +2761,17 @@ Proof.
   destruct inner as [[|]| | | | | | | | | | | |]; reflexivity.
 Qed.
 
+Lemma pad_state_is_idle :
+  forall n st, is_idle (pad_state n st) = is_idle st.
+Proof. intros n st. destruct st; reflexivity. Qed.
+
 (* finish reads a list's spacing and items, never its column. *)
 Lemma pad_state_finish :
   forall n st, finish (pad_state n st) = finish st.
 Proof.
   intros n st. induction st as [| | |qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH|apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
-    try reflexivity; cbn [pad_state finish]; rewrite ?pad_state_attr_waits, IH; reflexivity.
+    try reflexivity; cbn [pad_state finish];
+    rewrite ?pad_state_attr_waits, ?pad_state_is_idle, IH; reflexivity.
 Qed.
 
 Local Lemma pad_state_lazy_ok :
@@ -2790,10 +2811,6 @@ Proof. intros n st st' f. unfold fate_after. rewrite pad_state_stops_waiting. re
 
 (* Padding never changes which constructor is on top, so the blank's
    "is a list open here" test is pad-invariant. *)
-Lemma pad_state_is_idle :
-  forall n st, is_idle (pad_state n st) = is_idle st.
-Proof. intros n st. destruct st; reflexivity. Qed.
-
 (* A pad shifts columns and moves no line, and `key_claims` reads a line
    and a shape but no column, so the override survives `step_fuel_shift`
    and `step_fuel_pad` on its own account. *)
@@ -5192,7 +5209,10 @@ Proof.
     rewrite Erase.blocks_app, Erase.blocks_rev, IHst. reflexivity.
   - pose proof (@erase_table_block T (rev rows) cap []) as Ht.
     cbn [Erase.of_blocks] in Ht. exact Ht.
-  - destruct (@finish T K located_pos st) as [|[p a b] rest] eqn:E.
+  - replace (is_idle (StateErase.state st)) with (is_idle st)
+      by (destruct st; (reflexivity || (destruct cur; reflexivity))).
+    destruct (is_idle st); [reflexivity|].
+    destruct (@finish T K located_pos st) as [|[p a b] rest] eqn:E.
     + cbn in IHst. symmetry in IHst. rewrite IHst. reflexivity.
     + cbn [decorate_head add_roles_head add_roles Erase.of_blocks] in IHst |- *.
       destruct (@finish T K semantic_pos (StateErase.state st))
