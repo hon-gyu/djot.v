@@ -25,8 +25,6 @@ val strip_trailing_ws : string -> string
 
 val drop_ws_upto : int -> string -> string
 
-val sdrop : int -> string -> string
-
 val nl : string
 
 val split_lines : string -> string list
