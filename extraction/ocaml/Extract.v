@@ -554,6 +554,11 @@ Extract Constant DjotV.InlineLocated.para_inlines_located =>
 Extract Constant DjotV.InlineLocated.parse_inline_line_located =>
   "parse_inline_line_located_stk".
 
+(* The line fold runs as a loop.  [Step.parse_lines_loop_spec] proves the
+   loop equal to the fold; the substitution is trusted, as above. *)
+Extract Constant DjotV.Step.parse_lines =>
+  "(fun t k li p lines st -> parse_lines_loop t k li p [] lines st)".
+
 Extract Constant DjotV.InlineScan.sscan_str =>
   "(fun t x s st ->
      let plain c =
@@ -671,6 +676,7 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.InlineScan.para_inlines_off_stk DjotV.InlineScan.parse_inline_line_stk
   DjotV.InlineLocated.para_inlines_located_stk
   DjotV.InlineLocated.parse_inline_line_located_stk
+  DjotV.Step.parse_lines_loop
   DjotV.Profile.djot_options DjotV.Profile.markdown_like_options
   DjotV.Profile.bconfig_of DjotV.ProfileChecks.wrap_safe
   DjotV.ProfileChecks.heading_wrap_safe DjotV.ProfileChecks.quote_uniform

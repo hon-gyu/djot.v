@@ -2385,6 +2385,19 @@ Definition step (l : string) (st : pstate) : blocks * pstate :=
 (** Fold the transition over the lines, then close the stack.
    Structurally recursive on `lines`, so it always terminates and proofs
    can step it one line at a time. *)
+(* `parse_lines` below as a loop, the blocks closed so far in `acc`,
+   newest first.  The extraction runs this one (`parse_lines_loop_spec`):
+   `parse_lines` holds a frame per line, and what a frame holds stays
+   live for the collector until the last line. *)
+Fixpoint parse_lines_loop (acc : blocks) (lines : list string) (st : pstate)
+  : blocks :=
+  match lines with
+  | [] => rev_append acc (finish st)
+  | l :: rest =>
+      let (bs, st') := step l st in
+      parse_lines_loop (rev_append bs acc) rest st'
+  end.
+
 Fixpoint parse_lines (lines : list string) (st : pstate) : blocks :=
   match lines with
   | [] => finish st
@@ -2392,6 +2405,19 @@ Fixpoint parse_lines (lines : list string) (st : pstate) : blocks :=
       let (bs, st') := step l st in
       (bs ++ parse_lines rest st')%list
   end.
+
+Theorem parse_lines_loop_spec : forall lines st,
+  parse_lines_loop [] lines st = parse_lines lines st.
+Proof.
+  intros lines st.
+  assert (G : forall lines acc st,
+            parse_lines_loop acc lines st = (rev acc ++ parse_lines lines st)%list).
+  { induction lines0 as [|l rest IH]; intros acc st0; cbn [parse_lines_loop parse_lines].
+    - apply rev_append_rev.
+    - destruct (step l st0) as [bs st']. rewrite IH, rev_append_rev, rev_app_distr,
+        rev_involutive, <- app_assoc. reflexivity. }
+  apply G.
+Qed.
 
 (** Entry point of the block parser: split the source into lines and fold from
    the idle state.  This is the whole block structure, and the layer every
