@@ -223,90 +223,15 @@ module Ids =
       block -> pos -> attr -> id_state -> id_state * block node **)
 
   let rec of_block b p a st =
-    let go =
-      let rec go ns s =
-        match ns with
-        | [] -> (s, [])
-        | n :: rest ->
-          let Node (p', a', x) = n in
-          let (s1, n1) = of_block x p' a' s in
-          let (s2, rest1) = go rest s1 in (s2, (n1 :: rest1))
-      in go
-    in
-    (match b with
-     | Heading (lvl, ils) -> assign_heading_id p a lvl ils st
-     | BlockQuote bs ->
-       let (st', bs') = go bs (register_id a st) in
-       (st', (Node (p, a, (BlockQuote bs'))))
-     | Div (name, bs) ->
-       let (st', bs') = go bs (register_id a st) in
-       (st', (Node (p, a, (Div (name, bs')))))
-     | OrderedList (oa, sp, items) ->
-       let (st', items') =
-         let rec goit its s =
-           match its with
-           | [] -> (s, [])
-           | n :: rest ->
-             let Node (ip, ia, it) = n in
-             let (s1, it1) = go it s in
-             let (s2, rest1) = goit rest s1 in
-             (s2, ((Node (ip, ia, it1)) :: rest1))
-         in goit items (register_id a st)
-       in
-       (st', (Node (p, a, (OrderedList (oa, sp, items')))))
-     | BulletList (bc, sp, items) ->
-       let (st', items') =
-         let rec goit its s =
-           match its with
-           | [] -> (s, [])
-           | n :: rest ->
-             let Node (ip, ia, it) = n in
-             let (s1, it1) = go it s in
-             let (s2, rest1) = goit rest s1 in
-             (s2, ((Node (ip, ia, it1)) :: rest1))
-         in goit items (register_id a st)
-       in
-       (st', (Node (p, a, (BulletList (bc, sp, items')))))
-     | TaskList (sp, items) ->
-       let (st', items') =
-         let rec got its s =
-           match its with
-           | [] -> (s, [])
-           | n :: rest ->
-             let Node (ip, ia, x) = n in
-             let (chk, it) = x in
-             let (s1, it1) = go it s in
-             let (s2, rest1) = got rest s1 in
-             (s2, ((Node (ip, ia, (chk, it1))) :: rest1))
-         in got items (register_id a st)
-       in
-       (st', (Node (p, a, (TaskList (sp, items')))))
-     | DefinitionList (sp, items) ->
-       let (st', items') =
-         let rec god its s =
-           match its with
-           | [] -> (s, [])
-           | n :: rest ->
-             let Node (ip, ia, x) = n in
-             let (term, n0) = x in
-             let Node (dp, da, it) = n0 in
-             let (s1, it1) = go it s in
-             let (s2, rest1) = god rest s1 in
-             (s2, ((Node (ip, ia, (term, (Node (dp, da, it1))))) :: rest1))
-         in god items (register_id a st)
-       in
-       (st', (Node (p, a, (DefinitionList (sp, items')))))
-     | FootnoteDef (label, bs) ->
-       let (st', bs') = go bs (register_id a st) in
-       (st', (Node (p, a, (FootnoteDef (label, bs')))))
-     | Ext_keyed (label, b0) ->
-       let Node (p', a', x) = b0 in
-       let (st', n') = of_block x p' a' (register_id a st) in
-       (st', (Node (p, a, (Ext_keyed (label, n')))))
-     | Ext_callout (kind, fold0, title, bs) ->
-       let (st', bs') = go bs (register_id a st) in
-       (st', (Node (p, a, (Ext_callout (kind, fold0, title, bs')))))
-     | _ -> ((register_id a st), (Node (p, a, b))))
+    match b with
+    | Section _ -> ((register_id a st), (Node (p, a, b)))
+    | Heading (lvl, ils) -> assign_heading_id p a lvl ils st
+    | _ ->
+      let (st', b') =
+        map_acc_children (fun n s ->
+          let Node (p', a', x) = n in of_block x p' a' s) b (register_id a st)
+      in
+      (st', (Node (p, a, b')))
 
   (** val of_node : block node -> id_state -> id_state * block node **)
 
@@ -315,12 +240,8 @@ module Ids =
 
   (** val of_list : blocks -> id_state -> id_state * blocks **)
 
-  let rec of_list ns st =
-    match ns with
-    | [] -> (st, [])
-    | n :: rest ->
-      let (st1, n1) = of_node n st in
-      let (st2, rest1) = of_list rest st1 in (st2, (n1 :: rest1))
+  let of_list ns st =
+    map_acc of_node ns st
  end
 
 type sect_state = ((int * attr) * blocks) list

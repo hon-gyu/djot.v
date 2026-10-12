@@ -398,6 +398,56 @@ let fold_children f b acc =
    | Ext_callout (_, _, _, bs) -> go bs acc
    | _ -> acc)
 
+(** val map_acc :
+    ('a2 -> 'a1 -> 'a1 * 'a3) -> 'a2 list -> 'a1 -> 'a1 * 'a3 list **)
+
+let rec map_acc f l s =
+  match l with
+  | [] -> (s, [])
+  | x :: rest ->
+    let (s1, y) = f x s in
+    let (s2, rest') = map_acc f rest s1 in (s2, (y :: rest'))
+
+(** val map_acc_node :
+    ('a2 -> 'a1 -> 'a1 * 'a2) -> 'a2 node -> 'a1 -> 'a1 * 'a2 node **)
+
+let map_acc_node k it s =
+  let Node (p, a, x) = it in let (s', x') = k x s in (s', (Node (p, a, x')))
+
+(** val map_acc_snd :
+    ('a3 -> 'a1 -> 'a1 * 'a3) -> ('a2 * 'a3) -> 'a1 -> 'a1 * ('a2 * 'a3) **)
+
+let map_acc_snd k x s =
+  let (s', y) = k (snd x) s in (s', ((fst x), y))
+
+(** val map_acc_children :
+    (block node -> 'a1 -> 'a1 * block node) -> block -> 'a1 -> 'a1 * block **)
+
+let map_acc_children f b st =
+  let g = map_acc f in
+  let wrap = fun c r -> let (s, x) = r in (s, (c x)) in
+  (match b with
+   | Section bs -> wrap (fun x -> Section x) (g bs st)
+   | BlockQuote bs -> wrap (fun x -> BlockQuote x) (g bs st)
+   | Div (name, bs) -> wrap (fun x -> Div (name, x)) (g bs st)
+   | OrderedList (oa, sp, items) ->
+     wrap (fun x -> OrderedList (oa, sp, x))
+       (map_acc (map_acc_node g) items st)
+   | BulletList (bc, sp, items) ->
+     wrap (fun x -> BulletList (bc, sp, x))
+       (map_acc (map_acc_node g) items st)
+   | TaskList (sp, items) ->
+     wrap (fun x -> TaskList (sp, x))
+       (map_acc (map_acc_node (map_acc_snd g)) items st)
+   | DefinitionList (sp, items) ->
+     wrap (fun x -> DefinitionList (sp, x))
+       (map_acc (map_acc_node (map_acc_snd (map_acc_node g))) items st)
+   | FootnoteDef (lbl, bs) -> wrap (fun x -> FootnoteDef (lbl, x)) (g bs st)
+   | Ext_keyed (lbl, n) -> wrap (fun x -> Ext_keyed (lbl, x)) (f n st)
+   | Ext_callout (kind, fold, title, bs) ->
+     wrap (fun x -> Ext_callout (kind, fold, title, x)) (g bs st)
+   | _ -> (st, b))
+
 (** val decorate_head : attr -> blocks -> blocks **)
 
 let decorate_head pending = function
