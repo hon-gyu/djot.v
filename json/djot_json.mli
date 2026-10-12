@@ -25,7 +25,8 @@
 (** {1 Trees} *)
 
 (** A {!Djot.Block.FootnoteDef} is a ["footnote"] and a {!Djot.Block.RefDef} a
-    ["reference"], each where it is in the tree.
+    ["reference"], each where it is in the tree. A {!Djot.Block.AttrBlock} is a
+    ["block_attributes"], which djot.js's AST does not have.
 
     An identifier is in ["attributes"] whether it was written or derived: a tree does not
     say which. Only {!of_doc} writes ["autoAttributes"].

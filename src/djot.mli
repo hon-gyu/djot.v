@@ -402,6 +402,9 @@ module Block : sig
     (** A definition stays where it was written; {!Doc.footnotes} is collected from
         these. *)
     | RefDef of string * string
+    | AttrBlock
+    (** Block attributes with no block after them: the node has the attributes. It
+        renders to no HTML. *)
     | Ext_keyed of Inline.t node list * t node (** An extension: [label: content]. *)
     | Ext_callout of string * callout_fold option * Inline.t node list * t node list
     (** Kind, fold marker, inline title, and body. *)

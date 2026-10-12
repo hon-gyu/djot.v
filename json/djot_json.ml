@@ -509,6 +509,7 @@ let block_at ?keep ?auto ?derived (l : loc) (inline : Inline.t node Jsont.t)
          C.map "reference" (labelled "destination" Jsont.string) ~dec:(fun (label, d) ->
            RefDef (label, d))
        in
+       let attr_block = C.map "block_attributes" no_members ~dec:(fun () -> AttrBlock) in
        let ext_keyed =
          C.map "ext_keyed" keyed ~dec:(fun (label, b) -> Ext_keyed (label, b))
        in
@@ -531,6 +532,7 @@ let block_at ?keep ?auto ?derived (l : loc) (inline : Inline.t node Jsont.t)
          | RawBlock (f, s) -> C.value raw_block (f, s)
          | FootnoteDef (label, k) -> C.value footnote (label, k)
          | RefDef (label, d) -> C.value reference (label, d)
+         | AttrBlock -> C.value attr_block ()
          | Ext_keyed (label, b) -> C.value ext_keyed (label, b)
          | Ext_callout (k, f, t, b) -> C.value ext_callout (k, f, t, b)
        in
@@ -550,6 +552,7 @@ let block_at ?keep ?auto ?derived (l : loc) (inline : Inline.t node Jsont.t)
          ; C.make raw_block
          ; C.make footnote
          ; C.make reference
+         ; C.make attr_block
          ; C.make ext_keyed
          ; C.make ext_callout
          ]

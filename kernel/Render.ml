@@ -803,6 +803,9 @@ let rec render_lines t k a b =
                                               (node_contents n))
                                             bs)))
      | RefDef (label, dest) -> (ref_line label dest) :: []
+     | AttrBlock -> (match a with
+                     | [] -> "{}" :: []
+                     | _ :: _ -> [])
      | Ext_keyed (label, inner) ->
        key_lines t
          (String.concat ""
