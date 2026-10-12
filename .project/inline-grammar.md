@@ -35,9 +35,8 @@ lemmas `rstep_text`, `rstep_open`, `rstep_close` and `rstep_cases`.
 
 ## What it reads
 
-A paragraph's tokens (`tok_at`), not its bytes.  `level` in
-`dev/InlineGrammar.v` walks them by byte offset as a reading's chain
-does: from where the last token ended, or from past a region.  The
+A paragraph's tokens (`tok_at`), not its bytes.  A parse walks them by
+byte offset as a reading's chain does: from where the last token ended, or from past a region.  The
 lexer has already settled what each token *may* do:
 
 - a delimiter may open, close, or both (flanking, M2; braces, P3; a
@@ -181,25 +180,3 @@ it is the one side condition.  Neither matters for its use here.
 | cutting the stack to `below` on a pair | `dead` | R4 to R7 restoring `S` |
 | `LBar`, `PBarred` | `behind`, `barred` | R6, `B` |
 | `rgo` stepping by `chain_next` | `chain` | R5's region, R7 |
-
-## The enumerator
-
-`dev/InlineGrammar.v` runs the rules as an enumerator of parses
-(`level`), and `make check-grammar` (`test/grammar.ml`) requires every
-generated paragraph to have exactly one parse, with the pairs and the
-openers of `ref_read`.  It predates the proof and is not proved to
-enumerate `seq`; it is a second check, and the place to try a rule
-before stating it.
-
-`level` follows the rules, with one shortcut that
-is not a rule: R4 to R7 are tried only when a closer of the kind lies
-ahead.  It backtracks and does not memoize, so an opener with a closer
-ahead doubles the work, and a long line of mixed delimiters is
-exponential.  `test/grammar.ml` therefore checks every one-line paragraph
-of up to five pieces from a small set, and random paragraphs of up to
-three lines of up to eight pieces from a larger one.
-
-The check was tested by breaking the grammar (2026-10-08).  On a short
-run, letting R3 leave `F` unmatched gave 92 differences, dropping `p`
-1050, and not barring `S` in R6 only 2: the barrier is the rule the
-pools reach least.

@@ -1,6 +1,6 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes \
-        check-span-containment check-stack check-holes check-grammar bench probe-lemmas \
+        check-span-containment check-stack check-holes bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
         site site-serve site-publish py-wasm check-py check-rocq check-readme check-axioms check-versions check-site
 
@@ -97,9 +97,6 @@ check-stack: build  ## Extracted candidate-stack scan against the specification 
 
 check-holes: build  ## Holes on against off: a hole put back as `%` and its code span gives the holes-off parse, on random paragraphs
 	dune exec test/holes.exe -- $(VERBOSE)
-
-check-grammar: build  ## The inline grammar (dev/InlineGrammar.v) against ref_read, on paragraphs over the precedence alphabet
-	dune exec test/grammar.exe -- $(VERBOSE)
 
 bench: build  ## Scaling benchmark: parse and convert time on generated shapes (~1min)
 	dune exec test/bench.exe -- $(SHAPES)
