@@ -218,6 +218,10 @@ val drop_blank_lines : stored_line list -> stored_line list
 
 val open_fence_stop : span -> stored_line list -> spot
 
+val specs_span : span list -> span
+
+val attr_block : coq_PosPolicy -> attr -> span list -> blocks
+
 val finish : dtable -> bconfig -> coq_PosPolicy -> pstate -> blocks
 
 val lazy_ok : bconfig -> pstate -> bool
