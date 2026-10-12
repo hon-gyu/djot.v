@@ -13,9 +13,9 @@ removed unary arithmetic and character classification through unary
 `nat` and roughly halved ordinary-prose parse time.  The HTML renderer
 is linear, and so is heading-identifier assignment up to a log factor.
 Long single lines are linear in the inline and block paths.  Collecting
-many definitions is linear up to a log factor.  Not production ready:
-rendering many used references or footnotes, nesting depth on one line,
-and some degenerate repetitions still grow superlinearly (ranked below).  The last comparison
+many definitions and rendering their uses are linear up to a log factor.
+Not production ready: nesting depth on one line and some degenerate
+repetitions still grow superlinearly (ranked below).  The last comparison
 against cmarkit predates the `int` change; re-measure before quoting it.
 
 The extracted package now exposes location-on block and document parses
@@ -570,6 +570,33 @@ milliseconds:
 | ---: | ---: | ---: |
 | 22.3 -> 3.2 | 371.6 -> 15.8 | not run -> 75.6 |
 
+Used references and footnotes (2026-10-12, baseline `40dd5df`).  The
+renderer walked a list at each use: `lookup_reference` for a reference,
+and for a footnote `foot_numbers` (looked up and appended to), then
+`label_at` and the rendered bodies once per note.  The render functions
+now take a `resolver`, a function from a label to its definition, and
+`html_tree` passes `resolve` of the document's map: a `StrMap` built
+once (`Document.alist_table`).  `resolve_spec` proves it answers as
+`lookup_reference` does.  The footnote state keeps the numbered labels
+newest first and their numbers in a `StrMap`; the endnotes are one item
+per label in order, the body found in a tree of the rendered notes.
+
+The list forms are not kept beside the new ones, so there is no
+equality theorem for the footnote state.  Checked by the old extraction
+against the new on `Html.convert`: every sequence of up to three of 26
+blocks (definitions, uses, repeated and unnormalized labels, notes used
+inside notes, headings with implicit references), 200000 random
+sequences of up to 14, and the djot.js test files; 218306 comparisons,
+no difference.  The test suite and generated HTML runs give the counts
+they gave before; the depth-3 roundtrip and `make check-axioms` pass.
+
+`Html.convert`, dev profile, before -> after, milliseconds:
+
+| shape | 18 KB | 78 KB | 324 KB |
+| --- | ---: | ---: | ---: |
+| `references` (each definition used once) | 8.2 -> 3.6 | 68.0 -> 18.0 | 988 -> 86 |
+| `footnotes` (each note referenced once) | 26.3 -> 7.1 | 406.6 -> 39.5 | 5515 -> 176 |
+
 ## Measurements
 
 2026-09-13, `223cbf0` plus the change above, OCaml 5.4 release profile,
@@ -779,25 +806,7 @@ documents nest a few levels.  Fixing it means passing offsets through
 slice (a string and a start offset), where `String c s'` is O(1) and
 the realizations above would be rewritten against slices.
 
-### 2. Many used references or footnotes, in the HTML renderer
-
-Found 2026-10-12 with the `references` and `footnotes` shapes of
-`make bench`, dev profile.  The parse is linear; `Html.convert` is not:
-
-| shape | 18 KB | 78 KB | 324 KB |
-| --- | ---: | ---: | ---: |
-| `references` (each definition used once) | 8.2 ms | 68.0 ms | 988 ms |
-| `footnotes` (each note referenced once) | 26.3 ms | 406.6 ms | 5515 ms |
-
-A reference is resolved by `lookup_reference`, a walk of the map, at
-each use.  A footnote costs more: `number_footnote` looks the label up
-in `foot_numbers` and appends to it, and `rendered_note_at` walks
-`foot_numbers` and the rendered bodies once per note.  A fix gives the
-renderer a tree to look up in, built once per document, with the list
-maps kept as the specification.  The reference map is an argument of
-every render function, so this touches their statements.
-
-### 3. Degenerate repetitions
+### 2. Degenerate repetitions
 
 - Consecutive block attribute lines append to the pending spec list,
   `specs ++ [span]`: 16000 `{.a}` lines before one paragraph take 3.6 s.
@@ -826,8 +835,7 @@ Linear already: nested lists and deep list nesting (160 KB in 22 ms and
 
 ## Order
 
-The renderer's lookups first, as the one open cost a real document can
-reach.  Keep the nested-list shape in `make bench`: it guards the `finish`
+No open cost is one a real document reaches.  Keep the nested-list shape in `make bench`: it guards the `finish`
 fix, whose regression is exponential, and inline links, to catch a
 recurrence.
 
