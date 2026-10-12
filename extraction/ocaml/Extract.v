@@ -163,34 +163,35 @@ Extract Constant DjotV.InlineScan.drop_nl =>
    at the first byte, and a scan through a run recurses once per byte.
    These read by offset, stop at the same byte, and copy only what they
    return.  Extraction may place a realization before the predicates it
-   would call, so `is_ws` and its relatives are spelled out. *)
+   would call, so `is_ws` and its relatives are spelled out.  A loop
+   takes what it reads as arguments: one that captured `s` would be a
+   closure allocated at every call. *)
 Extract Constant DjotV.Strings.is_blank =>
   "(fun s -> String.for_all (fun c -> c = ' ' || c = '\t' || c = '\r') s)".
 Extract Constant DjotV.Strings.indent_of =>
   "(fun s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
-     let n = String.length s in
-     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
-     go 0)".
+     let rec go s n i = if i < n && ws s.[i] then go s n (i + 1) else i in
+     go s (String.length s) 0)".
 Extract Constant DjotV.Strings.drop_leading_ws =>
   "(fun s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
      let n = String.length s in
-     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
-     let i = go 0 in if i = 0 then s else String.sub s i (n - i))".
+     let rec go s n i = if i < n && ws s.[i] then go s n (i + 1) else i in
+     let i = go s n 0 in if i = 0 then s else String.sub s i (n - i))".
 (* Specified by reversing twice; this scans back from the end. *)
 Extract Constant DjotV.Strings.strip_trailing_ws =>
   "(fun s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
      let n = String.length s in
-     let rec go i = if i > 0 && ws s.[i - 1] then go (i - 1) else i in
-     let i = go n in if i = n then s else String.sub s 0 i)".
+     let rec go s i = if i > 0 && ws s.[i - 1] then go s (i - 1) else i in
+     let i = go s n in if i = n then s else String.sub s 0 i)".
 Extract Constant DjotV.Strings.drop_ws_upto =>
   "(fun k s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
      let n = Stdlib.min k (String.length s) in
-     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
-     let i = go 0 in
+     let rec go s n i = if i < n && ws s.[i] then go s n (i + 1) else i in
+     let i = go s n 0 in
      if i = 0 then s else String.sub s i (String.length s - i))".
 Extract Constant DjotV.Strings.no_nl =>
   "(fun s -> not (String.contains s '\n'))".
@@ -202,12 +203,12 @@ Extract Constant DjotV.Strings.no_ws =>
 Extract Constant DjotV.Line.thematic_count =>
   "(fun s count ->
      let n = String.length s in
-     let rec go i k =
+     let rec go s n i k =
        if i >= n then 3 <= k
-       else if s.[i] = '-' || s.[i] = '*' then go (i + 1) (k + 1)
-       else if s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r' then go (i + 1) k
+       else if s.[i] = '-' || s.[i] = '*' then go s n (i + 1) (k + 1)
+       else if s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r' then go s n (i + 1) k
        else false in
-     go 0 count)".
+     go s n 0 count)".
 Extract Constant DjotV.Line.all_char =>
   "(fun c s -> String.for_all (fun a -> a = c) s)".
 Extract Constant DjotV.Line.str_forallb =>
@@ -218,15 +219,15 @@ Extract Constant DjotV.Line.all_info_chars =>
 Extract Constant DjotV.Line.take_while =>
   "(fun p s ->
      let n = String.length s in
-     let rec go i = if i < n && p s.[i] then go (i + 1) else i in
-     let i = go 0 in
+     let rec go p s n i = if i < n && p s.[i] then go p s n (i + 1) else i in
+     let i = go p s n 0 in
      if i = 0 then ("""", s)
      else (String.sub s 0 i, String.sub s i (n - i)))".
 Extract Constant DjotV.Line.count_run =>
   "(fun c s ->
      let n = String.length s in
-     let rec go i = if i < n && s.[i] = c then go (i + 1) else i in
-     let i = go 0 in
+     let rec go c s n i = if i < n && s.[i] = c then go c s n (i + 1) else i in
+     let i = go c s n 0 in
      if i = 0 then (0, s) else (i, String.sub s i (n - i)))".
 
 (* Table rows.  The Gallina cell scan grows each cell by consing onto a

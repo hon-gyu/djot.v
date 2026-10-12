@@ -8,6 +8,8 @@
      bench SHAPE ...        only the named shapes
      bench --sizes A,B,...  other sizes, in bytes
 
+   `alloc` is what one parse allocates, in bytes per input byte.
+
    `growth` is the last time over the one before it.  At 4x the size a
    linear cost grows about 4x and a quadratic one about 16x; rows past
    8x are marked.  A size whose convert time passes the budget stops
@@ -129,6 +131,12 @@ let time f x =
   done;
   !best
 
+(* Bytes one call allocates, minor and major heap together. *)
+let allocated f x =
+  let a0 = Gc.allocated_bytes () in
+  ignore (Sys.opaque_identity (f x));
+  Gc.allocated_bytes () -. a0
+
 let parse_doc s =
   Djot.Document.parse_doc Djot.Inline.djot_table Djot.Step.djot_bconfig
     Djot.Ast.semantic_pos s
@@ -169,13 +177,14 @@ let run sizes (name, desc, gen) =
         then parse_holes, convert_holes
         else parse_doc, Djot.Html.convert in
       let p = time parse s and c = time convert s in
+      let alloc = allocated parse s /. float_of_int (max 1 (String.length s)) in
       let g xs x =
         match growth (x :: xs) with
         | Some r -> Printf.sprintf "%5.1fx%s" r (if r > 8. then " !" else "  ")
         | None -> "        "
       in
-      Printf.printf "  %8d B  parse %9.1f ms %s  convert %9.1f ms %s\n%!"
-        (String.length s) p (g parses p) c (g converts c);
+      Printf.printf "  %8d B  parse %9.1f ms %s  convert %9.1f ms %s  alloc %6.0f B/B\n%!"
+        (String.length s) p (g parses p) c (g converts c) alloc;
       if c > budget_ms then
         (if rest <> [] then Printf.printf "  (over %.0f ms budget, larger sizes skipped)\n" budget_ms)
       else go (p :: parses) (c :: converts) rest
