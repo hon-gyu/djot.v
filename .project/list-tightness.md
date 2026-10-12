@@ -348,7 +348,8 @@ Proposed by the maintainer 2026-10-06, as the reason for D1's verdict.
 The parser decides tightness as if the attributes were a block since
 2026-10-06, and builds the block since 2026-10-12 (`AttrBlock`, "As
 built" below; not reviewed by a human).  The tightness theorems still
-keep `run_safe`: extending them is the part not done.
+keep `run_safe`: extending them is the part not done ("Extending the
+theorems" below has the rule to prove and what is left).
 
 Block attributes "attach to a block-level element" on "the line
 immediately before the block".  The reference defines them by that job
@@ -498,6 +499,71 @@ off (`battrs`), `{.x}` is paragraph text and nothing dangles.
   document holding the block (the generated corpus has none); the JSON
   writes it as `block_attributes`, which djot.js's AST does not have;
   the tightness theorems; a function that removes the blocks.
+
+#### Extending the theorems: probe and first step (2026-10-12, by an agent, not reviewed by a human)
+
+The rule that fits items with attribute lines.  `separates` asks that
+the next nonblank line is neither a list marker nor a block attribute
+(`settles_blank`).  With the block built, the second half is wrong: a
+blank before attributes counts unless the block they end up on is a
+list.  The replacement is "the lines after the blank do not begin with a
+list", read off the parse: the first block of
+`parse_lines (skipn (S i) L) (PPara [])` is not a list.  `starts_block`
+needs no change, since an attribute line alone now parses to a block.
+
+Probed on every item of up to three lines from 17 line shapes, and of
+four and five lines from 9 (55,635 items), comparing `item_loose` with
+"some blank separates":
+
+| Rule | Items where they differ |
+| --- | --- |
+| as stated today, no side condition | 58 of the first 5,831 |
+| next block is not a list | 11 of the first 5,831 |
+| the same, and a blank met by a spec still open does not arm the flag | 0 of 55,635 |
+
+All of the 11 have a blank that reaches an attribute spec still open.
+The parser arms the flag there, and a later line spends it, although the
+blank ends up inside one block:
+
+```
+- {.x
+
+  a
+- b
+```
+
+The first item is one paragraph, `{.x` and `a`, and the list is loose.
+djot.js gives tight.  The same happens when the spec goes on to close
+(`{.x` / an indented blank / ` .y}` / `para`).
+
+Not arming the flag is not the fix: `- {.x` / blank / `- b` has the
+blank between two items and must stay loose.  The flag would have to
+tell a blank the spec took from one armed before the spec, which is a
+second flag.  The alternative is that a blank always ends a spec and
+closes the paragraph it becomes, so no block holds a blank that is not a
+code line; that changes `parse_attr_blank_continues_spec`.  Not decided.
+
+So the theorems to prove are the two directions for items in which no
+blank reaches a spec still open, with the new rule and no other
+condition.
+
+Done: `Tightness.step_fuel_ok` and `run_ok` hold with no premise, so
+`state_ok` and `tail_ok` are known at every line boundary of any item.
+
+Left:
+
+- The lemmas about a blank ask `pad_safe` or `blank_safe` of the state
+  it meets, and both exclude a finished spec waiting for its block.
+  They need that case: `held_blank` and what it uses in `Tightness.v`,
+  and the six `step_blank_*` lemmas in `ListUniformity.v` behind
+  `blank_settles`.  `held` and `holds_blank` should say an unfinished
+  spec, not any spec.
+- That the first block of a run is a list exactly when the state it
+  starts from has a list open, or attributes that end up on one: an
+  invariant of `step` like `Reached.kept`.
+- A witness for `lines_loose` that names the blank and what ended the
+  wait (a line that spends, a blank, the end, a spec failing), in place
+  of the last case of `loose_witness`.
 
 #### Review of the proposal (2026-10-08, by an agent, not reviewed by a human)
 
