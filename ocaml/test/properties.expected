@@ -20,6 +20,7 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: conditional
+inline-grammar: proved
 
 markdown_like
 ====================
@@ -43,6 +44,7 @@ hard-wrap-paragraph: broken
 hard-wrap-heading: broken
 block-structure-first: conditional
 inline-precedence: conditional
+inline-grammar: proved
 
 djot, wikilinks and dollar math on
 ====================
@@ -66,6 +68,7 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: conditional
+inline-grammar: proved
 
 djot, keyed on
 ====================
@@ -89,6 +92,7 @@ hard-wrap-paragraph: conjectured
 hard-wrap-heading: proved
 block-structure-first: unknown
 inline-precedence: conditional
+inline-grammar: proved
 
 djot, callouts on, divs off
 ====================
@@ -112,4 +116,5 @@ hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: conditional
+inline-grammar: proved
 

@@ -21,8 +21,8 @@
 From Stdlib Require Import String List Ascii Bool.
 From DjotV Require Import Ast Strings Line InlineTable Inline InlineScan Step
   Uniformity ListUniformity OrderedList Tightness Render Roundtrip Reparse
-  Document Html Invariants BlockShape InlinePrecedence Precedence Profile
-  ProfileChecks.
+  Document Html Invariants BlockShape InlinePrecedence Precedence
+  PrecedenceGrammar PrecedenceGrammarFacts Profile ProfileChecks.
 Import ListNotations.
 Local Open Scope string_scope.
 
@@ -254,6 +254,9 @@ Definition inline_precedence : Prop :=
     Forall (fun x => over_alphabet x = true) ls ->
     valid (para_string ls) (m, os) ->
     para_inlines ls = tree_of (para_string ls) m.
+
+Definition inline_grammar : Prop :=
+  forall s r, parses s r <-> r = ref_read s.
 
 End Statements.
 
@@ -676,6 +679,17 @@ Program Definition p_inline_precedence : property := {|
 |}.
 Next Obligation. exact (@para_inlines_valid _). Qed.
 
+Program Definition p_inline_grammar : property := {|
+  p_id := "inline-grammar";
+  p_group := precedence;
+  p_statement := "The same rules, written as a grammar over a paragraph's delimiters, give every paragraph exactly one parse, and it is the reading the rules allow.";
+  p_implication := "A paragraph's reading can be derived by hand, one grammar rule at a time.";
+  p_theorems := ["parses_ref_read"; "parses_valid"; "valid_parses"; "parses_unique"];
+  p_status := always Proved;
+  p_holds := fun o => inline_grammar (o_inline o)
+|}.
+Next Obligation. exact (@parses_ref_read _). Qed.
+
 Definition all : list property :=
   [ p_block_no_backtracking; p_inline_no_backtracking; p_incremental_reparse;
     p_block_replace; p_positions; p_linear_time;
@@ -685,4 +699,4 @@ Definition all : list property :=
     p_reference_locality; p_reference_shape;
     p_hard_wrap_paragraph; p_hard_wrap_heading;
     p_block_structure_first;
-    p_inline_precedence ].
+    p_inline_precedence; p_inline_grammar ].
