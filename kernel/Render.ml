@@ -141,6 +141,7 @@ type cblock =
 | CTable of ctrow list
 | CId of string * cblock
 | CKey of cinline * cblock
+| CAttrs
 
 (** val cb_lines : dtable -> cblock -> string list **)
 
@@ -181,7 +182,8 @@ let rec cb_lines t cb =
        (match inner with
         | CPara _ -> true
         | _ -> false)
-       (cb_lines t inner))
+       (cb_lines t inner)
+   | CAttrs -> "{}" :: [])
 
 (** val cb_ast : cblock -> block node **)
 
@@ -209,7 +211,8 @@ let rec cb_ast cb =
        (map (fun r -> mk (map mk r)) (ctable_cells [] rows))))
    | CId (id, inner) -> add_attr (("id", id) :: []) (cb_ast inner)
    | CKey (label, inner) ->
-     mk (Ext_keyed (((ci_ast label) :: []), (cb_ast inner))))
+     mk (Ext_keyed (((ci_ast label) :: []), (cb_ast inner)))
+   | CAttrs -> mk AttrBlock)
 
 (** val item_lines : dtable -> cblock list -> string list **)
 
@@ -318,6 +321,12 @@ let is_clist = function
 
 let is_cid = function
 | CId (_, _) -> true
+| _ -> false
+
+(** val is_cattrs : cblock -> bool **)
+
+let is_cattrs = function
+| CAttrs -> true
 | _ -> false
 
 (** val ends_clist : cblock -> bool **)
@@ -532,11 +541,14 @@ let rec cb_ok t k cb =
    | CTable rows ->
      (&&) ((&&) k.btables (nonempty rows)) (forallb (ctrow_ok t) rows)
    | CId (id, inner) ->
-     (&&) ((&&) ((&&) k.battrs (explicit_id_ok id)) (negb (is_cid inner)))
+     (&&)
+       ((&&) ((&&) k.battrs (explicit_id_ok id))
+         (negb ((||) (is_cid inner) (is_cattrs inner))))
        (cb_ok t k inner)
    | CKey (label, inner) ->
      (&&) ((&&) ((&&) k.bkeyed (ckey_label_ok t label)) (cb_ok t k inner))
-       (key_content_ok t k (cb_lines t inner) (PPara [])))
+       (key_content_ok t k (cb_lines t inner) (PPara []))
+   | CAttrs -> k.battrs)
 
 (** val lk_of_ol : ordered_list_attributes -> list_kind **)
 
