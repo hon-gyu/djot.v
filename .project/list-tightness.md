@@ -347,7 +347,7 @@ Notes, not for the reference:
 Proposed by the maintainer 2026-10-06, as the reason for D1's verdict.
 The parser decides tightness as if the attributes were a block since
 2026-10-06, and builds the block since 2026-10-12 (`AttrBlock`, "As
-built" below; not reviewed by a human).  The tightness theorems still
+built" below; accepted by the maintainer 2026-10-12).  The tightness theorems still
 no longer ask `run_safe` ("Extending the theorems" below).
 
 Block attributes "attach to a block-level element" on "the line
@@ -468,7 +468,7 @@ function that removes these blocks after parsing, next to the
 recorded, and the HTML is the same either way.  With block attributes
 off (`battrs`), `{.x}` is paragraph text and nothing dangles.
 
-#### As built (2026-10-12, by an agent, not reviewed by a human)
+#### As built (2026-10-12, by an agent, accepted by the maintainer 2026-10-12)
 
 - `AttrBlock` in `Ast.v`, no payload: the node has the attributes, and
   its position runs from the first spec to the last (`Step.specs_span`).
@@ -494,7 +494,7 @@ off (`battrs`), `{.x}` is paragraph text and nothing dangles.
   something open.  It replaced four local arguments.
 - A key takes the block (`.project/keyed-blocks.md`, 6.2): decided by
   the agent, as what "a block of their own" says.
-- Roundtrip (2026-10-12, by an agent, not reviewed by a human): the
+- Roundtrip (2026-10-12, by an agent, accepted by the maintainer): the
   canonical view has the block as `Render.CAttrs`, the line `{}`, so
   `roundtrip_blocks` covers it and the generated corpus holds it
   (83,374 documents at depth 3, from 81,845).  Where it is canonical:
@@ -597,7 +597,7 @@ What was planned, as written before the proof:
   wait (a line that spends, a blank, the end, a spec failing), in place
   of the last case of `loose_witness`.
 
-#### Review of the proposal (2026-10-08, by an agent, not reviewed by a human)
+#### Review of the proposal (2026-10-08, by an agent; a note, not a decision)
 
 Written after `Reached.v` and `list_uniformity_shape`
 ([[261006.plan.list-content-uniformity]]), which met the same states
