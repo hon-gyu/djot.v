@@ -204,8 +204,7 @@ Definition lazy_lines (every : bool) : Prop :=
 
 Definition list_tightness : Prop :=
   (forall sp itemss,
-     forallb (fun L => run_safe L (PPara []) && negb (is_blank (hd "" L)))
-       itemss = true ->
+     forallb (fun L => negb (is_blank (hd "" L))) itemss = true ->
      list_spacing_of sp itemss = Loose ->
      (exists L, In L itemss /\ exists i, separates L i)
      \/ (sp = Loose
@@ -548,7 +547,7 @@ Program Definition p_list_tightness : property := {|
   p_statement := "A list is loose exactly where a blank line separates two of its items, or two blocks inside one item.";
   p_implication := "Whether a list renders with space between its items follows from where its blank lines are.";
   p_theorems := ["list_spacing_separates"; "separates_loosens"; "blank_between_items_loosens"];
-  p_status := always (Conditional "For items with no block attribute outside a block quote. A blank line inside a code block does not count.");
+  p_status := always (Conditional "A blank line inside a code block does not count.");
   p_holds := at_profile list_tightness
 |}.
 Next Obligation.

@@ -405,7 +405,7 @@ Qed.
    separator, so it must be `blank_safe`: a run may contain a code block,
    but must not end inside one.  Every state the run passes through must
    be `pad_safe`, i.e. no attribute spec is open, which is what
-   `Tightness.step_fuel_ok` asks of each line; the shift itself
+   `lines_gap_last` reads the last line's verdict under; the shift itself
    (`run_lines_pad_shift`) needs neither. *)
 Fixpoint run_safe (lines : list string) (st : pstate) : bool :=
   match lines with
@@ -714,6 +714,24 @@ Proof.
          destruct lo, g; reflexivity.
 Qed.
 
+(* A blank closes a spec, as it closes a paragraph: a finished one is a
+   block of its own, an unfinished one the paragraph of its lines. *)
+Lemma step_attr_blank :
+  forall l pend specs range ind ap slices,
+    classify l = KBlank -> blank_safe (PAttr pend specs range ind ap slices) = true ->
+    step l (PAttr pend specs range ind ap slices)
+    = (finish (PAttr pend specs range ind ap slices), PPara []).
+Proof.
+  intros l pend specs range ind ap slices Hl Hs. cbn [blank_safe] in Hs.
+  unfold step. cbn [step_fuel pstate_depth finish]. destruct (ap_done ap) eqn:Hd.
+  - replace (String.length l + 2) with (S (String.length l + 1)) by lia.
+    cbn [step_fuel is_idle]. rewrite Hl. reflexivity.
+  - rewrite (classify_kblank_blank l Hl). cbn [negb andb]. cbn [orb] in Hs.
+    destruct slices as [|sl slices]; [discriminate Hs|].
+    rewrite step_fuel_enough by (cbn [pstate_depth para_recover]; lia).
+    unfold para_recover. rewrite (step_para_off_flush l _ _ Hl). reflexivity.
+Qed.
+
 (* What a key's block looks like after a blank, when the block produced
    nothing and so the key is still open.  A state that emitted nothing
    kept its container, so it is not idle; when it did not already hold
@@ -729,6 +747,10 @@ Proof.
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe Hannounce Hidle Hempty;
     try discriminate Hsafe; try discriminate Hannounce.
+  all: try (rewrite (step_attr_blank l _ _ _ _ _ _ Hblank Hsafe) in Hempty;
+            cbn [fst finish] in Hempty; cbn [blank_safe] in Hsafe;
+            destruct (ap_done aap); [discriminate Hempty|];
+            destruct aslices; [discriminate Hsafe|discriminate Hempty]).
   all: try (destruct cur as [|c cur']; [discriminate Hidle|];
             rewrite (step_para_flush l c cur' Hblank) in Hempty; discriminate Hempty).
   all: try (rewrite (step_para_off_flush l okoff ocur Hblank) in Hempty;
@@ -776,8 +798,8 @@ Proof.
     [split; reflexivity|discriminate Hempty].
 Qed.
 
-(* A blank leaves no attributes waiting where none were open before it:
-   it drops a pending set, and a spec is excluded. *)
+(* A blank leaves no attributes waiting: it makes a spec or a pending
+   set a block. *)
 Lemma step_blank_attr_waits :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     attr_waits (snd (step l st)) = false.
@@ -786,6 +808,7 @@ Proof.
     [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe; try discriminate Hsafe.
+  all: try (rewrite (step_attr_blank l _ _ _ _ _ _ Hblank Hsafe); reflexivity).
   all: try (destruct cur as [|c cur'];
             [rewrite (step_idle l KBlank Hblank eq_refl); reflexivity
             |rewrite (step_para_flush l c cur' Hblank); reflexivity]).
@@ -841,8 +864,7 @@ Qed.
 (* A blank line closes what `finish` would have closed, and emits it.
    The exception is a list, which a blank does not close -- there the
    equation holds one level down instead, which is the induction.  A
-   fence and an open spec are the two states where it fails, and
-   `blank_safe` excludes both. *)
+   fence is where it fails, and `blank_safe` excludes it. *)
 Lemma step_blank_finish :
   forall l st, classify l = KBlank -> blank_safe st = true ->
     (fst (step l st) ++ finish (snd (step l st)))%list = finish st.
@@ -873,12 +895,12 @@ Proof.
     rewrite (step_list_blank l ls done inner _ _ Hl (surjective_pairing _)).
     cbn [fst snd finish app list_blank ls_loose ls_items].
     rewrite rev_app_distr, rev_involutive, <- app_assoc, (IH Hsafe).
-    (* the blank only touches `ls_blanks`, which `finish` reads only
-       under waiting attributes, and there are none on either side *)
+    (* the blank spends what was armed before attributes it ends, as
+       `finish` does, and none wait after it *)
     unfold stops_waiting.
-    rewrite (blank_safe_attr_waits inner Hsafe), (step_blank_attr_waits l inner Hl Hsafe).
-    rewrite !list_settle_false. reflexivity.
-  - discriminate Hsafe.
+    rewrite (step_blank_attr_waits l inner Hl Hsafe), andb_true_r.
+    rewrite list_settle_false. destruct (list_settle (attr_waits inner) ls). reflexivity.
+  - rewrite (step_attr_blank l _ _ _ _ _ _ Hl Hsafe). apply app_nil_r.
   - (* the recovery's paragraph flushes on a blank exactly as one does *)
     rewrite (step_para_off_flush l okoff ocur Hl). reflexivity.
   - (* a reference definition: a blank line has no run to contribute, so
@@ -958,6 +980,7 @@ Proof.
     [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe next; try discriminate Hsafe.
+  all: try (rewrite (step_attr_blank l _ _ _ _ _ _ Hblank Hsafe); reflexivity).
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
@@ -1026,6 +1049,7 @@ Proof.
     [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe; try discriminate Hsafe.
+  all: try (rewrite (step_attr_blank l _ _ _ _ _ _ Hblank Hsafe); reflexivity).
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). reflexivity.
     + rewrite (step_para_flush l c cur' Hblank). reflexivity.
@@ -1085,6 +1109,10 @@ Proof.
     [cur|lvl cur|f fnd crng cop acc|qrng qhead done inner IH|dlen dcls drng dop ddone dinner IH|ls done inner IH
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval|frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH|krng klbl ksrc kinner IH];
     intros Hsafe; try discriminate Hsafe.
+  all: try (rewrite (step_attr_blank l _ _ _ _ _ _ Hblank Hsafe);
+            split; [reflexivity|]; intros _ He; cbn [fst finish] in He;
+            cbn [blank_safe] in Hsafe; destruct (ap_done aap); [discriminate He|];
+            destruct aslices; [discriminate Hsafe|discriminate He]).
   - destruct cur as [|c cur'].
     + rewrite (step_idle l KBlank Hblank eq_refl). split; [reflexivity|discriminate].
     + rewrite (step_para_flush l c cur' Hblank). split; [reflexivity|discriminate].
@@ -1235,9 +1263,8 @@ Definition item_shape_ok (m : marker) (L : list string) : bool :=
   end.
 
 (* The shape, and what the list's spacing is read through: no spec is
-   open on a line of the item (`run_safe`, for `Tightness`), no fence is
-   left open inside it, and it does not end blank or on a block
-   attribute. *)
+   open on a line of the item (`run_safe`), no fence is left open inside
+   it, and it does not end blank or on a block attribute. *)
 Definition item_ok (m : marker) (L : list string) : bool :=
   match L with
   | [] => false

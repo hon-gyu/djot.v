@@ -4245,24 +4245,24 @@ Fixpoint pad_safe (st : pstate) : bool :=
   (* PAttr is the whole of the exclusion, and no pad lemma wants it: a
      pad is invisible to a spec (`step_fuel_pad`).  It is asked of the
      states a list item's lines pass through (`ListUniformity.run_safe`),
-     for the tightness invariant, which does not follow a spec
-     (`Tightness.step_fuel_ok`).  Nothing a canonical rendering emits
-     opens a spec. *)
+     where the scan's verdict on a line is read with no spec open.
+     Nothing a canonical rendering emits opens a spec. *)
   | PAttr _ _ _ _ _ _ => false
   | _ => true
   end.
 
-(* "A blank line closes whatever this state has open".  A spec fails it
-   because a blank inside one is a continuation line, and a fence because
-   a blank inside one is content.  Where `pad_safe` is asked of *every*
-   line of a run, this is asked only of the state a run ends in, which is
-   why an item may contain a code block and still satisfy it.  It is
-   strictly stronger than `pad_safe`, but nothing needs to say so:
-   `run_safe` carries both, each where it is wanted. *)
+(* "A blank line closes whatever this state has open".  A fence fails it
+   because a blank inside one is content.  A spec passes: a blank makes a
+   finished one a block of its own, and an unfinished one a paragraph of
+   the lines it took, of which it holds at least the line it opened on.
+   Where `pad_safe` is asked of *every* line of a run, this is asked only
+   of the state a run ends in, which is why an item may contain a code
+   block and still satisfy it. *)
 Fixpoint blank_safe (st : pstate) : bool :=
   match st with
   | PFence _ _ _ _ _ => false
-  | PAttr _ _ _ _ _ _ => false
+  | PAttr _ _ _ _ ap slices =>
+      (ap_done ap || match slices with [] => false | _ :: _ => true end)%bool
   | PList _ _ inner | PDiv _ _ _ _ _ inner | PFoot _ _ _ _ inner => blank_safe inner
   (* A div remains open across a blank.  That is safe for the ordinary
      finish equation, but not while a key is using the div to hold an
@@ -4279,17 +4279,6 @@ Fixpoint blank_safe (st : pstate) : bool :=
   | PPend _ _ inner => (blank_safe inner && negb (is_idle inner))%bool
   | _ => true
   end.
-
-(* A state a blank may meet has no attributes waiting: `blank_safe`
-   excludes an open spec and a pending one over nothing. *)
-Lemma blank_safe_attr_waits :
-  forall st, blank_safe st = true -> attr_waits st = false.
-Proof.
-  intros st H. destruct st as [| | | | | | | | | | |pend specs inner|]; try reflexivity.
-  - discriminate H.
-  - cbn [blank_safe] in H. apply andb_true_iff in H as [_ H].
-    cbn [attr_waits]. destruct (is_idle inner); [discriminate H|reflexivity].
-Qed.
 
 (* Two ways the override is ruled out.  A line that opens no
    announced-end block cannot be claimed by a key that is still waiting,
