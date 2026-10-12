@@ -59,6 +59,56 @@ Proof.
   destruct (String.eqb k k'); eauto.
 Qed.
 
+Lemma alist_lookup_set : forall (A : Type) (k' k : string) (v : A) m,
+  alist_lookup k' (alist_set k v m)
+  = if String.eqb k' k then Some v else alist_lookup k' m.
+Proof.
+  intros A k' k v m. induction m as [|[k0 v0] m IH]; cbn [alist_set alist_lookup].
+  - reflexivity.
+  - destruct (String.eqb k k0) eqn:E; cbn [alist_lookup].
+    + apply String.eqb_eq in E. subst k0. destruct (String.eqb k' k); reflexivity.
+    + rewrite IH. destruct (String.eqb k' k0) eqn:E0; [|reflexivity].
+      apply String.eqb_eq in E0. subst k0. rewrite String.eqb_sym, E. reflexivity.
+Qed.
+
+Lemma alist_set_keys : forall (A : Type) (k : string) (v : A) m,
+  map fst (alist_set k v m)
+  = match alist_lookup k m with
+    | Some _ => map fst m
+    | None => (map fst m ++ [k])%list
+    end.
+Proof.
+  intros A k v m. induction m as [|[k0 v0] m IH]; cbn [alist_set alist_lookup map fst app].
+  - reflexivity.
+  - destruct (String.eqb k k0) eqn:E; cbn [map fst].
+    + apply String.eqb_eq in E. subst k0. reflexivity.
+    + rewrite IH. destruct (alist_lookup k m); reflexivity.
+Qed.
+
+Lemma alist_lookup_None : forall (A : Type) (k : string) (m : list (string * A)),
+  alist_lookup k m = None -> ~ In k (map fst m).
+Proof.
+  intros A k m. induction m as [|[k0 v0] m IH]; cbn [alist_lookup map fst In]; [tauto|].
+  destruct (String.eqb k k0) eqn:E; [discriminate|].
+  apply String.eqb_neq in E. intros H [H0|H0]; [congruence|exact (IH H H0)].
+Qed.
+
+Lemma alist_lookup_in : forall (A : Type) (k : string) (v : A) m,
+  NoDup (map fst m) -> In (k, v) m -> alist_lookup k m = Some v.
+Proof.
+  intros A k v m. induction m as [|[k0 v0] m IH]; cbn [alist_lookup map fst In]; [tauto|].
+  intros D [H|H].
+  - inversion H. subst. rewrite String.eqb_refl. reflexivity.
+  - inversion D as [|? ? Hn D']. subst. destruct (String.eqb k k0) eqn:E.
+    + apply String.eqb_eq in E. subst k0. exfalso. apply Hn.
+      change k with (fst (k, v)). apply in_map, H.
+    + apply IH; assumption.
+Qed.
+
+(* `es` assigned to `m` one after another. *)
+Definition alist_set_all {A : Type} (es m : list (string * A)) : list (string * A) :=
+  fold_left (fun m e => alist_set (fst e) (snd e) m) es m.
+
 (* Key/value pairs in source order.  An alist rather than a `Map`, so
    that it extracts to a plain OCaml list. *)
 Definition attr : Type := list (string * string).

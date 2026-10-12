@@ -82,6 +82,14 @@ let shapes = [
     (fun n ->
        String.concat ""
          (List.init (n / 12) (fun i -> Printf.sprintf "[r%d]: u\n\n" i)));
+  "references", "reference definitions, each used once",
+    (fun n ->
+       String.concat ""
+         (List.init (n / 24) (fun i -> Printf.sprintf "[r%d]: u\n\n[a][r%d]\n\n" i i)));
+  "footnotes", "footnotes, each referenced once",
+    (fun n ->
+       String.concat ""
+         (List.init (n / 24) (fun i -> Printf.sprintf "[^n%d]: t\n\nx[^n%d]\n\n" i i)));
   "brackets", "unclosed [, wrapped",
     (fun n -> wrap (rep "[a" (n / 2)));
   "emphasis", "unclosed _, wrapped",

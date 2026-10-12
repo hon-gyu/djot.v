@@ -21,16 +21,109 @@
    are assigned everywhere and share one counter. *)
 
 From Stdlib Require Import String Ascii List Bool PeanoNat Lia.
-From Stdlib Require MSetAVL FMapAVL OrdersEx OrderedTypeEx.
+From Stdlib Require MSetAVL FMapAVL FMapFacts OrdersEx OrderedTypeEx.
 From DjotV Require Import Strings Ast Parser Reparse.
 Import ListNotations.
 
-(* Balanced trees over strings, for the identifier pass: the identifiers
-   taken so far, the labels that already have an implicit reference, and
-   each base's next candidate index.  Declared here because a module
-   cannot be declared inside a section. *)
+(* Balanced trees over strings.  The identifier pass keeps in them the
+   identifiers taken so far, the labels that already have an implicit
+   reference, and each base's next candidate index; `Assign` keeps each
+   key's value.  Declared here because a module cannot be declared
+   inside a section. *)
 Module StrSet := MSetAVL.Make OrdersEx.String_as_OT.
 Module StrMap := FMapAVL.Make OrderedTypeEx.String_as_OT.
+Module StrMapFacts := FMapFacts.Facts StrMap.
+
+(*
+Many assignments
+================
+
+`alist_set` walks the map, so assigning n entries one after another is
+quadratic.  `Assign.all` reaches the same map through a tree.
+*)
+
+Module Assign.
+Section WithValue.
+Context {A : Type}.
+
+(* The keys assigned so far, newest first, and each one's latest value. *)
+Definition state : Type := (list string * StrMap.t A)%type.
+
+Definition step (st : state) (e : string * A) : state :=
+  let (keys, tbl) := st in
+  (match StrMap.find (fst e) tbl with Some _ => keys | None => fst e :: keys end,
+   StrMap.add (fst e) (snd e) tbl).
+
+Local Definition emit (tbl : StrMap.t A) (out : list (string * A)) (k : string)
+  : list (string * A) :=
+  match StrMap.find k tbl with Some v => (k, v) :: out | None => out end.
+
+Definition read (st : state) : list (string * A) :=
+  let (keys, tbl) := st in fold_left (emit tbl) keys [].
+
+Definition all (es : list (string * A)) : list (string * A) :=
+  read (fold_left step es ([], StrMap.empty A)).
+
+(* `st` holds the map `m`. *)
+Local Definition inv (st : state) (m : list (string * A)) : Prop :=
+  map fst m = rev (fst st)
+  /\ NoDup (fst st)
+  /\ forall k, StrMap.find k (snd st) = alist_lookup k m.
+
+Local Lemma step_inv : forall st m e,
+  inv st m -> inv (step st e) (alist_set (fst e) (snd e) m).
+Proof.
+  intros [keys tbl] m [k v] (Hk & Hd & Hf). unfold inv, step. cbn [fst snd] in *.
+  rewrite alist_set_keys, Hf. split; [|split].
+  - destruct (alist_lookup k m); [exact Hk|]. cbn [rev]. rewrite Hk. reflexivity.
+  - destruct (alist_lookup k m) eqn:E; [exact Hd|]. constructor; [|exact Hd].
+    apply alist_lookup_None in E. rewrite Hk, <- in_rev in E. exact E.
+  - intros k'. rewrite StrMapFacts.add_o, alist_lookup_set, Hf.
+    destruct (OrderedTypeEx.String_as_OT.eq_dec k k') as [e|n].
+    + subst k'. rewrite String.eqb_refl. reflexivity.
+    + destruct (String.eqb k' k) eqn:E; [|reflexivity].
+      apply String.eqb_eq in E. congruence.
+Qed.
+
+Local Lemma read_spec : forall tbl l out,
+  (forall k v, In (k, v) l -> StrMap.find k tbl = Some v) ->
+  fold_left (emit tbl) (rev (map fst l)) out = (l ++ out)%list.
+Proof.
+  intros tbl. induction l as [|[k v] l IH]; intros out H; [reflexivity|].
+  cbn [map fst rev]. rewrite fold_left_app. cbn [fold_left].
+  rewrite IH by (intros; apply H; right; assumption).
+  unfold emit. rewrite (H k v) by (left; reflexivity). reflexivity.
+Qed.
+
+Theorem all_spec : forall es, all es = alist_set_all es [].
+Proof.
+  intros es. unfold all, alist_set_all.
+  assert (G : forall es st m, inv st m ->
+            inv (fold_left step es st)
+                (fold_left (fun m e => alist_set (fst e) (snd e) m) es m)).
+  { induction es0 as [|e es0 IH]; intros st m H; [exact H|].
+    cbn [fold_left]. apply IH, step_inv, H. }
+  assert (I0 : inv ([], StrMap.empty A) []).
+  { split; [reflexivity|split; [constructor|]]. intros k. apply StrMapFacts.empty_o. }
+  specialize (G es _ _ I0).
+  destruct (fold_left step es ([], StrMap.empty A)) as [keys tbl].
+  destruct G as (Hk & Hd & Hf). cbn [fst snd] in *. unfold read.
+  rewrite <- (rev_involutive keys), <- Hk, read_spec; [apply app_nil_r|].
+  intros k v Hin. rewrite Hf. apply alist_lookup_in; [|exact Hin].
+  rewrite Hk. apply NoDup_rev, Hd.
+Qed.
+
+(* Entries gathered newest first, on top of `m`. *)
+Lemma set_all_push : forall (e acc m : list (string * A)),
+  alist_set_all (rev (rev_append e acc)) m
+  = alist_set_all e (alist_set_all (rev acc) m).
+Proof.
+  intros e acc m. unfold alist_set_all.
+  rewrite rev_append_rev, rev_app_distr, rev_involutive. apply fold_left_app.
+Qed.
+
+End WithValue.
+End Assign.
 
 Local Open Scope string_scope.
 
@@ -1037,6 +1130,21 @@ Local Definition add_ref (p : pos) (a : attr) (b : block) (m : reference_map)
   | _ => m
   end.
 
+(* What `add_ref` assigns. *)
+Local Definition ref_entries (a : attr) (b : block) : reference_map :=
+  match b with
+  | RefDef label dest =>
+      if nonempty_str label then [(normalize_label label, (dest, a))] else []
+  | _ => []
+  end.
+
+Local Lemma add_ref_entries : forall p a b m,
+  add_ref p a b m = alist_set_all (ref_entries a b) m.
+Proof.
+  intros p a b m. destruct b; try reflexivity.
+  cbn [add_ref ref_entries]. destruct (nonempty_str _); reflexivity.
+Qed.
+
 End WithPolicy.
 End WithTable.
 Module Refs.
@@ -1068,6 +1176,51 @@ Proof.
             = of_list ns acc)
     by (induction ns as [|[p' a' x] rest IH]; intros acc; [reflexivity|apply IH]).
   rewrite <- L, <- fold_children_spec. destruct b; reflexivity.
+Qed.
+
+(* The assignments `of_block` makes, newest first. *)
+Local Fixpoint entries_block (b : block) (a : attr) (acc : reference_map)
+  {struct b} : reference_map :=
+  fold_children (fun acc n => match n with Node _ a' x => entries_block x a' acc end)
+    b (rev_append (ref_entries a b) acc).
+
+Local Fixpoint entries_list (ns : blocks) (acc : reference_map) : reference_map :=
+  match ns with
+  | [] => acc
+  | Node _ a b :: rest => entries_list rest (entries_block b a acc)
+  end.
+
+(* `of_list ns []`, without walking the map at each definition. *)
+Definition collect (ns : blocks) : reference_map :=
+  Assign.all (rev (entries_list ns [])).
+
+Local Lemma entries_block_spec : forall b p a acc m,
+  alist_set_all (rev (entries_block b a acc)) m
+  = of_block b p a (alist_set_all (rev acc) m).
+Proof.
+  intros b. induction b as [b IH] using block_children_ind. intros p a acc m.
+  rewrite of_block_children, add_ref_entries, <- Assign.set_all_push.
+  assert (E : entries_block b a acc
+              = entries_list (children b) (rev_append (ref_entries a b) acc)).
+  { assert (L : forall ns acc,
+              fold_left (fun acc n => match n with Node _ a' x => entries_block x a' acc end)
+                ns acc
+              = entries_list ns acc)
+      by (induction ns as [|[p' a' x] rest IHn]; intros acc0; [reflexivity|apply IHn]).
+    rewrite <- L, <- fold_children_spec. destruct b; reflexivity. }
+  rewrite E. clear E. generalize (rev_append (ref_entries a b) acc).
+  induction IH as [|[q c x] rest Hx _ IHr]; intros acc'; [reflexivity|].
+  cbn [entries_list of_list node_contents] in *. rewrite IHr, (Hx q). reflexivity.
+Qed.
+
+Theorem collect_spec : forall ns, collect ns = of_list ns [].
+Proof.
+  intros ns. unfold collect. rewrite Assign.all_spec.
+  assert (L : forall acc m, alist_set_all (rev (entries_list ns acc)) m
+                            = of_list ns (alist_set_all (rev acc) m)).
+  { induction ns as [|[p a b] rest IH]; intros acc m; [reflexivity|].
+    cbn [entries_list of_list]. rewrite IH, (entries_block_spec b p). reflexivity. }
+  apply L.
 Qed.
 
 End WithPolicy.
@@ -1123,6 +1276,60 @@ Proof.
   rewrite <- L, <- fold_children_spec. destruct b; reflexivity.
 Qed.
 
+(* What `add_note` assigns. *)
+Local Definition note_entries (b : block) : note_map :=
+  match b with
+  | FootnoteDef label bs => [(normalize_label label, bs)]
+  | _ => []
+  end.
+
+(* The assignments `of_block` makes, newest first. *)
+Local Fixpoint entries_block (b : block) (acc : note_map) {struct b} : note_map :=
+  rev_append (note_entries b)
+    (fold_children (fun acc n => match n with Node _ _ x => entries_block x acc end) b acc).
+
+Local Fixpoint entries_list (ns : blocks) (acc : note_map) : note_map :=
+  match ns with
+  | [] => acc
+  | Node _ _ b :: rest => entries_list rest (entries_block b acc)
+  end.
+
+(* `of_list ns []`, without walking the map at each definition. *)
+Definition collect (ns : blocks) : note_map :=
+  Assign.all (rev (entries_list ns [])).
+
+Local Lemma entries_block_spec : forall b acc m,
+  alist_set_all (rev (entries_block b acc)) m
+  = of_block b (alist_set_all (rev acc) m).
+Proof.
+  intros b. induction b as [b IH] using block_children_ind. intros acc m.
+  rewrite of_block_children.
+  assert (E : entries_block b acc
+              = rev_append (note_entries b) (entries_list (children b) acc)).
+  { assert (L : forall ns acc,
+              fold_left (fun acc n => match n with Node _ _ x => entries_block x acc end)
+                ns acc
+              = entries_list ns acc)
+      by (induction ns as [|[p' a' x] rest IHn]; intros acc0; [reflexivity|apply IHn]).
+    rewrite <- L, <- fold_children_spec. destruct b; reflexivity. }
+  rewrite E, Assign.set_all_push. clear E.
+  assert (L : alist_set_all (rev (entries_list (children b) acc)) m
+              = of_list (children b) (alist_set_all (rev acc) m)).
+  { revert acc. induction IH as [|[q c x] rest Hx _ IHr]; intros acc; [reflexivity|].
+    cbn [entries_list of_list node_contents] in *. rewrite IHr, Hx. reflexivity. }
+  rewrite L. destruct b; reflexivity.
+Qed.
+
+Theorem collect_spec : forall ns, collect ns = of_list ns [].
+Proof.
+  intros ns. unfold collect. rewrite Assign.all_spec.
+  assert (L : forall acc m, alist_set_all (rev (entries_list ns acc)) m
+                            = of_list ns (alist_set_all (rev acc) m)).
+  { induction ns as [|[p a b] rest IH]; intros acc m; [reflexivity|].
+    cbn [entries_list of_list]. rewrite IH, entries_block_spec. reflexivity. }
+  apply L.
+Qed.
+
 End Notes.
 
 Section WithTable.
@@ -1134,8 +1341,8 @@ Context {P : PosPolicy}.
 Definition doc_pass (bs : blocks) : doc :=
   let (st, bs') := Ids.of_list bs id_state_init in
   {| doc_blocks := sectionize bs'
-   ; doc_footnotes := Notes.of_list bs' []
-   ; doc_references := Refs.of_list bs' []
+   ; doc_footnotes := Notes.collect bs'
+   ; doc_references := Refs.collect bs'
    ; doc_auto_references := rev (id_refs st)
    ; doc_auto_identifiers := rev (id_derived st) |}.
 
@@ -1790,7 +1997,8 @@ Theorem doc_footnotes_of_blocks :
 Proof.
   intros bs. unfold doc_pass.
   destruct (Ids.of_list bs id_state_init) as [st bs'].
-  cbn [doc_footnotes doc_blocks]. symmetry. apply sectionize_notes.
+  cbn [doc_footnotes doc_blocks]. rewrite Notes.collect_spec. symmetry.
+  apply sectionize_notes.
 Qed.
 
 End WithPolicy.
@@ -2244,6 +2452,7 @@ Proof.
   unfold erase_doc.
   cbn [doc_blocks doc_footnotes doc_references doc_auto_references
     doc_auto_identifiers].
+  rewrite !Notes.collect_spec, !Refs.collect_spec.
   rewrite sectionize_erase, collect_refs_list_erase.
   rewrite <- (collect_notes_list_erase tagged []). reflexivity.
 Qed.

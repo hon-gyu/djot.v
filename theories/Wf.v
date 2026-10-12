@@ -4838,7 +4838,7 @@ Proof.
     apply assign_ids_list_wf. exact H. }
   cbn [doc_blocks doc_footnotes]. apply andb_true_iff. split.
   - apply sectionize_wf. exact Hbs'.
-  - exact (collect_notes_list_wf bs' [] Hbs' eq_refl).
+  - rewrite Notes.collect_spec. exact (collect_notes_list_wf bs' [] Hbs' eq_refl).
 Qed.
 
 (** The parser cannot produce a malformed document. *)

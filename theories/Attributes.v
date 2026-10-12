@@ -681,18 +681,6 @@ Proof.
   destruct (alist_lookup k a); intuition congruence.
 Qed.
 
-Local Lemma lookup_set : forall (k' k v : string) (m : attr),
-  alist_lookup k' (alist_set k v m)
-  = if String.eqb k' k then Some v else alist_lookup k' m.
-Proof.
-  intros k' k v m. induction m as [|[k0 v0] m IH]; cbn [alist_set alist_lookup].
-  - reflexivity.
-  - destruct (String.eqb k k0) eqn:E; cbn [alist_lookup].
-    + apply String.eqb_eq in E. subst k0. destruct (String.eqb k' k); reflexivity.
-    + rewrite IH. destruct (String.eqb k' k0) eqn:E0; [|reflexivity].
-      apply String.eqb_eq in E0. subst k0. rewrite String.eqb_sym, E. reflexivity.
-Qed.
-
 Lemma attr_ok_set : forall k v a,
   key_ok k = true -> attr_ok a = true -> attr_ok (Attr.set k v a) = true.
 Proof.
@@ -703,7 +691,7 @@ Proof.
     destruct (String.eqb k k0) eqn:E.
     + apply String.eqb_eq in E. subst k0. apply attr_ok_cons. auto.
     + apply attr_ok_cons. repeat split; auto.
-      rewrite lookup_set, String.eqb_sym, E. exact Hl.
+      rewrite alist_lookup_set, String.eqb_sym, E. exact Hl.
 Qed.
 
 Lemma attr_ok_add_class : forall v a,
