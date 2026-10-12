@@ -2126,7 +2126,7 @@ Proof.
     specialize (IH Hinner). rewrite Ex, render_node_lines_mk in IH.
     cbn [cb_ast cb_lines]. rewrite Ex, add_attr_mk.
     unfold render_node_lines. cbn [node_attrs node_contents].
-    rewrite render_lines_noclass by reflexivity. rewrite IH.
+    rewrite render_lines_noclass by (reflexivity || exact (cb_ast_not_attr inner x Hnid Ex)). rewrite IH.
     cbn [attr_lines attr_spec map attr_part String.eqb Ascii.eqb andb].
     rewrite Hidok. reflexivity.
   - intros label inner IH H.

@@ -2541,7 +2541,7 @@ Proof.
             forall its, flat_map g (map e its) = Erase.of_blocks (flat_map g its)).
   { intros A g e H. induction its as [|x its IH]; [reflexivity|].
     cbn [map flat_map]. rewrite Erase.blocks_app, H, IH. reflexivity. }
-  intros b. destruct b as [| | | | | | | | | | | | | | |? []|];
+  intros b. destruct b as [| | | | | | | | | | | | | | | |? []|];
     cbn [Erase.of_block Ast.children]; fold Erase.of_blocks; try reflexivity.
   - rewrite erase_items_fix. apply F. intros []; reflexivity.
   - rewrite erase_items_fix. apply F. intros []; reflexivity.
@@ -2837,7 +2837,7 @@ Proof.
               = erase_note_map (Notes.of_list (children b) m)).
   { revert m. induction IH as [|[q c x] rest Hx _ IHr]; intros m; [reflexivity|].
     cbn [Erase.of_blocks Notes.of_list node_contents] in *. rewrite Hx. apply IHr. }
-  rewrite L. destruct b as [| | | | | | | | | | | | | | |? []|]; try reflexivity.
+  rewrite L. destruct b as [| | | | | | | | | | | | | | | |? []|]; try reflexivity.
   (* FootnoteDef: the body is erased both in the tree and in its entry *)
   cbn [Erase.of_block Notes.add_note]. fold Erase.of_blocks.
   rewrite erase_note_map_alist_set. reflexivity.
@@ -2862,7 +2862,7 @@ Proof.
   intros b. induction b as [b IH] using block_children_ind. intros p a m.
   rewrite !Refs.of_block_children, erase_children.
   replace (add_ref NoPos a (Erase.of_block b) m) with (add_ref p a b m)
-    by (destruct b as [| | | | | | | | | | | | | | |? []|]; reflexivity).
+    by (destruct b as [| | | | | | | | | | | | | | | |? []|]; reflexivity).
   generalize (add_ref p a b m). induction IH as [|[q c x] rest Hx _ IHr]; intros m'; [reflexivity|].
   cbn [Erase.of_blocks Refs.of_list node_contents] in *. rewrite (Hx q c m'). apply IHr.
 Qed.

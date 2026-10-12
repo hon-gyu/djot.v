@@ -639,6 +639,8 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   (* A reference definition is not content: djot.js keeps it out of the
      block tree entirely and emits nothing for it. *)
   | RefDef _ _ => []
+  (* Attributes that attach to no block: nothing to show. *)
+  | AttrBlock => []
   (* Collected by the later document pass; while it remains in the block
      tree it is metadata rather than visible document content. *)
   | FootnoteDef _ _ => []

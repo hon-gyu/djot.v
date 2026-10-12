@@ -635,6 +635,12 @@ Inductive block : Type :=
      that the source line has an image in the roundtrip;
      `Document.doc_pass` derives the reference map from it. *)
   | RefDef (label : string) (dest : string)
+  (* Block attributes with no block after them: a line of specs that a
+     blank or the end of its container follows.  The node carries the
+     attributes, so there is no payload.  A block that renders to no
+     HTML, so that every nonblank line lies inside some block
+     (`.project/list-tightness.md`, "Dangling block attributes"). *)
+  | AttrBlock
   (* Extension, not djot (`.project/keyed-blocks.md`): a label and the one
      block it names.  A single block rather than a list, so the one-block
      scope is forced by the type.  The label is inlines because the
@@ -672,6 +678,7 @@ Definition block_ind2
   (hraw : forall format contents, P (RawBlock format contents))
   (hfoot : forall label bs, Q bs -> P (FootnoteDef label bs))
   (hrefdef : forall label dest, P (RefDef label dest))
+  (hattr : P AttrBlock)
   (* Its one block reaches the caller as a singleton list, so a key needs
      no hypothesis of its own. *)
   (hkeyed : forall label b, Q [b] -> P (Ext_keyed label b))
@@ -731,6 +738,7 @@ Definition block_ind2
     | RawBlock format contents => hraw format contents
     | FootnoteDef label bs => hfoot label bs (golist bs)
     | RefDef label dest => hrefdef label dest
+    | AttrBlock => hattr
     | Ext_keyed label b => hkeyed label b (golist [b])
     | Ext_callout kind fold title bs =>
         hcallout kind fold title bs (golist bs)
@@ -758,7 +766,7 @@ Definition children (b : block) : blocks :=
   | DefinitionList _ items =>
       flat_map (fun it => node_contents (snd (node_contents it))) items
   | Para _ | Heading _ _ | CodeBlock _ _ | ThematicBreak | Table _ _ | RawBlock _ _
-  | RefDef _ _ => []
+  | RefDef _ _ | AttrBlock => []
   end.
 
 Definition fold_children {A : Type} (f : A -> node block -> A) (b : block) (acc : A) : A :=
@@ -773,7 +781,7 @@ Definition fold_children {A : Type} (f : A -> node block -> A) (b : block) (acc 
   | DefinitionList _ items =>
       fold_left (fun acc it => go (node_contents (snd (node_contents it))) acc) items acc
   | Para _ | Heading _ _ | CodeBlock _ _ | ThematicBreak | Table _ _ | RawBlock _ _
-  | RefDef _ _ => acc
+  | RefDef _ _ | AttrBlock => acc
   end.
 
 Local Lemma fold_left_flat_map : forall (A B C : Type) (f : A -> C -> A) (g : B -> list C) l acc,

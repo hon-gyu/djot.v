@@ -1404,6 +1404,9 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
    | TaskList sp items =>
        list_lines sp (map task_litem_lines (taskitemss items))
    | RefDef label dest => [ref_line label dest]
+   (* The node's attribute line is the block.  With no attributes there
+      is no such line, and the block is written as an empty spec. *)
+   | AttrBlock => match a with [] => ["{}"%string] | _ => [] end
    | FootnoteDef label bs =>
        ("[^" ++ label ++ "]:")%string
        :: map note_indent
@@ -1441,14 +1444,23 @@ Lemma render_node_lines_mk :
   forall x, render_node_lines (mk x) = render_block_lines x.
 Proof. reflexivity. Qed.
 
+(* No canonical block is attributes alone. *)
+Lemma cb_ast_not_attr : forall cb x, is_cid cb = false -> cb_ast cb = mk x -> x <> AttrBlock.
+Proof.
+  intros cb x H E ->. destruct cb as [| | | | | | | |k sp items| | | |]; try discriminate E;
+    try discriminate H.
+  destruct k; discriminate E.
+Qed.
+
 (* Attributes other than a class only add their line: the class is the
-   one a div can move onto its fence. *)
+   one a div can move onto its fence.  Attributes alone are their line
+   and nothing else. *)
 Lemma render_lines_noclass :
   forall a x,
-    alist_lookup "class" a = None ->
+    alist_lookup "class" a = None -> x <> AttrBlock ->
     render_lines a x = (attr_lines a ++ render_block_lines x)%list.
 Proof.
-  intros a x H.
+  intros a x H Hx.
   assert (Hc : forall name bs, fence_class a (Div name bs) = EmptyString).
   { intros name bs. destruct name; [|reflexivity]. cbn [fence_class].
     destruct bdiv_names; [reflexivity|]. destruct a as [|[k v] a']; [reflexivity|].
@@ -1457,7 +1469,8 @@ Proof.
     rewrite String.eqb_sym, E. reflexivity. }
   unfold render_block_lines.
   destruct x; cbn [render_lines drop_class attr_lines String.eqb app];
-    try (rewrite Hc, fence_class_nil; reflexivity); reflexivity.
+    try (rewrite Hc, fence_class_nil; reflexivity); try reflexivity.
+  contradiction.
 Qed.
 
 Lemma render_block_div :

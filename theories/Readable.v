@@ -309,6 +309,7 @@ Fixpoint readable_lines (a : attr) (b : block) : list string :=
    | TaskList sp items =>
        list_lines sp (map task_lines (taskitemss items))
    | RefDef label dest => [ref_line label dest]
+   | AttrBlock => match a with [] => ["{}"%string] | _ => [] end
    | FootnoteDef label bs =>
        note_lines label
          (match bs with Node _ [] (Para _) :: _ => true | _ => false end)

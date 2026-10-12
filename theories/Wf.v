@@ -154,6 +154,7 @@ Local Fixpoint wf_block (b : block) : bool :=
      that is one whitespace-free run. *)
   | RefDef label dest =>
       no_char "]"%char label && negb (is_footnote_label label) && no_ws dest
+  | AttrBlock => true
   | FootnoteDef label bs => nonempty_str label && wf_bs bs
   | Table caption rows =>
       wf_inlines (node_contents caption)
