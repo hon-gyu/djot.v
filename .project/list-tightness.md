@@ -542,15 +542,15 @@ djot.js gives tight.  The same happens when the spec goes on to close
 (`{.x` / an indented blank / ` .y}` / `para`).
 
 Not arming the flag is not the fix: `- {.x` / blank / `- b` has the
-blank between two items and must stay loose.  The flag would have to
-tell a blank the spec took from one armed before the spec, which is a
-second flag.  The alternative is that a blank always ends a spec and
-closes the paragraph it becomes, so no block holds a blank that is not a
-code line; that changes `parse_attr_blank_continues_spec`.  Not decided.
+blank between two items and must stay loose.  Decided by the maintainer
+(2026-10-12): a blank line always ends an open spec and closes the
+paragraph it becomes, so no block holds a blank that is not a code line
+(`djotjs-divergences.md`, same date).  With that in the parser the new
+rule and `item_loose` agree on all of 58,187 items, the pool above with
+nested spec lines added.
 
-So the theorems to prove are the two directions for items in which no
-blank reaches a spec still open, with the new rule and no other
-condition.
+So the theorems to prove are the two directions with the new rule and
+no condition on the item.
 
 Done: `Tightness.step_fuel_ok` and `run_ok` hold with no premise, so
 `state_ok` and `tail_ok` are known at every line boundary of any item.
@@ -558,7 +558,8 @@ Done: `Tightness.step_fuel_ok` and `run_ok` hold with no premise, so
 Left:
 
 - The lemmas about a blank ask `pad_safe` or `blank_safe` of the state
-  it meets, and both exclude a finished spec waiting for its block.
+  it meets, and both exclude a spec.  A blank now closes a spec as it
+  closes a paragraph: `step b st = (finish st, PPara [])`.
   They need that case: `held_blank` and what it uses in `Tightness.v`,
   and the six `step_blank_*` lemmas in `ListUniformity.v` behind
   `blank_settles`.  `held` and `holds_blank` should say an unfinished

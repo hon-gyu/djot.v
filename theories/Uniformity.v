@@ -2227,10 +2227,8 @@ Proof.
       cbn [step_fuel pstate_depth] in He. rewrite Hl in He. cbn [is_idle fst] in He.
       discriminate He.
     + revert He. unfold step. cbn [step_fuel pstate_depth]. rewrite Hd.
-      destruct (Nat.ltb aind (0 + indent_of l)).
-      * destruct (ap_failed (attr_feed l aap)); [|intros _; reflexivity].
-        apply PR. cbn [pstate_depth para_recover]. lia.
-      * rewrite (classify_kblank_blank l Hl). intros _. reflexivity.
+      rewrite (classify_kblank_blank l Hl). cbn [negb andb].
+      apply PR. cbn [pstate_depth para_recover]. lia.
   - revert He. unfold step. cbn [step_fuel pstate_depth]. rewrite Hl.
     destruct (is_idle pinner) eqn:Hip; [intros He; discriminate He|].
     destruct (step_fuel (String.length l + S (pstate_depth pinner)) 0 l pinner) as [bs st'].
@@ -2330,24 +2328,26 @@ Proof.
   exact (attr_accumulate l ap [] [] ls Hattrs (conj Hcl Hdone) (Forall2_nil _) Hready).
 Qed.
 
-(* An unfinished spec takes a line indented past its opener, and stays
-   open while the line leaves it neither done nor failed. *)
+(* An unfinished spec takes a nonblank line indented past its opener,
+   and stays open while the line leaves it neither done nor failed. *)
 Local Lemma step_attr_cont :
   forall l pend specs range ind ap slices,
-    ap_done ap = false -> ind < indent_of l -> ap_failed (attr_feed l ap) = false ->
+    ap_done ap = false -> is_blank l = false -> ind < indent_of l ->
+    ap_failed (attr_feed l ap) = false ->
     step l (PAttr pend specs range ind ap slices)
     = ([], PAttr pend specs (touch_extent range) ind (attr_feed l ap)
              (push_text l slices)).
 Proof.
-  intros l pend specs range ind ap slices Hd Hi Hf. unfold step.
-  cbn [step_fuel]. rewrite Hd. cbn [Nat.add].
+  intros l pend specs range ind ap slices Hd Hb Hi Hf. unfold step.
+  cbn [step_fuel]. rewrite Hd, Hb. cbn [Nat.add negb andb].
   replace (Nat.ltb ind (indent_of l)) with true by (symmetry; apply Nat.ltb_lt, Hi).
   rewrite Hf. reflexivity.
 Qed.
 
 Local Lemma parse_lines_attr_cont :
   forall ls2 ls pend specs range ind ap slices,
-    spec_runs ap ls2 = true -> Forall (fun l => ind < indent_of l) ls2 ->
+    spec_runs ap ls2 = true ->
+    Forall (fun l => ind < indent_of l /\ is_blank l = false) ls2 ->
     match ls with [] => False | l :: _ => pend_ready (PPara []) l = true end ->
     parse_lines (ls2 ++ ls)%list (PAttr pend specs range ind ap slices)
     = decorate_head (Attr.merge (ap_attrs (feed_lines ls2 ap)) pend)
@@ -2359,10 +2359,18 @@ Proof.
     apply parse_lines_pend. destruct ls; [destruct Hready|exact Hready].
   - cbn [spec_runs] in Hr. apply andb_true_iff in Hr as [Hr Hrest].
     apply andb_true_iff in Hr as [Hd Hf]. apply negb_true_iff in Hd, Hf.
-    inversion Hi as [|? ? Hl Hi']; subst.
+    inversion Hi as [|? ? [Hl Hb] Hi']; subst.
     cbn [app]. rewrite (parse_lines_step _ _ _ _ _
-                          (step_attr_cont l pend specs range ind ap slices Hd Hl Hf)).
+                          (step_attr_cont l pend specs range ind ap slices Hd Hb Hl Hf)).
     cbn [app]. rewrite (IH ls pend specs _ ind _ _ Hrest Hi' Hready). reflexivity.
+Qed.
+
+(* A line with content for the attribute machine is not blank. *)
+Local Lemma content_nonblank :
+  forall l, blank_to_eol (drop_leading_ws l) = false -> is_blank l = false.
+Proof.
+  intros l H. destruct (is_blank l) eqn:E; [|reflexivity].
+  rewrite (drop_leading_ws_blank l E) in H. discriminate H.
 Qed.
 
 (* A spec's lines joined onto its first, a space for each line break. *)
@@ -2371,8 +2379,7 @@ Definition attr_join (l : string) (ls : list string) : string := l ++ join_tail 
 (** BA2: a spec that does not fit on one line continues on lines
     indented past its opener, and parses as the same spec written on one
     line.  Each continuation line has content (`blank_to_eol` is the
-    machine's own blank test); a blank one would let a spec that closed
-    on the line before it drop its attributes. *)
+    machine's own blank test): a blank line ends a spec. *)
 Theorem attr_continuation :
   forall l1 ap1 ls2 apJ ls,
     battrs = true -> classify l1 = KAttr ap1 ->
@@ -2398,7 +2405,8 @@ Proof.
   cbn [parse_lines]. rewrite (step_attr_open l1 ap1 H1).
   unfold open_attr. rewrite Hattrs. cbn [fst snd app].
   rewrite (parse_lines_attr_cont ls2 ls [] [] _ _ ap1 _ Hruns
-             (Forall_impl _ (fun l H => proj1 H) Hls) Hready).
+             (Forall_impl _ (fun l H => conj (proj1 H) (content_nonblank l (proj2 H))) Hls)
+             Hready).
   rewrite Hattrs'. reflexivity.
 Qed.
 
@@ -2419,7 +2427,8 @@ Proof.
   unfold step at 1. cbn [step_fuel]. rewrite Hd. cbn [Nat.add].
   replace (Nat.ltb (indent_of l1) (indent_of l2)) with false
     by (symmetry; apply Nat.ltb_ge, Hi).
-  rewrite Hb, step_fuel_enough by (cbn [pstate_depth para_recover]; lia).
+  rewrite Hb. cbn [negb andb].
+  rewrite step_fuel_enough by (cbn [pstate_depth para_recover]; lia).
   unfold para_recover. cbn [List.length Nat.add].
   assert (Hs : step l2 (PParaOff 1 [remember_line (drop_leading_ws l1)])
                = ([], PParaOff 1 [remember_line (drop_leading_ws l2);

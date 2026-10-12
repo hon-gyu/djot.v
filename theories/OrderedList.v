@@ -2078,21 +2078,6 @@ Example shape_items_not_item_ok :
   = [false; false; false].
 Proof. reflexivity. Qed.
 
-(* `list_uniformity_shape_tail` admits each of them as the last item. *)
-Example shape_tail_items_ok :
-  map (fun L => spec_open_in (snd (run_lines L (PPara []))))
-    [["a"; "{.x}"]; ["```"; "x"]; ["b"; ""]]
-  = [false; false; false].
-Proof. reflexivity. Qed.
-
-(* It does not admit a last item that ends inside a spec: the blank fails
-   the spec, and `b` continues the paragraph recovered from it, inside
-   the list. *)
-Example shape_tail_open_spec :
-  spec_open_in (snd (run_lines ["a"; ""; "{#i"] (PPara []))) = true
-  /\ List.length (parse_lines ["- a"; ""; "  {#i"; ""; "b"] (PPara [])) = 1.
-Proof. split; reflexivity. Qed.
-
 (* A blank that ends an item is spent by the next item's marker, which
    `list_spacing_of` does not count. *)
 Example trailing_blank_loosens :

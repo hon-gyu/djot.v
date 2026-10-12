@@ -1024,14 +1024,11 @@ Proof.
       apply Forall_app. split; [apply Forall_rev, Hdn|exact (finish_ok st lix Hi)].
   - (* PAttr *)
     destruct (ap_done ap); [apply IH; [exact Hl|exact I]|].
-    destruct (Nat.ltb ind (off + indent_of l)).
+    destruct (negb (is_blank l) && Nat.ltb ind (off + indent_of l))%bool.
     + destruct (ap_failed (attr_feed l ap)).
       * apply pend_result_ok, IH; [exact Hl|exact Hst].
       * split; [constructor|]. apply push_text_ok; [exact Hl|exact Hst].
-    + destruct (is_blank l).
-      * split; [constructor|].
-        exact (acc_ok_mono src slices lix (S lix) (le_S _ _ (le_n _)) Hst).
-      * apply pend_result_ok, IH; [exact Hl|exact Hst].
+    + apply pend_result_ok, IH; [exact Hl|exact Hst].
   - (* PParaOff *)
     destruct (bunderline_of l) as [lvl|].
     + split; [|exact I]. constructor; [|constructor].

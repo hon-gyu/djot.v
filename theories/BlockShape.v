@@ -721,8 +721,8 @@ Proof.
   - (* PAttr *)
     destruct (ap_done ap).
     + apply (IH off l (PPend _ _ (PPara []))).
-    + destruct (Nat.ltb ind (off + indent_of l));
-        [destruct (ap_failed _)|destruct (is_blank l)];
+    + destruct (negb (is_blank l) && Nat.ltb ind (off + indent_of l))%bool;
+        [destruct (ap_failed _)|];
         try reflexivity;
         apply pend_result_shape; apply (IH off l (para_recover _ _)).
   - (* PParaOff *)

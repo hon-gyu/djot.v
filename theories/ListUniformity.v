@@ -2060,21 +2060,21 @@ Proof.
            (step_blank_key_claims EmptyString inner Hb Hpad next)).
 Qed.
 
-(* Under `reached`, keys off, with no spec open in the item. *)
+(* Under `reached`, keys off. *)
 Local Lemma parse_list_close_reached :
   bkeyed = false ->
   forall ls done inner next tail,
-    reached inner = true -> spec_open_in inner = false ->
+    reached inner = true ->
     classify next <> KBlank ->
     (forall m mc chk item, classify next <> KList m mc chk item) ->
     Nat.ltb (ls_indent ls) (indent_of next) = false ->
     parse_lines (EmptyString :: next :: tail) (PList ls done inner)
     = (finish (PList ls done inner) ++ parse_lines (next :: tail) (PPara []))%list.
 Proof.
-  intros Hk ls done inner next tail Hr Ho.
+  intros Hk ls done inner next tail Hr.
   exact (parse_list_close_by ls done inner next tail
            (reached_blank_finish Hk (PList ls done inner) Hr)
-           (reached_blank_lazy inner Hr Ho)
+           (reached_blank_lazy inner Hr)
            (reached_key_claims next _ (step_reached Hk EmptyString inner Hr))).
 Qed.
 
@@ -2484,17 +2484,12 @@ Proof.
   rewrite Hind2, Hindent. reflexivity.
 Qed.
 
-(** `list_uniformity_tail` for the shape alone, keys off.  Of the last
-    item it asks that its lines do not end inside an attribute spec: the
-    blank would fail the spec, and `next` would continue the paragraph
-    recovered from it. *)
+(** `list_uniformity_tail` for the shape alone, keys off. *)
 Theorem list_uniformity_shape_tail :
   forall m0 sp L0 items next tail,
     bkeyed = false ->
     marker_ok m0 = true ->
     items_shape_ok m0 ((m0, L0) :: items) = true ->
-    spec_open_in (snd (run_lines (snd (last ((m0, L0) :: items) (m0, L0))) (PPara [])))
-    = false ->
     classify next <> KBlank ->
     (forall m mc chk it, classify next <> KList m mc chk it) ->
     indent_of next = 0 ->
@@ -2505,16 +2500,15 @@ Theorem list_uniformity_shape_tail :
              (map (fun it => parse_lines (snd it) (PPara [])) ((m0, L0) :: items))
       :: parse_lines (next :: tail) (PPara []).
 Proof.
-  intros m0 sp L0 items next tail Hk Hm0 Hok Hend Hnb Hnl Hindent.
+  intros m0 sp L0 items next tail Hk Hm0 Hok Hnb Hnl Hindent.
   apply (list_gen (fun st => reached st = true) (reached_closes Hk)
-           (fun st => reached st = true /\ spec_open_in st = false));
+           (fun st => reached st = true));
     [exact Hm0| |exact Hok|exact (items_reached Hk _)|].
-  - intros ls2 done2 inner2 Hind2 [Hr Ho].
+  - intros ls2 done2 inner2 Hind2 Hr.
     apply (parse_list_close_reached Hk); try assumption.
     rewrite Hind2, Hindent. reflexivity.
-  - cbn [list_end]. rewrite list_end_last. split.
-    + exact (Forall_inv (items_reached Hk [last ((m0, L0) :: items) (m0, L0)])).
-    + unfold item_final. rewrite spec_open_in_pad_state. exact Hend.
+  - cbn [list_end]. rewrite list_end_last.
+    exact (Forall_inv (items_reached Hk [last ((m0, L0) :: items) (m0, L0)])).
 Qed.
 
 (* Every item at the same marker: the shape the bullet styles take, and

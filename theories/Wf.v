@@ -3395,13 +3395,12 @@ Proof.
   - (* an open attribute spec: every branch either hands the line to a
        state this invariant already covers, or records one more line *)
     destruct (ap_done aap); [apply IH; reflexivity|].
-    destruct (Nat.ltb aind (off + indent_of l));
+    destruct (negb (is_blank l) && Nat.ltb aind (off + indent_of l))%bool;
       [destruct (ap_failed (attr_feed l aap))|].
     + destruct (IH off l (para_recover 1 aslices) eq_refl) as [Hb Hs].
       exact (pend_result_wf _ _ _ Hb Hs).
     + cbn [fst snd]. split; reflexivity.
-    + destruct (is_blank l); [cbn [fst snd state_wf]; split; reflexivity|].
-      destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs].
+    + destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs].
       exact (pend_result_wf _ _ _ Hb Hs).
   - (* the recovery's paragraph: the branches an open paragraph has, with
        its own flush *)
@@ -4284,15 +4283,13 @@ Proof.
            reflexivity ].
   - (* an attribute spec emits nothing until it resolves *)
     destruct (ap_done aap); [apply IH; reflexivity|].
-    destruct (Nat.ltb aind (off + indent_of l));
+    destruct (negb (is_blank l) && Nat.ltb aind (off + indent_of l))%bool;
       [destruct (ap_failed (attr_feed l aap))|];
       [ destruct (IH off l (para_recover 1 aslices) eq_refl) as [Hb Hs];
         exact (pend_result_supported _ _ _ Hb Hs)
       | split; reflexivity
-      | destruct (is_blank l);
-        [ cbn [fst snd state_supported]; split; reflexivity
-        | destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs];
-          exact (pend_result_supported _ _ _ Hb Hs) ] ].
+      | destruct (IH off l (para_recover 0 aslices) eq_refl) as [Hb Hs];
+        exact (pend_result_supported _ _ _ Hb Hs) ].
   - (* the recovery's paragraph: Para and Heading are both supported, so
        only the list branch carries anything *)
     destruct (bunderline_of l) as [ulvl|] eqn:Eu;

@@ -459,32 +459,32 @@ Hello."
   = [mk (Para [mk (Str "Hello.")])].
 Proof. reflexivity. Qed.
 
-(* Not in the corpus: a blank line indented past the opener continues an
-   open spec rather than closing it, since a blank line's indentation is
-   its whole length.  djot.js agrees: `{#i` / two spaces / two spaces and
-   `}` yields `<p id="i">Hi</p>`. *)
-Example parse_attr_blank_continues_spec :
+(* A blank line ends an unfinished spec: its lines are a paragraph, and
+   the blank closes it.  The reference allows a spec line breaks, not
+   blank lines.  So a comment cannot hold one either. *)
+Example parse_attr_blank_ends_spec :
+  parse_blocks "{.x
+
+a"
+  = [mk (Para [mk (Str "{.x")]); mk (Para [mk (Str "a")])].
+Proof. reflexivity. Qed.
+
+(* The same for a blank indented past the opener, where djot.js goes on
+   with the spec and gives `<p id="i">Hi</p>`. *)
+Example parse_attr_indented_blank_ends_spec :
   parse_blocks "{#i
   
   }
 Hi"
-  = [Node NoPos [("id", "i")] (Para [mk (Str "Hi")])].
+  = [mk (Para [mk (Str "{#i")]);
+     mk (Para [mk (Str "}"); mk SoftBreak; mk (Str "Hi")])].
 Proof. reflexivity. Qed.
 
-(* Not in the corpus, and our one deliberate divergence.  djot.js records
-   the blank continuation line as a slice, so a spec that spans a blank
-   line and *then* fails reproduces the blank inside its paragraph:
-   `<p>{#i\n\n<}\nHi</p>`.  We drop it, because a paragraph carrying a
-   blank line does not round-trip -- parsing that rendering back splits
-   the paragraph in two -- and `Wf.wf_block` rules it out for exactly
-   that reason.  See the note in `step_fuel`'s PAttr branch. *)
-Example parse_attr_failed_after_blank_drops_it :
-  parse_blocks "{#i
-  
-  <}
-Hi"
-  = [mk (Para [ mk (Str "{#i"); mk SoftBreak
-              ; mk (Str "<}"); mk SoftBreak; mk (Str "Hi")])].
+Example parse_attr_comment_blank_ends_spec :
+  parse_blocks "{% a
+
+  b %}"
+  = [mk (Para [mk (Str "{% a")]); mk (Para [mk (Str "b %}")])].
 Proof. reflexivity. Qed.
 
 (*

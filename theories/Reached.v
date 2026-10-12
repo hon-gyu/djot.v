@@ -236,12 +236,12 @@ Proof.
       split; [|discriminate].
       refine (proj1 (kept_pend_result (PPara []) apend aspecs _ H1 _)).
       intros Hnil. apply orb_true_iff. right. exact (H2 eq_refl Hnil). }
-    destruct (Nat.ltb aind (off + indent_of l)).
+    destruct (negb (is_blank l) && Nat.ltb aind (off + indent_of l))%bool.
     + destruct (ap_failed _); [apply Hpend|].
       split; [|discriminate]. cbn [snd reached].
       destruct aslices; [discriminate Hr|]. unfold push_text.
       destruct (is_blank l); apply orb_true_r.
-    + destruct (is_blank l); [split; [reflexivity|discriminate]|apply Hpend].
+    + apply Hpend.
   - destruct (bunderline_of l); [split; [reflexivity|discriminate]|].
     destruct (classify l) eqn:E;
       try (apply kept_close_reopen; reflexivity);
@@ -469,33 +469,9 @@ Proof.
   - discriminate Hr.
 Qed.
 
-(* A spec still taking lines, under the containers a blank keeps open. *)
-Fixpoint spec_open_in (st : pstate) : bool :=
-  match st with
-  | PAttr _ _ _ _ ap _ => negb (ap_done ap)
-  | PDiv _ _ _ _ _ inner | PList _ _ inner | PFoot _ _ _ _ inner
-  | PPend _ _ inner => spec_open_in inner
-  | _ => false
-  end.
-
-Lemma spec_open_in_pad_state : forall k st,
-  spec_open_in (pad_state k st) = spec_open_in st.
-Proof.
-  intros k st.
-  induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH
-    |dlen dcls drng dop ddone dinner IH|ls done inner IH
-    |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
-    |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH
-    |krng klbl ksrc kinner IH];
-    cbn [pad_state spec_open_in]; try reflexivity; exact IH.
-Qed.
-
-(** A blank line leaves nothing a text line after it continues.  A spec
-    still open is the exception: the blank fails it, and the paragraph
-    recovered from it stays open. *)
+(** A blank line leaves nothing a text line after it continues. *)
 Lemma reached_blank_lazy : forall st,
-  reached st = true -> spec_open_in st = false ->
-  lazy_ok (snd (step "" st)) = false.
+  reached st = true -> lazy_ok (snd (step "" st)) = false.
 Proof.
   pose proof blank_kblank as Hblank.
   induction st as [cur|lvl hrng cur|f fnd crng cop acc|qrng qhead done inner IH
@@ -503,7 +479,7 @@ Proof.
     |apend aspecs arng aind aap aslices|okoff ocur|rrng rind rlbl rval
     |frng find flbl fdone finner IH|trng trows tcap|ppend pspecs pinner IH
     |krng klbl ksrc kinner IH];
-    intros Hr Ho.
+    intros Hr.
   - destruct cur as [|c cur'];
       [rewrite (step_idle "" KBlank Hblank eq_refl); reflexivity
       |rewrite (step_para_flush "" c cur' Hblank); reflexivity].
@@ -514,19 +490,21 @@ Proof.
   - destruct (step "" dinner) as [bs i] eqn:Hs.
     rewrite (step_div_cont "" dlen dcls drng dop ddone dinner bs i
                (div_stays_open_blank "" dinner dlen eq_refl) Hs).
-    cbn [snd lazy_ok]. exact (IH Hr Ho).
+    cbn [snd lazy_ok]. exact (IH Hr).
   - destruct (step "" inner) as [bs i] eqn:Hs.
     rewrite (step_list_blank "" ls done inner bs i Hblank Hs).
-    cbn [snd lazy_ok]. exact (IH Hr Ho).
-  - cbn [spec_open_in] in Ho. unfold step.
+    cbn [snd lazy_ok]. exact (IH Hr).
+  - unfold step.
     cbn [step_fuel pstate_depth String.length Nat.add].
-    destruct (ap_done aap); [|discriminate Ho].
-    cbn [step_fuel]. rewrite Hblank. reflexivity.
+    destruct (ap_done aap).
+    + cbn [step_fuel]. rewrite Hblank. reflexivity.
+    + cbn [is_blank negb andb]. unfold para_recover. cbn [step_fuel].
+      destruct (bunderline_of ""); reflexivity.
   - rewrite (step_para_off_flush "" okoff ocur Hblank). reflexivity.
   - rewrite (step_ref_blank "" rrng rind rlbl rval Hblank). reflexivity.
   - unfold step. cbn [step_fuel open_line]. rewrite Hblank.
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-    specialize (IH Hr Ho).
+    specialize (IH Hr).
     destruct (step "" finner) as [bs i]. exact IH.
   - unfold step. cbn [step_fuel open_line].
     destruct tcap; try destruct (caption_open ""); reflexivity.
@@ -534,7 +512,7 @@ Proof.
     unfold step. cbn [step_fuel open_line]. rewrite Hblank.
     destruct (is_idle pinner); [reflexivity|].
     rewrite step_fuel_enough by (cbn [pstate_depth]; lia).
-    specialize (IH Hr Ho).
+    specialize (IH Hr).
     destruct (step "" pinner) as [bs st'].
     destruct bs; cbn [pend_result snd lazy_ok]; exact IH.
   - discriminate Hr.

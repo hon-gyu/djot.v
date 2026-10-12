@@ -602,6 +602,9 @@ Pinned as the last case of the div probe set.
 
 ## Adjudicated 2026-08-09 — a blank line inside a block attribute spec
 
+Superseded 2026-10-12: a blank line ends an open spec (the last entry of
+this log).  What follows is the record of the earlier ruling.
+
 Found while implementing block attributes. Not a disagreement between the
 oracles — they agree — but a place where *we* deliberately differ, which
 this log is also where the previous "ours" entries live.
@@ -2593,3 +2596,40 @@ closes (`261010.plan.attributes-and-spans.md`, "Decided afterwards").
 Pinned by `span_failed_spec_is_ordinary`,
 `span_failed_spec_leaves_bracket_open` and
 `span_unclosed_spec_is_ordinary` in `dev/InlineExamples.v`.
+
+## 2026-10-12 -- OURS: a blank line ends an open block attribute spec
+
+Decided by the maintainer (2026-10-12).  It replaces the adjudication of
+2026-08-09, "a blank line inside a block attribute spec".
+
+A blank line, whatever its indentation, ends a spec that has not
+closed.  The lines the spec took are a paragraph, and the blank closes
+it as it closes any paragraph.  So no spec holds a blank line, and no
+comment in one does.
+
+| Input | djot.js (`d7c3904`) | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `{.x` / blank / `a` | one paragraph, `{.x` and `a` | the same | two paragraphs |
+| `{#i` / `··` / `··}` / `Hi` | `<p id="i">Hi</p>` | the same | two paragraphs, `{#i` and `}` with `Hi` |
+| `{#i` / `··` / `··<}` / `Hi` | one paragraph holding a blank line | one paragraph, the blank dropped | two paragraphs |
+| `{% a` / blank / `··b %}` | one paragraph, `{% a` and `b %}` | the same | two paragraphs |
+
+Why.  A spec that does not parse is not a spec, and what is left is
+ordinary text, where a blank line ends a paragraph.  The reference
+gives a spec line breaks ("subsequent lines must be indented") and says
+nothing of blank lines.  The djot author states the intent in jgm/djot
+issues 67 and 412: attributes allow newlines, not blank lines, and the
+reference parser "already disallows them".  djot.js does not: it keeps
+going across the blank in each row above, so each row is a divergence.
+
+What it removed.  A paragraph recovered from a failed spec no longer
+stays open across a blank, and no blank is fed to the attribute machine
+and left out of the recovered lines.  A list item whose spec took a
+blank was called loose with one block in it
+(`list-tightness.md`, "Extending the theorems"); that cannot happen
+now.  `list_uniformity_shape_tail` lost its condition that the last
+item does not end inside a spec.
+
+Pinned: `parse_attr_blank_ends_spec`,
+`parse_attr_indented_blank_ends_spec` and
+`parse_attr_comment_blank_ends_spec` in `dev/ParserExamples.v`.

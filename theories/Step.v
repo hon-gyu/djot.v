@@ -2245,22 +2245,16 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
              earlier spec's attributes travel with the recovery, and
              `pend_result` attaches them to the paragraph when it closes.
 
-             A blank line splits on the same indentation test.  Indented
-             past the opener it is a continuation, fed to the machine but
-             not recorded.  djot.js records it, so a spec that spans a
-             blank and then fails gives a paragraph containing a blank
-             line, which does not round-trip (`Wf.wf_block`); the
-             divergence is confined to specs that both span a blank line
-             and fail.  Not indented past it, the blank fails the spec and
-             the recovery runs on that line: the recovered paragraph stays
-             open and takes the blank without recording it, so `{%` /
-             blank / `c` is one paragraph of two lines, and only a second
-             blank closes it. *)
+             A blank line ends an unfinished spec, whatever its
+             indentation: the lines the spec took are a paragraph, and
+             the blank closes it as it closes any paragraph.  So no
+             spec, and no comment in one, holds a blank line, and `{%` /
+             blank / `c` is two paragraphs. *)
           if ap_done ap
           then step_fuel n' off l
                  (PPend (Attr.merge (ap_attrs ap) pend)
                     (specs ++ [extent_span range])%list (PPara []))
-          else if Nat.ltb ind (off + indent_of l)
+          else if (negb (is_blank l) && Nat.ltb ind (off + indent_of l))%bool
           then
             let ap' := attr_feed l ap in
             if ap_failed ap'
@@ -2268,8 +2262,6 @@ Fixpoint step_fuel (n : nat) (off : nat) (l : string) (st : pstate) {struct n}
                    (step_fuel n' off l (para_recover 1 slices))
             else ([], PAttr pend specs (touch_extent range) ind ap'
                         (push_text l slices))
-          else if is_blank l
-          then ([], PPend pend specs (para_recover 0 slices))
           else pend_result pend specs
                  (step_fuel n' off l (para_recover 0 slices))
       | PRef range ind lbl val =>
@@ -2595,7 +2587,7 @@ Proof.
       reflexivity.
     + assert (Hd : forall e, pstate_depth (para_recover e aslices) = 0)
         by reflexivity.
-      destruct (Nat.ltb aind (off + indent_of l));
+      destruct (negb (is_blank l) && Nat.ltb aind (off + indent_of l))%bool;
         [destruct (ap_failed (attr_feed l aap)); [|reflexivity]|];
         [ set (e := 1) | set (e := 0) ];
         rewrite (IH n' _ l (para_recover e aslices)) by (rewrite ?Hd; lia);
@@ -3260,15 +3252,13 @@ Proof.
     { pose proof (IH k off l (PPend (Attr.merge (ap_attrs aap) apend) (aspecs ++ [extent_span arng])%list (PPara [])))
         as H; cbn [pad_state] in H; rewrite H; reflexivity. }
     { rewrite <- Nat.add_assoc, ltb_add_mono_l.
-      destruct (Nat.ltb aind (off + indent_of l)).
+      destruct (negb (is_blank l) && Nat.ltb aind (off + indent_of l))%bool.
       { destruct (ap_failed (attr_feed l aap)); [|reflexivity].
         pose proof (IH k off l (para_recover 1 aslices)) as H;
           rewrite pad_state_para_recover in H; rewrite H;
           destruct (step_fuel n off l (para_recover 1 aslices)) as [bs st'] eqn:Ed;
           cbn [pend_result fst snd pad_state]; destruct bs; reflexivity. }
-      { destruct (is_blank l);
-          [cbn [fst snd pad_state]; rewrite pad_state_para_recover; reflexivity|].
-        pose proof (IH k off l (para_recover 0 aslices)) as H;
+      { pose proof (IH k off l (para_recover 0 aslices)) as H;
           rewrite pad_state_para_recover in H; rewrite H;
           destruct (step_fuel n off l (para_recover 0 aslices)) as [bs st'] eqn:Ed;
           cbn [pend_result fst snd pad_state]; destruct bs; reflexivity. } } }
@@ -4186,7 +4176,10 @@ Proof.
       by (symmetry; apply Nat.ltb_ge; lia).
     replace (k + ind <? off' + 0)%nat with false
       by (symmetry; apply Nat.ltb_ge; lia).
-    destruct (ap_done ap); [|reflexivity].
+    destruct (ap_done ap).
+    2: { rewrite !andb_false_r.
+         change (para_recover 0 slices) with (pad_state k (para_recover 0 slices)).
+         rewrite (IH k off off' _ H H'). reflexivity. }
     change (PPend (Attr.merge (ap_attrs ap) pend) (specs ++ [extent_span range])
               (PPara []))
       with (pad_state k (PPend (Attr.merge (ap_attrs ap) pend)
@@ -5566,15 +5559,12 @@ Proof.
     + rewrite (IH off l (PPend (Attr.merge (ap_attrs ap) pend)
         (specs ++ [extent_span range])%list (PPara []))).
       cbn [StateErase.state StateErase.of_lines map]. rewrite map_app. reflexivity.
-    + destruct (Nat.ltb ind (off + indent_of l)).
+    + destruct (negb (is_blank l) && Nat.ltb ind (off + indent_of l))%bool.
       * destruct (ap_failed (attr_feed l ap)).
         -- rewrite pend_result_erase, IH, erase_para_recover. reflexivity.
         -- unfold StateErase.result; cbn [fst snd StateErase.state].
            rewrite erase_push_text. reflexivity.
-      * destruct (is_blank l).
-        -- unfold StateErase.result; cbn [fst snd StateErase.state].
-           rewrite erase_para_recover. reflexivity.
-        -- rewrite pend_result_erase, IH, erase_para_recover. reflexivity.
+      * rewrite pend_result_erase, IH, erase_para_recover. reflexivity.
   - (* PParaOff *)
     cbn [step_fuel StateErase.state];
       destruct (bunderline_of l) as [lvl|];

@@ -762,13 +762,10 @@ Proof.
         destruct (step_fuel n off l (para_recover k aslices)) as [bs st'].
         exact (fresh_pend_result _ _ bs st' Hf). }
     destruct (ap_done aap).
-    2: { destruct (Nat.ltb aind (off + indent_of l)).
+    2: { destruct (negb (is_blank l) && Nat.ltb aind (off + indent_of l))%bool.
          - destruct (ap_failed (attr_feed l aap)); [apply fresh_step_ok, Hrec|].
            apply fresh_step_ok, fresh_absorbing; [reflexivity|exact I].
-         - destruct (is_blank l); [|apply fresh_step_ok, Hrec].
-           apply fresh_step_ok. eapply fresh_single;
-             [cbn [state_ok]; split; [exact I|reflexivity]|reflexivity
-             |cbn [finish para_recover is_idle]; nopos; reflexivity|reflexivity]. }
+         - apply fresh_step_ok, Hrec. }
     destruct n as [|n']; [cbn [pstate_depth] in Hn; lia|]. cbn [step_fuel is_idle].
     destruct (classify l) eqn:E.
     1: { apply fresh_step_ok, fresh_emit;
