@@ -203,6 +203,17 @@ type blocks = block node list
 
 val fold_children : ('a1 -> block node -> 'a1) -> block -> 'a1 -> 'a1
 
+val map_acc : ('a2 -> 'a1 -> 'a1 * 'a3) -> 'a2 list -> 'a1 -> 'a1 * 'a3 list
+
+val map_acc_node :
+  ('a2 -> 'a1 -> 'a1 * 'a2) -> 'a2 node -> 'a1 -> 'a1 * 'a2 node
+
+val map_acc_snd :
+  ('a3 -> 'a1 -> 'a1 * 'a3) -> ('a2 * 'a3) -> 'a1 -> 'a1 * ('a2 * 'a3)
+
+val map_acc_children :
+  (block node -> 'a1 -> 'a1 * block node) -> block -> 'a1 -> 'a1 * block
+
 val decorate_head : attr -> blocks -> blocks
 
 val invisible_block : block -> bool
