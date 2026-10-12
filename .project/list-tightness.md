@@ -348,8 +348,7 @@ Proposed by the maintainer 2026-10-06, as the reason for D1's verdict.
 The parser decides tightness as if the attributes were a block since
 2026-10-06, and builds the block since 2026-10-12 (`AttrBlock`, "As
 built" below; not reviewed by a human).  The tightness theorems still
-keep `run_safe`: extending them is the part not done ("Extending the
-theorems" below has the rule to prove and what is left).
+no longer ask `run_safe` ("Extending the theorems" below).
 
 Block attributes "attach to a block-level element" on "the line
 immediately before the block".  The reference defines them by that job
@@ -497,8 +496,7 @@ off (`battrs`), `{.x}` is paragraph text and nothing dangles.
   the agent, as what "a block of their own" says.
 - Not done: no canonical form, so the roundtrip theorem does not reach a
   document holding the block (the generated corpus has none); the JSON
-  writes it as `block_attributes`, which djot.js's AST does not have;
-  the tightness theorems.
+  writes it as `block_attributes`, which djot.js's AST does not have.
 - The function that removes the blocks is `Document.DropAttrBlocks`
   (2026-10-12): `of_doc` on a document, its notes included, and
   `Html.html_tree_drop_attr_blocks` says the HTML is the same.  An
@@ -552,10 +550,26 @@ nested spec lines added.
 So the theorems to prove are the two directions with the new rule and
 no condition on the item.
 
-Done: `Tightness.step_fuel_ok` and `run_ok` hold with no premise, so
-`state_ok` and `tail_ok` are known at every line boundary of any item.
+Proved 2026-10-12, no axioms.  `item_loose_separates` asks only that
+the item's first line is not blank, and `list_spacing_separates` the
+same of each item.  `separates_item_loose` still asks that the lines
+before the blank leave no code block open (`blank_safe`, which a spec
+now passes).  How it went, for the next change to this file:
 
-Left:
+- `step_fuel_ok` and `run_ok` hold with no premise, so `state_ok` and
+  `tail_ok` are known at every line boundary of any item.
+- `blank_safe` admits a spec, and `ListUniformity.step_attr_blank` is
+  the one equation its six `step_blank_*` lemmas needed.  A spec holds
+  no blank (`held`, `holds_blank`).
+- `parse_head`: the blocks a run emits begin with a list exactly when
+  the state has one open (`heads_list`), once something is open
+  (`undecided`).  `step_fuel_head` is the step.
+- `loose_witness` names the blank, the lines it stayed armed across and
+  what spent it (`spent`); `wait_step` relates the scan's verdict on a
+  line met by waiting attributes to what the first block turns out to
+  be.
+
+What was planned, as written before the proof:
 
 - The lemmas about a blank ask `pad_safe` or `blank_safe` of the state
   it meets, and both exclude a spec.  A blank now closes a spec as it
@@ -632,7 +646,7 @@ proofs over it.
 | B | 4 shapes where we differ from djot.js on purpose | decided from the reference; B1 confirmed upstream, B2 to B4 kept by the maintainer (2026-10-11) |
 | C | 2 shapes the reference does not decide | decided by the proposal (2026-10-05) |
 | D | 2 shapes where our parser was inconsistent | both fixed; D1 decided by the maintainer (2026-10-06) |
-| | attributes with no block after them | a block of their own, the maintainer's proposal (2026-10-06); the parser builds it (2026-10-12), the theorems without `run_safe` are not done |
+| | attributes with no block after them | a block of their own, the maintainer's proposal (2026-10-06); the parser builds it and the theorems hold without `run_safe` (2026-10-12) |
 
 ## A. Agreed, not in question
 
