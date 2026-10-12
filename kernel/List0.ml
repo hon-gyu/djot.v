@@ -38,6 +38,13 @@ let rec last l d =
 
 let rec rev = List.rev
 
+(** val rev_append : 'a1 list -> 'a1 list -> 'a1 list **)
+
+let rec rev_append l l' =
+  match l with
+  | [] -> l'
+  | a :: l0 -> rev_append l0 (a :: l')
+
 (** val concat : 'a1 list list -> 'a1 list **)
 
 let rec concat = function

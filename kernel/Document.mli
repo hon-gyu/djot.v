@@ -571,6 +571,20 @@ module StrMap :
   val equal : ('a1 -> 'a1 -> bool) -> 'a1 t -> 'a1 t -> bool
  end
 
+module Assign :
+ sig
+  type 'a state = string list * 'a StrMap.t
+
+  val step : 'a1 state -> (string * 'a1) -> 'a1 state
+
+  val emit :
+    'a1 StrMap.t -> (string * 'a1) list -> string -> (string * 'a1) list
+
+  val read : 'a1 state -> (string * 'a1) list
+
+  val all : (string * 'a1) list -> (string * 'a1) list
+ end
+
 val inline_text : inline -> string
 
 val inlines_text : inlines -> string
@@ -628,22 +642,26 @@ val sect_bottom : sect_state -> blocks
 
 val sectionize : coq_PosPolicy -> blocks -> blocks
 
-val add_ref : pos -> attr -> block -> reference_map -> reference_map
+val ref_entries : attr -> block -> reference_map
 
 module Refs :
  sig
-  val of_block : block -> pos -> attr -> reference_map -> reference_map
+  val entries_block : block -> attr -> reference_map -> reference_map
 
-  val of_list : blocks -> reference_map -> reference_map
+  val entries_list : blocks -> reference_map -> reference_map
+
+  val collect : blocks -> reference_map
  end
 
 module Notes :
  sig
-  val add_note : block -> note_map -> note_map
+  val note_entries : block -> note_map
 
-  val of_block : block -> note_map -> note_map
+  val entries_block : block -> note_map -> note_map
 
-  val of_list : blocks -> note_map -> note_map
+  val entries_list : blocks -> note_map -> note_map
+
+  val collect : blocks -> note_map
  end
 
 val doc_pass : coq_PosPolicy -> blocks -> doc

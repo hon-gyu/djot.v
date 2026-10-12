@@ -49,32 +49,31 @@ let rev_string = (fun s -> let n = String.length s in
 let rec drop_leading_ws = (fun s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
      let n = String.length s in
-     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
-     let i = go 0 in if i = 0 then s else String.sub s i (n - i))
+     let rec go s n i = if i < n && ws s.[i] then go s n (i + 1) else i in
+     let i = go s n 0 in if i = 0 then s else String.sub s i (n - i))
 
 (** val indent_of : string -> int **)
 
 let rec indent_of = (fun s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
-     let n = String.length s in
-     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
-     go 0)
+     let rec go s n i = if i < n && ws s.[i] then go s n (i + 1) else i in
+     go s (String.length s) 0)
 
 (** val strip_trailing_ws : string -> string **)
 
 let strip_trailing_ws = (fun s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
      let n = String.length s in
-     let rec go i = if i > 0 && ws s.[i - 1] then go (i - 1) else i in
-     let i = go n in if i = n then s else String.sub s 0 i)
+     let rec go s i = if i > 0 && ws s.[i - 1] then go s (i - 1) else i in
+     let i = go s n in if i = n then s else String.sub s 0 i)
 
 (** val drop_ws_upto : int -> string -> string **)
 
 let rec drop_ws_upto = (fun k s ->
      let ws c = c = ' ' || c = '\t' || c = '\r' in
      let n = Stdlib.min k (String.length s) in
-     let rec go i = if i < n && ws s.[i] then go (i + 1) else i in
-     let i = go 0 in
+     let rec go s n i = if i < n && ws s.[i] then go s n (i + 1) else i in
+     let i = go s n 0 in
      if i = 0 then s else String.sub s i (String.length s - i))
 
 (** val nl : string **)

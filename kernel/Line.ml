@@ -143,12 +143,12 @@ type line_kind =
 
 let rec thematic_count = (fun s count ->
      let n = String.length s in
-     let rec go i k =
+     let rec go s n i k =
        if i >= n then 3 <= k
-       else if s.[i] = '-' || s.[i] = '*' then go (i + 1) (k + 1)
-       else if s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r' then go (i + 1) k
+       else if s.[i] = '-' || s.[i] = '*' then go s n (i + 1) (k + 1)
+       else if s.[i] = ' ' || s.[i] = '\t' || s.[i] = '\r' then go s n (i + 1) k
        else false in
-     go 0 count)
+     go s n 0 count)
 
 (** val is_thematic : string -> bool **)
 
@@ -176,8 +176,8 @@ let underline_of l =
 
 let rec take_while = (fun p s ->
      let n = String.length s in
-     let rec go i = if i < n && p s.[i] then go (i + 1) else i in
-     let i = go 0 in
+     let rec go p s n i = if i < n && p s.[i] then go p s n (i + 1) else i in
+     let i = go p s n 0 in
      if i = 0 then ("", s)
      else (String.sub s 0 i, String.sub s i (n - i)))
 
@@ -185,8 +185,8 @@ let rec take_while = (fun p s ->
 
 let rec count_run = (fun c s ->
      let n = String.length s in
-     let rec go i = if i < n && s.[i] = c then go (i + 1) else i in
-     let i = go 0 in
+     let rec go c s n i = if i < n && s.[i] = c then go c s n (i + 1) else i in
+     let i = go c s n 0 in
      if i = 0 then (0, s) else (i, String.sub s i (n - i)))
 
 (** val is_info_char : char -> bool **)
