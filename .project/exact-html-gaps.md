@@ -122,7 +122,13 @@ Logged 2026-09-08 under *Closed -- `attributes:89` and `attributes:95`*,
 which is what exposed it: the case matched by accident while an
 unattached spec kept its source.
 
-### Still open — a blank line does not close a spec
+### Decided 2026-10-12 — a blank line closes a spec
+
+Ours stands, now as a rule: a blank line, whatever its indentation, ends
+an open block attribute spec, and the lines the spec took become a
+paragraph.  See [[djotjs-divergences]], 2026-10-12.  What follows is the
+entry as written on 2026-09-09, when the continuation test below was the
+mechanism.
 
 The same sweep has 36 documents left, and they are one rule, not this
 one:
