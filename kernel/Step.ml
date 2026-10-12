@@ -1403,7 +1403,7 @@ let rec step_fuel t k lI p n off l st =
        if ap_done ap
        then step_fuel t k lI p n' off l (PPend ((Attr.merge ap.ap_attrs pend),
               (app specs ((extent_span range) :: [])), (PPara [])))
-       else if ( < ) ind (( + ) off (indent_of l))
+       else if (&&) (negb (is_blank l)) (( < ) ind (( + ) off (indent_of l)))
             then let ap' = attr_feed l ap in
                  if ap_failed ap'
                  then pend_result p pend specs
@@ -1411,10 +1411,8 @@ let rec step_fuel t k lI p n off l st =
                           (para_recover (Stdlib.succ 0) slices))
                  else ([], (PAttr (pend, specs, (touch_extent lI range), ind,
                         ap', (push_text lI l slices))))
-            else if is_blank l
-                 then ([], (PPend (pend, specs, (para_recover 0 slices))))
-                 else pend_result p pend specs
-                        (step_fuel t k lI p n' off l (para_recover 0 slices))
+            else pend_result p pend specs
+                   (step_fuel t k lI p n' off l (para_recover 0 slices))
      | PParaOff (koff, cur) ->
        (match bunderline_of k l with
         | Some lvl ->
