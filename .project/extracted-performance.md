@@ -757,8 +757,72 @@ Old -> new, three alternating runs, the best of each:
 
 Allocation fell 15% to 23% and time by 2.5% at most, which is the
 plan's gate failing: allocation is not what the constant factor is made
-of.  The first-byte dispatch of that plan was not started.  What is
-next is a time profile of `readme.dj` x64.
+of.  The first-byte dispatch of that plan was not started.
+
+### Time profile, and the line loop
+
+2026-10-12, baseline `10efd1e`, OCaml 5.5.0, release profile unless
+said.  `readme.dj` x64 through `parse_doc`, looped for ten seconds
+under macOS `sample`, 7716 samples by the function on top of the stack:
+
+| share | what |
+| ---: | --- |
+| 21.6% | major collector (marking, sweeping) |
+| 16.0% | minor collector and promotion |
+| 20.7% | string copies (`memmove`, `caml_alloc_string`, `String.sub`) |
+| 13.9% | the inline scan |
+| 10.1% | the line recognizers |
+| 8.6% | runtime calls (`caml_c_call`, `compare_val`, `caml_apply2`) |
+| 2.0% | the block step |
+
+`sample` does not unwind from C into OCaml frames, so the copies and the
+collector could not be charged to callers this way.
+
+The collector's share is real: with a minor heap that holds the whole
+parse (`OCAMLRUNPARAM=s=32M`) the same loop took 19.5 ms against 29.1,
+and one parse in a fresh process 25.3 ms against 32.3.  The 2026-10-01
+note above, that the minor heap size does not change the time, does not
+hold on this tree.
+
+What costs is promotion.  `parse_blocks` promoted 12.2 MB to return a
+3.2 MB tree over 1.6 MB of lines.  `Gc.Memprof` with a promotion
+callback showed the block state promoted almost whole: `list_content`,
+`line_stop`, `touch_extent`, `list_blank`, `remember_line` and
+`open_text` at 94% to 100% of what they allocate, though each lives for
+a line or a paragraph.  `parse_lines` is `bs ++ parse_lines rest st'`:
+a frame per line, and what the frames reach stays live until the last
+line.
+
+`Step.parse_lines_loop` is the same fold with an accumulator, and
+`parse_lines_loop_spec` proves it equal to `parse_lines`, which stays
+the specification.  `Extract.v` substitutes it (trusted, like the
+candidate-stack entry points).  Old extraction against new on
+`Html.convert`: block-marker and footnote token sequences, exhaustive to
+length 4 and 400000 random ones, the djot.js test files and
+`readme.dj` x64; 472548 comparisons, no difference.  The suites,
+`make check-stack` and `make check-axioms` pass.
+
+| input | before | after |
+| --- | ---: | ---: |
+| `readme.dj` x64, `parse_doc`, release, ms | 29.1 | 22.0 |
+| the same, promoted, MB | 12.2 | 5.4 |
+| `readme.dj` x64, `parse_blocks`, dev, ms | 29.1 | 22.4 |
+| 14000 two-line list items, `parse_blocks`, release, ms | 40.2 | 29.9 |
+| 22000 one-line paragraphs, `parse_blocks`, release, ms | 19.8 | 16.2 |
+
+The release rows are from a scratch copy of the extraction with the loop
+written by hand, before it was proved.
+
+Open after this:
+
+- `Reparse.cut` and `assemble` recurse the same way, a frame per piece,
+  and they are what `parse_blocks_located` and `Doc.of_string` run.
+  The located parse did not move (38.4 ms, dev).  This is the likely
+  place of the 50% to 75% that positions cost through `Doc.of_string`.
+- 5.4 MB is still promoted for a 3.2 MB tree.
+- String copies, a fifth of the samples.  The 2026-10-01 breakdown puts
+  them in the block recognizers' tail copies, which offsets or slices
+  would remove (open item 1 below).
 
 ## Open, ranked by what they cost a real document
 
