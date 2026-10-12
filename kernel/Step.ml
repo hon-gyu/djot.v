@@ -827,6 +827,18 @@ let open_fence_stop opener = function
 | [] -> opener.span_stop
 | newest :: _ -> stored_stop newest
 
+(** val specs_span : span list -> span **)
+
+let specs_span specs = match specs with
+| [] -> null_span
+| r :: _ ->
+  { span_start = r.span_start; span_stop = (last specs r).span_stop }
+
+(** val attr_block : coq_PosPolicy -> attr -> span list -> blocks **)
+
+let attr_block p pend specs =
+  (set_pos p (prov_at (specs_span specs)) (Node (NoPos, pend, AttrBlock))) :: []
+
 (** val finish : dtable -> bconfig -> coq_PosPolicy -> pstate -> blocks **)
 
 let rec finish t k p = function
@@ -855,9 +867,10 @@ let rec finish t k p = function
   let ls0 = list_settle (attr_waits inner) ls in
   (set_pos p (prov_at (extent_span ls0.ls_extent))
     (set_parts p (list_parts k ls0 last0) (list_block k ls0 last0))) :: []
-| PAttr (pend, specs, _, _, ap, slices) ->
+| PAttr (pend, specs, range, _, ap, slices) ->
   if ap_done ap
-  then []
+  then attr_block p (Attr.merge ap.ap_attrs pend)
+         (app specs ((extent_span range) :: []))
   else add_roles_head p (attr_roles specs)
          (decorate_head pend (finish_para_recover t p slices))
 | PParaOff (k0, cur) ->
@@ -872,8 +885,10 @@ let rec finish t k p = function
   (set_pos p (prov_at (extent_span range))
     (set_parts p (table_parts cap) (table_block t p (rev rows) cap))) :: []
 | PPend (pend, specs, inner) ->
-  add_roles_head p (attr_roles specs)
-    (decorate_head pend (finish t k p inner))
+  if is_idle inner
+  then attr_block p pend specs
+  else add_roles_head p (attr_roles specs)
+         (decorate_head pend (finish t k p inner))
 | PKey (range, lbl, src, inner) ->
   pos_head p (prov_at (extent_span range))
     (key_close t p range.extent_start lbl src (finish t k p inner))
@@ -1491,7 +1506,7 @@ let rec step_fuel t k lI p n off l st =
        (match classify l with
         | KBlank ->
           if is_idle inner
-          then ([], (PPara []))
+          then ((attr_block p pend specs), (PPara []))
           else pend_result p pend specs (step_fuel t k lI p n' off l inner)
         | KAttr ap ->
           if is_idle inner
