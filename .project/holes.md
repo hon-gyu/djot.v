@@ -12,7 +12,7 @@ the rules change.
 **Respelled 2026-10-09** as `` %`e` ``, a code span with a `%` prefix:
 [[261009.plan.backtick-holes]]. What follows is the brace form's log.
 
-Status: **implemented** (2026-10-07), v1, on branch `hy/holes`. The
+Status: **implemented** (2026-10-07, merged the same day), v1. The
 setting, scanner states, proofs, extraction, the OCaml switch
 `Profile.with_ext_holes` and the Python `ast.ExtHole` are built.
 `dev/check/Hole.v` pins every decision, and the roundtrip test has a
