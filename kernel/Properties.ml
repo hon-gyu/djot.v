@@ -215,8 +215,7 @@ let p_list_tightness =
     p_theorems =
     ("list_spacing_separates" :: ("separates_loosens" :: ("blank_between_items_loosens" :: [])));
     p_status =
-    (always (Conditional
-      "For items with no block attribute outside a block quote. A blank line inside a code block does not count.")) }
+    (always (Conditional "A blank line inside a code block does not count.")) }
 
 (** val p_indent_uniformity : property **)
 
