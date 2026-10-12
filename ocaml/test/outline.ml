@@ -112,6 +112,7 @@ let block_label d (n : Block.t node) : string * item list =
   | RawBlock (f, s) -> Printf.sprintf "RawBlock %s %s" (quote f) (quote s), []
   | FootnoteDef (label, l) -> "FootnoteDef " ^ quote label, blocks l
   | RefDef (label, dest) -> Printf.sprintf "RefDef %s %s" (quote label) (quote dest), []
+  | AttrBlock -> "AttrBlock", []
   | Ext_keyed (label, b) ->
     "Ext_keyed", [ group "label" Textloc.none (inlines label); B b ]
   | Ext_callout (kind, fold, title, body) ->

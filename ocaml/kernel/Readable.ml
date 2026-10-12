@@ -415,6 +415,9 @@ let rec readable_lines t k a b =
            (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
              bs))
      | RefDef (label, dest) -> (ref_line label dest) :: []
+     | AttrBlock -> (match a with
+                     | [] -> "{}" :: []
+                     | _ :: _ -> [])
      | Ext_keyed (label, inner) ->
        key_lines t (readable_nodes t label None)
          (let Node (_, a0, x) = inner in

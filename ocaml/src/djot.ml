@@ -613,6 +613,7 @@ module Block = struct
     | RawBlock of string * string
     | FootnoteDef of string * t node list
     | RefDef of string * string
+    | AttrBlock
     | Ext_keyed of Inline.t node list * t node
     | Ext_callout of string * callout_fold option * Inline.t node list * t node list
 
@@ -1435,7 +1436,7 @@ module Mapper = struct
         Option.map (fun b -> Block.Ext_keyed (il l, b)) (map_block m b)
       | Ext_callout (kind, fold, title, body) ->
         Some (Ext_callout (kind, fold, il title, bl body))
-      | (CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _) as x -> Some x
+      | (CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ | AttrBlock) as x -> Some x
     in
     Option.map (fun x -> Node (p, a, x)) x
   ;;
@@ -1542,7 +1543,7 @@ module Folder = struct
          il acc (Node.content cap)
        | Ext_keyed (l, b) -> fold_block f (il acc l) b
        | Ext_callout (_, _, title, body) -> bl (il acc title) body
-       | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ -> acc)
+       | CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ | AttrBlock -> acc)
   ;;
 end
 

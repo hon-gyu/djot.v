@@ -370,6 +370,7 @@ type block =
 | RawBlock of string * string
 | FootnoteDef of string * block node list
 | RefDef of string * string
+| AttrBlock
 | Ext_keyed of inlines * block node
 | Ext_callout of string * callout_fold option * inlines * block node list
 
