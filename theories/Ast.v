@@ -841,6 +841,134 @@ Definition map_children (g : blocks -> blocks) (h : node block -> node block)
   | RefDef _ _ | AttrBlock => b
   end.
 
+(* `f` over a list, a state passed from each element to the next. *)
+Fixpoint map_acc {S A B : Type} (f : A -> S -> S * B) (l : list A) (s : S) : S * list B :=
+  match l with
+  | [] => (s, [])
+  | x :: rest =>
+      let (s1, y) := f x s in
+      let (s2, rest') := map_acc f rest s1 in
+      (s2, y :: rest')
+  end.
+
+Lemma map_acc_cons : forall (S A B : Type) (f : A -> S -> S * B) x l s,
+  map_acc f (x :: l) s
+  = (fst (map_acc f l (fst (f x s))), snd (f x s) :: snd (map_acc f l (fst (f x s)))).
+Proof.
+  intros. cbn [map_acc]. destruct (f x s) as [s1 y]. cbn [fst snd].
+  destruct (map_acc f l s1); reflexivity.
+Qed.
+
+Lemma map_acc_app : forall (S A B : Type) (f : A -> S -> S * B) l1 l2 s,
+  map_acc f (l1 ++ l2)%list s
+  = (fst (map_acc f l2 (fst (map_acc f l1 s))),
+     (snd (map_acc f l1 s) ++ snd (map_acc f l2 (fst (map_acc f l1 s))))%list).
+Proof.
+  intros S A B f. induction l1 as [|x l1 IH]; intros l2 s.
+  - cbn [app map_acc fst snd]. destruct (map_acc f l2 s); reflexivity.
+  - cbn [app]. rewrite !map_acc_cons, IH. reflexivity.
+Qed.
+
+(* `k` on a node's contents, and on the second half of a pair. *)
+Definition map_acc_node {S A : Type} (k : A -> S -> S * A) (it : node A) (s : S)
+  : S * node A :=
+  match it with Node p a x => let (s', x') := k x s in (s', Node p a x') end.
+
+Definition map_acc_snd {S A B : Type} (k : B -> S -> S * B) (x : A * B) (s : S)
+  : S * (A * B) :=
+  let (s', y) := k (snd x) s in (s', (fst x, y)).
+
+(* A block with each child replaced by what `f` makes of it, the state
+   passed through the children in document order.  A pass that rebuilds
+   the tree with state is one call. *)
+Definition map_acc_children {S : Type} (f : node block -> S -> S * node block)
+  (b : block) (st : S) : S * block :=
+  let g := map_acc f in
+  let wrap {A : Type} (c : A -> block) (r : S * A) : S * block :=
+    let (s, x) := r in (s, c x) in
+  match b with
+  | Section bs => wrap Section (g bs st)
+  | BlockQuote bs => wrap BlockQuote (g bs st)
+  | Div name bs => wrap (Div name) (g bs st)
+  | FootnoteDef lbl bs => wrap (FootnoteDef lbl) (g bs st)
+  | Ext_callout kind fold title bs => wrap (Ext_callout kind fold title) (g bs st)
+  | Ext_keyed lbl n => wrap (Ext_keyed lbl) (f n st)
+  | OrderedList oa sp items => wrap (OrderedList oa sp) (map_acc (map_acc_node g) items st)
+  | BulletList bc sp items => wrap (BulletList bc sp) (map_acc (map_acc_node g) items st)
+  | TaskList sp items =>
+      wrap (TaskList sp) (map_acc (map_acc_node (map_acc_snd g)) items st)
+  | DefinitionList sp items =>
+      wrap (DefinitionList sp)
+        (map_acc (map_acc_node (map_acc_snd (map_acc_node g))) items st)
+  | Para _ | Heading _ _ | CodeBlock _ _ | ThematicBreak | Table _ _ | RawBlock _ _
+  | RefDef _ _ | AttrBlock => (st, b)
+  end.
+
+(* The state a rebuild ends in is the one its children leave, in order. *)
+Lemma map_acc_children_fst : forall (S : Type) (f : node block -> S -> S * node block) b st,
+  fst (map_acc_children f b st) = fst (map_acc f (children b) st).
+Proof.
+  intros S f.
+  assert (F : forall (A : Type) (k : A -> S -> S * A) (c : A -> blocks),
+            (forall x s, fst (k x s) = fst (map_acc f (c x) s)) ->
+            forall its s, fst (map_acc k its s) = fst (map_acc f (flat_map c its) s)).
+  { intros A k c H. induction its as [|x its IH]; intros s; [reflexivity|].
+    cbn [flat_map]. rewrite map_acc_cons, map_acc_app. cbn [fst]. rewrite IH, H. reflexivity. }
+  intros b st.
+  destruct b; cbn [map_acc_children Ast.children]; try reflexivity;
+    try (destruct (map_acc f _ st); reflexivity).
+  all: try (match goal with |- fst (let (_, _) := ?e in _) = _ =>
+              transitivity (fst e); [destruct e; reflexivity|] end).
+  - apply F. intros [] s. unfold map_acc_node; cbn [node_contents]. destruct (map_acc f _ s); reflexivity.
+  - apply F. intros [] s. unfold map_acc_node; cbn [node_contents]. destruct (map_acc f _ s); reflexivity.
+  - apply (F _ _ (fun it => snd (node_contents it))). intros [? ? []] s.
+    unfold map_acc_node, map_acc_snd; cbn [node_contents snd]. destruct (map_acc f _ s); reflexivity.
+  - apply (F _ _ (fun it => node_contents (snd (node_contents it)))). intros [? ? [? []]] s.
+    unfold map_acc_node, map_acc_snd; cbn [node_contents snd]. destruct (map_acc f _ s); reflexivity.
+  - rewrite map_acc_cons. reflexivity.
+Qed.
+
+(* `g` and `h` take back what `f` did to each child, so they take back
+   the rebuild. *)
+Lemma map_children_map_acc_children :
+  forall (S : Type) (f : node block -> S -> S * node block) g h b st,
+    (forall l s, Forall (fun n => In n (children b)) l -> g (snd (map_acc f l s)) = l) ->
+    (forall n s, In n (children b) -> h (snd (f n s)) = n) ->
+    map_children g h (snd (map_acc_children f b st)) = b.
+Proof.
+  intros S f g h b st Hg Hh.
+  assert (F : forall (A : Type) (k : A -> S -> S * A) (u : A -> A) (its : list A),
+            (forall x s, In x its -> u (snd (k x s)) = x) ->
+            forall s, map u (snd (map_acc k its s)) = its).
+  { intros A k u. induction its as [|x its IH]; intros H s; [reflexivity|].
+    rewrite map_acc_cons. cbn [snd map]. rewrite H by (left; reflexivity).
+    rewrite IH; [reflexivity|]. intros y s' Hy. apply H. right. exact Hy. }
+  destruct b; cbn [map_acc_children Ast.children] in *; try reflexivity.
+  all: try (destruct (map_acc f _ st) as [s' l'] eqn:E; cbn [snd map_children];
+            f_equal; change l' with (snd (s', l')); rewrite <- E; apply Hg;
+            apply Forall_forall; intros; assumption).
+  all: try (match goal with |- map_children _ _ (snd (let (_, _) := ?e in _)) = _ =>
+              destruct e as [s' l'] eqn:E; cbn [snd map_children]; f_equal;
+              change l' with (snd (s', l')); rewrite <- E end).
+  - apply F. intros [p a x] s Hx. unfold map_acc_node.
+    destruct (map_acc f x s) as [s1 x1] eqn:E1. cbn [snd]. f_equal.
+    change x1 with (snd (s1, x1)). rewrite <- E1. apply Hg.
+    apply Forall_forall. intros n Hn. apply in_flat_map. exists (Node p a x). split; assumption.
+  - apply F. intros [p a x] s Hx. unfold map_acc_node.
+    destruct (map_acc f x s) as [s1 x1] eqn:E1. cbn [snd]. f_equal.
+    change x1 with (snd (s1, x1)). rewrite <- E1. apply Hg.
+    apply Forall_forall. intros n Hn. apply in_flat_map. exists (Node p a x). split; assumption.
+  - apply F. intros [p a [c x]] s Hx. unfold map_acc_node, map_acc_snd; cbn [fst snd].
+    destruct (map_acc f x s) as [s1 x1] eqn:E1. cbn [snd fst]. do 2 f_equal.
+    change x1 with (snd (s1, x1)). rewrite <- E1. apply Hg.
+    apply Forall_forall. intros n Hn. apply in_flat_map. exists (Node p a (c, x)). split; assumption.
+  - apply F. intros [p a [c [q d x]]] s Hx. unfold map_acc_node, map_acc_snd; cbn [fst snd].
+    destruct (map_acc f x s) as [s1 x1] eqn:E1. cbn [snd fst]. do 3 f_equal.
+    change x1 with (snd (s1, x1)). rewrite <- E1. apply Hg.
+    apply Forall_forall. intros n Hn. apply in_flat_map. exists (Node p a (c, Node q d x)). split; assumption.
+  - apply Hh. left. reflexivity.
+Qed.
+
 (*
 Assembling blocks
 -----------------

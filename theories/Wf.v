@@ -4443,178 +4443,101 @@ Identifiers
 -----------
 *)
 
+(* A rebuild that keeps each child well formed keeps the block so. *)
+Local Lemma wf_block_map_acc_children :
+  forall (S : Type) (f : node block -> S -> S * node block) b st,
+    (forall n, In n (children b) -> forall s,
+       wf_block (node_contents n) = true ->
+       wf_block (node_contents (snd (f n s))) = true) ->
+    wf_block b = true ->
+    wf_block (snd (map_acc_children f b st)) = true.
+Proof.
+  intros S f b st H Hb.
+  assert (F : forall (A : Type) (k : A -> S -> S * A) (Q : A -> bool) (its : list A),
+            (forall x s, In x its -> Q x = true -> Q (snd (k x s)) = true) ->
+            forall s, forallb Q its = true ->
+                      forallb Q (snd (map_acc k its s)) = true).
+  { intros A k Q. induction its as [|x its IH]; intros Hk s Hq; [reflexivity|].
+    cbn [forallb] in Hq. apply andb_true_iff in Hq as [H1 H2].
+    rewrite map_acc_cons. cbn [snd forallb].
+    rewrite Hk by (try left; auto).
+    apply IH; [|exact H2]. intros y s' Hy. apply Hk. right. exact Hy. }
+  assert (N : forall (A : Type) (k : A -> S -> S * A) (its : list A) s,
+            nonempty (snd (map_acc k its s)) = nonempty its).
+  { intros A k [|x its] s; [reflexivity|]. rewrite map_acc_cons. reflexivity. }
+  assert (W : forall (l : blocks) s,
+            (forall n, In n l -> In n (children b)) ->
+            wf_blocks l = true -> wf_blocks (snd (map_acc f l s)) = true).
+  { intros l s Hl Hw.
+    apply (F _ f (fun n => wf_block (node_contents n))); [|exact Hw].
+    intros x s' Hx. apply H, Hl, Hx. }
+  (* An item's blocks, rebuilt, are well formed. *)
+  Local Ltac item_wf W Hx Hq :=
+    match goal with |- context [map_acc ?f ?x ?s] =>
+      let E := fresh "E" in
+      destruct (map_acc f x s) as [s1 x1] eqn:E; cbn [fst snd node_contents] in *;
+      change x1 with (snd (s1, x1)); rewrite <- E
+    end;
+    apply W; [|exact Hq];
+    intros n Hn; apply in_flat_map; eexists; split; [exact Hx|exact Hn].
+  destruct b; cbn [map_acc_children Ast.children] in *; try exact Hb.
+  all: match goal with |- context [let (_, _) := ?e in _] =>
+         let E := fresh "E" in
+         destruct e as [s1 l1] eqn:E; cbn [snd];
+         change l1 with (snd (s1, l1)); rewrite <- E; clear E s1 l1
+       end.
+  all: rewrite ?wf_block_section, ?wf_block_quote, ?wf_block_div, ?wf_block_olist,
+         ?wf_block_bullet, ?wf_block_tasklist, ?wf_block_deflist,
+         ?wf_block_footnote, ?wf_block_keyed, ?wf_block_callout in Hb |- *.
+  all: rewrite ?N;
+    try (apply andb_true_iff in Hb as [Hb1 Hb]; rewrite Hb1; cbn [andb]).
+  all: try (apply W; [intros; assumption|exact Hb]).
+  1-4: apply F; [|exact Hb].
+  - intros [q c x] s Hx Hq. unfold map_acc_node. item_wf W Hx Hq.
+  - intros [q c x] s Hx Hq. unfold map_acc_node. item_wf W Hx Hq.
+  - intros [q c [t x]] s Hx Hq. unfold map_acc_node, map_acc_snd. cbn [fst snd].
+    item_wf W Hx Hq.
+  - intros [q c [t [r d x]]] s Hx Hq.
+    unfold map_acc_node, map_acc_snd, wf_def_entry in *.
+    cbn [fst snd node_contents] in *.
+    apply andb_true_iff in Hq as [Ht Hq].
+    destruct (map_acc f x s) as [s1 x1] eqn:E. cbn [fst snd node_contents].
+    rewrite Ht. change x1 with (snd (s1, x1)). rewrite <- E.
+    apply W; [|exact Hq].
+    intros n Hn. apply in_flat_map. eexists. split; [exact Hx|exact Hn].
+  - rewrite wf_blocks_cons in Hb |- *. apply andb_true_iff in Hb as [Hx _].
+    rewrite H by (try left; auto). reflexivity.
+Qed.
+
 Local Lemma assign_ids_wf :
   forall b p a st,
     wf_block b = true ->
     wf_block (node_contents (snd (Ids.of_block b p a st))) = true.
 Proof.
-  intros b.
-  induction b using block_ind2 with
-    (Q := fun bs => forall st,
-            wf_blocks bs = true ->
-            wf_blocks (snd (Ids.of_list bs st)) = true)
-    (R := fun its => forall st,
-            forallb (fun it => wf_blocks (node_contents it)) its = true ->
-            forallb (fun it => wf_blocks (node_contents it)) (snd (Ids.of_items its st)) = true)
-    (D := fun its => forall st,
-            forallb wf_def_entry its
-            = true ->
-            forallb wf_def_entry (snd (Ids.of_def_items its st)) = true)
-    (K := fun its => forall st,
-            forallb (fun ti => wf_blocks (snd (node_contents ti))) its = true ->
-            forallb (fun ti => wf_blocks (snd (node_contents ti)))
-              (snd (Ids.of_task_items its st)) = true);
-    intros; try exact H.
-  (* A `Section` is unreachable from the line fold, but the lemma is
-     stated for every block, so it is discharged by the identity branch
-     of Ids.of_block above. *)
-  - (* Heading *)
+  intros b. induction b as [b IH] using block_children_ind. intros p a st H.
+  destruct (plain_block b) eqn:Hp.
+  - rewrite Ids.of_block_plain by exact Hp. cbn [snd node_contents].
+    apply wf_block_map_acc_children; [|exact H].
+    intros [q c x] Hn s Hx. rewrite Forall_forall in IH.
+    exact (IH _ Hn q c s Hx).
+  - (* A `Section` is unreachable from the line fold, and the pass leaves
+       it as it is. *)
+    destruct b; try discriminate; [exact H|].
     unfold Ids.of_block, assign_heading_id.
     destruct (alist_lookup "id" a) as [v|]; exact H.
-  - (* BlockQuote *)
-    rewrite Ids.quote.
-    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
-    cbn [snd node_contents].
-    rewrite wf_block_quote in H |- *.
-    change bs' with (snd (st', bs')). rewrite <- E.
-    apply IHb. exact H.
-  - (* Div *)
-    rewrite Ids.div.
-    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
-    cbn [snd node_contents].
-    rewrite wf_block_div in H |- *.
-    change bs' with (snd (st', bs')). rewrite <- E.
-    apply IHb. exact H.
-  - (* OrderedList: as the bullet case below *)
-    rewrite Ids.olist.
-    destruct (Ids.of_items items (register_id a st)) as [st' its'] eqn:E.
-    cbn [snd node_contents].
-    rewrite wf_block_olist in H |- *.
-    apply andb_true_iff in H as [Hne Hits].
-    apply andb_true_iff. split.
-    + replace its' with (snd (Ids.of_items items (register_id a st)))
-        by (rewrite E; reflexivity).
-      rewrite Ids.items_nonempty. exact Hne.
-    + change its' with (snd (st', its')). rewrite <- E.
-      apply IHb. exact Hits.
-  - (* BulletList: the id pass rewrites items, so the nonempty conjunct
-       has to survive the traversal too *)
-    rewrite Ids.blist.
-    destruct (Ids.of_items items (register_id a st)) as [st' its'] eqn:E.
-    cbn [snd node_contents].
-    rewrite wf_block_bullet in H |- *.
-    apply andb_true_iff in H as [Hne Hits].
-    apply andb_true_iff. split.
-    + replace its' with (snd (Ids.of_items items (register_id a st)))
-        by (rewrite E; reflexivity).
-      rewrite Ids.items_nonempty. exact Hne.
-    + change its' with (snd (st', its')). rewrite <- E.
-      apply IHb. exact Hits.
-  - (* TaskList: as the bullet case, over pairs *)
-    rewrite Ids.tasklist.
-    destruct (Ids.of_task_items items (register_id a st)) as [st' its'] eqn:E.
-    cbn [snd node_contents].
-    rewrite wf_block_tasklist in H |- *.
-    apply andb_true_iff in H as [Hne Hits].
-    apply andb_true_iff. split.
-    + replace its' with (snd (Ids.of_task_items items (register_id a st)))
-        by (rewrite E; reflexivity).
-      rewrite Ids.task_items_nonempty. exact Hne.
-    + change its' with (snd (st', its')). rewrite <- E.
-      apply IHb. exact Hits.
-  - (* DefinitionList: as the bullet case, over pairs *)
-    rewrite Ids.deflist.
-    destruct (Ids.of_def_items items (register_id a st)) as [st' its'] eqn:E.
-    cbn [snd node_contents].
-    rewrite wf_block_deflist in H |- *.
-    apply andb_true_iff in H as [Hne Hits].
-    apply andb_true_iff. split.
-    + replace its' with (snd (Ids.of_def_items items (register_id a st)))
-        by (rewrite E; reflexivity).
-      rewrite Ids.def_items_nonempty. exact Hne.
-    + change its' with (snd (st', its')). rewrite <- E.
-      apply IHb. exact Hits.
-  - (* FootnoteDef: identifiers recurse through its body. *)
-    rewrite Ids.foot.
-    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
-    cbn [snd node_contents]. rewrite wf_block_footnote in H |- *.
-    apply andb_true_iff in H as [Hlbl Hbs].
-    apply andb_true_iff. split; [exact Hlbl|].
-    change bs' with (snd (st', bs')). rewrite <- E. apply IHb. exact Hbs.
-  - (* Ext_keyed: the label is untouched and the block is `Q` at a
-       singleton. *)
-    rewrite wf_block_keyed in H. apply andb_true_iff in H as [Hlbl Hb].
-    destruct b as [p' a' x].
-    cbn [Ids.of_block] in *.
-    destruct (Ids.of_block x p' a' (register_id a st)) as [st1 n1] eqn:E1.
-    cbn [snd node_contents]. rewrite wf_block_keyed.
-    apply andb_true_iff. split; [exact Hlbl|].
-    specialize (IHb (register_id a st) Hb).
-    cbn [Ids.of_list Ids.of_node] in IHb. rewrite E1 in IHb.
-    cbn [snd] in IHb. exact IHb.
-  - (* Ext_callout: the title is unchanged; identifiers traverse the body. *)
-    rewrite Ids.callout.
-    destruct (Ids.of_list bs (register_id a st)) as [st' bs'] eqn:E.
-    cbn [snd node_contents]. rewrite wf_block_callout in H |- *.
-    apply andb_true_iff in H as [Htitle Hbs].
-    apply andb_true_iff. split; [exact Htitle|].
-    change bs' with (snd (st', bs')). rewrite <- E.
-    apply IHb. exact Hbs.
-  - (* Node p a b :: rest *)
-    rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
-    cbn [Ids.of_list Ids.of_node].
-    destruct (Ids.of_block b p a st) as [st1 n1] eqn:E1.
-    destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
-    cbn [snd]. rewrite wf_blocks_cons.
-    apply andb_true_iff. split.
-    + change n1 with (snd (st1, n1)). rewrite <- E1. apply IHb. exact Hx.
-    + change rest1 with (snd (st2, rest1)). rewrite <- E2.
-      apply IHb0. exact Hrest.
-  - (* R's cons *)
-    cbn [forallb node_contents wf_def_entry] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [Ids.of_items].
-    destruct (Ids.of_list it st) as [s1 it1] eqn:E1.
-    destruct (Ids.of_items rest s1) as [s2 rest1] eqn:E2.
-    cbn [snd forallb node_contents wf_def_entry]. apply andb_true_iff. split.
-    + change it1 with (snd (s1, it1)). rewrite <- E1. apply IHb. exact Hit.
-    + change rest1 with (snd (s2, rest1)). rewrite <- E2.
-      apply IHb0. exact Hrest.
-  - (* D's cons: the term is carried, so only the definition moves *)
-    cbn [forallb fst snd node_contents wf_def_entry] in H. apply andb_true_iff in H as [Hit Hrest].
-    apply andb_true_iff in Hit as [Hterm Hit].
-    cbn [Ids.of_def_items].
-    destruct (Ids.of_list it st) as [s1 it1] eqn:E1.
-    destruct (Ids.of_def_items rest s1) as [s2 rest1] eqn:E2.
-    cbn [snd forallb fst node_contents wf_def_entry]. apply andb_true_iff. split.
-    + apply andb_true_iff. split; [exact Hterm|].
-      change it1 with (snd (s1, it1)). rewrite <- E1. apply IHb. exact Hit.
-    + change rest1 with (snd (s2, rest1)). rewrite <- E2.
-      apply IHb0. exact Hrest.
-  - (* K's cons: the status is carried the same way *)
-    cbn [forallb snd node_contents wf_def_entry] in H. apply andb_true_iff in H as [Hit Hrest].
-    cbn [Ids.of_task_items].
-    destruct (Ids.of_list it st) as [s1 it1] eqn:E1.
-    destruct (Ids.of_task_items rest s1) as [s2 rest1] eqn:E2.
-    cbn [snd forallb node_contents wf_def_entry]. apply andb_true_iff. split.
-    + change it1 with (snd (s1, it1)). rewrite <- E1. apply IHb. exact Hit.
-    + change rest1 with (snd (s2, rest1)). rewrite <- E2.
-      apply IHb0. exact Hrest.
 Qed.
 
 Local Lemma assign_ids_list_wf :
   forall bs st,
     wf_blocks bs = true -> wf_blocks (snd (Ids.of_list bs st)) = true.
 Proof.
+  unfold Ids.of_list.
   induction bs as [|[p a x] rest IH]; intros st H; [reflexivity|].
   rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
-  cbn [Ids.of_list Ids.of_node].
-  destruct (Ids.of_block x p a st) as [st1 n1] eqn:E1.
-  destruct (Ids.of_list rest st1) as [st2 rest1] eqn:E2.
-  cbn [snd]. rewrite wf_blocks_cons. apply andb_true_iff. split.
-  - change n1 with (snd (st1, n1)). rewrite <- E1.
-    apply assign_ids_wf. exact Hx.
-  - change rest1 with (snd (st2, rest1)). rewrite <- E2.
-    apply IH. exact Hrest.
+  rewrite map_acc_cons. cbn [snd]. rewrite wf_blocks_cons.
+  apply andb_true_iff. split.
+  - apply assign_ids_wf. exact Hx.
+  - apply IH. exact Hrest.
 Qed.
 
 (*
