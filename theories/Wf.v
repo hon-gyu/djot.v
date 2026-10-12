@@ -4413,6 +4413,69 @@ Proof.
   rewrite Hs in Hsup. discriminate.
 Qed.
 
+(* `supported` reaches every child. *)
+Local Lemma supported_children :
+  forall b, supported b = true -> supported_blocks (children b) = true.
+Proof.
+  assert (F : forall (A : Type) (g : A -> blocks) its,
+            forallb (fun it => supported_blocks (g it)) its = true ->
+            supported_blocks (flat_map g its) = true).
+  { intros A g. induction its as [|x its IH]; intros H; [reflexivity|].
+    cbn [forallb] in H. apply andb_true_iff in H as [Hx Hr].
+    cbn [flat_map]. rewrite supported_blocks_app, Hx, (IH Hr). reflexivity. }
+  intros b H. destruct b; cbn [Ast.children]; try reflexivity; try discriminate.
+  - rewrite supported_quote in H. exact H.
+  - rewrite supported_div in H. exact H.
+  - rewrite supported_olist in H. apply F, H.
+  - rewrite supported_bullet in H. apply F, H.
+  - rewrite supported_tasklist in H.
+    exact (F _ (fun it => snd (node_contents it)) _ H).
+  - rewrite supported_deflist in H.
+    exact (F _ (fun it => node_contents (snd (node_contents it))) _ H).
+  - rewrite supported_footnote in H. exact H.
+  - rewrite supported_keyed in H. unfold supported_blocks. cbn [forallb].
+    rewrite H. reflexivity.
+  - change (supported (BlockQuote body) = true) in H.
+    rewrite supported_quote in H. exact H.
+Qed.
+
+(** The line fold builds no section, at any depth. *)
+Theorem parse_blocks_no_sections :
+  forall s, Ids.no_sections (parse_blocks s) = true.
+Proof.
+  assert (LL : forall l : blocks,
+            Forall (fun n => supported (node_contents n) = true ->
+                             Ids.no_sections [n] = true) l ->
+            supported_blocks l = true -> Ids.no_sections l = true).
+  { induction 1 as [|n l Hn _ IH]; intros Hs; [reflexivity|].
+    rewrite supported_blocks_cons in Hs. apply andb_true_iff in Hs as [H1 H2].
+    specialize (Hn H1). rewrite Ids.no_sections_cons in Hn |- *.
+    rewrite andb_true_r in Hn. rewrite Hn. exact (IH H2). }
+  assert (N : forall b, supported b = true ->
+                forall p a, Ids.no_sections [Node p a b] = true).
+  { intros b. induction b as [b IH] using block_children_ind. intros Hb p a.
+    rewrite Ids.no_sections_cons. cbn [node_contents].
+    rewrite (LL (children b)).
+    - destruct b; try reflexivity; discriminate Hb.
+    - apply Forall_forall. intros [q c x] Hn Hx. rewrite Forall_forall in IH.
+      exact (IH _ Hn Hx q c).
+    - apply supported_children, Hb. }
+  intros s. apply LL.
+  - apply Forall_forall. intros [p a b] _ Hb. apply N, Hb.
+  - apply (parse_lines_supported (split_lines s) (PPara []) eq_refl).
+Qed.
+
+(** The identifiers a document's headings were given automatically are
+    pairwise distinct. *)
+Theorem doc_auto_identifiers_distinct :
+  forall s, NoDup (doc_auto_identifiers (parse_doc s)).
+Proof.
+  intros s. unfold parse_doc, doc_pass.
+  pose proof (Ids.derived_ids_distinct _ (parse_blocks_no_sections s)) as H.
+  destruct (Ids.of_list (parse_blocks s) id_state_init) as [st bs'].
+  cbn [doc_auto_identifiers fst] in *. apply NoDup_rev. exact H.
+Qed.
+
 (*
 The whole-document pass
 =======================

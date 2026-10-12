@@ -40,7 +40,7 @@ counted: `step_foot_close` was one of those and it proved the bug.
 | Block: introduction and paragraph | 5 | 1 | 1 | 0 | 0 | 1 |
 | Block: heading, quote, list item, list | 17 | 2 | 0 | 0 | 0 | 1 |
 | Block: leaf blocks and tables | 13 | 0 | 3 | 0 | 0 | 2 |
-| Block: references, footnotes, attributes, ids | 8 | 2 | 4 | 0 | 0 | 0 |
+| Block: references, footnotes, attributes, ids | 9 | 1 | 4 | 0 | 0 | 0 |
 | Nesting limits, security | 0 | 0 | 0 | 0 | 0 | 2 |
 
 Every rule with a parse outcome is at least E: the 76 code examples and
@@ -210,7 +210,7 @@ Leaf blocks and tables: T 13, E 3, n/a 2.
 | BA1 | Block attributes | "put the attributes on the line immediately before the block" | T | `attr_uniformity`; `block_attributes` | |
 | BA2 | Block attributes | "if they don't fit on one line, subsequent lines must be indented" | T | `attr_continuation`, `attr_unindented`; `block_attributes_multiline`, `block_attributes_multiline_unindented` | A spec over lines indented past its opener parses as the same spec on one line, for continuation lines with content.  The "must": an unindented second line makes the two lines a paragraph (two-line case).  A blank line ends an unfinished spec, whatever its indentation, and its lines are a paragraph the blank closes: `SPEC-GAP`, 2026-10-12, pinned by `parse_attr_blank_ends_spec`.  Unit: ParserExamples.v, "Block attributes". |
 | BA3 | Block attributes | "Repeated attribute specifiers can be used, and the attributes will accumulate" | T | `attr_accumulate`; `block_attributes` | Any run of complete specs, one per line, merged in order by `Attr.merge`.  `attr_uniformity` is the one-spec case. |
-| LH1 | Links to headings | "Identifiers are added automatically to any headings that do not have explicit identifiers" | T~ | `assign_heading_id_spec`; `heading_identifier` | Stated through `id_base` and `unique_id`, the pass's own functions.  Unit: `section_*`, `explicit_id_displaces_auto_id` in Document.v. |
+| LH1 | Links to headings | "Identifiers are added automatically to any headings that do not have explicit identifiers" | T | `Ids.of_list_document_order`, `Ids.headings_identified`, `Ids.derived_ids_distinct`, `assign_heading_id_spec` (Document.v); `parse_blocks_no_sections`, `doc_auto_identifiers_distinct` (Wf.v); `heading_identifier` | The pass is the one-heading rule applied to the document's blocks in document order, nested ones included, for a tree without sections, which is every tree the line fold builds.  Stated through `id_base` and `unique_id`, the pass's own functions.  Unit: `section_*`, `explicit_id_displaces_auto_id` in Document.v. |
 | LH2 | Links to headings | the identifier: plain text "excluding non-textual elements such as footnote references and symbols, removing punctuation (other than `_` and `-`), replacing spaces with `-`, and ... a numerical suffix" | T~ | `is_id_sep_punct`, `is_id_sep_other`, `id_base_sep_free`, `id_base_word`, `id_base_sep`, `id_base_word_sep`, `unique_id_first`, `unique_id_fresh` (Document.v); `heading_identifier`, `heading_identifier_footnote`, `heading_identifier_symbol`, `heading_identifier_unique`, `heading_identifier_punctuation` | Shape: from the heading's plain text on, over every text and every set of taken identifiers.  Which bytes are dropped, that none reaches the identifier, that the rest is kept, and that runs of dropped bytes become one `-` between words.  The suffix gives the first candidate that is nonempty and not taken.  The plain text itself (`inlines_text`, the "excluding" clause) has only the examples.  Which punctuation is dropped follows djot.js, not the wording: `SPEC-GAP`, 2026-10-04. |
 | LH3 | Links to headings | "implicit link references are created for all headings" | E | `heading_implicit_reference` | Unit: `implicit_heading_reference` in Document.v. |
 | LH4 | Links to headings | `# Introduction[^1]` "generates the identifier `Introduction`, not `Introduction1`" | E | `heading_identifier_footnote` | |
@@ -352,6 +352,16 @@ Added 2026-10-07, the first step from coverage to specification:
     "directly before a nested list" off the parse
     (`list-tightness.md`, "Extending the theorems").
 
+29. Done: **LH1 at every depth** (2026-10-12, not reviewed by a
+    human).  `Ids.of_list_document_order`: the identifier pass is
+    `Ids.visit`, the rule at one block, applied to `Ast.preorder` of the
+    document, so the identifiers a heading sees as taken are those of
+    every block before it in document order.  From it,
+    `Ids.headings_identified` and `Ids.derived_ids_distinct`; an
+    identifier written on a later block can still repeat a derived
+    one.  At the parser's entry point,
+    `doc_auto_identifiers_distinct`.
+
 ### Stays restricted
 
 T~ rows where the restriction is not a gap to close now.
@@ -370,10 +380,6 @@ T~ rows where the restriction is not a gap to close now.
   indentation is all there is to state.
 - **DL1**: the canonical marker; the term split is under "An example is
   enough".
-- **LH1**: `assign_heading_id_spec` is the rule at one heading.  That
-  the pass reaches every heading at every depth needs a predicate over
-  each container, a further copy of the traversal
-  `261003.plan.traversal-pilot.md` is meant to remove.  After that plan.
 - **LH2**: the "excluding" clause is `inline_text`'s arms for footnote
   references and symbols.  A theorem would repeat the definition; the
   examples pin it.

@@ -969,6 +969,68 @@ Proof.
   - apply Hh. left. reflexivity.
 Qed.
 
+(* A rebuilt block's children are the rebuilt children. *)
+Lemma map_acc_children_snd : forall (S : Type) (f : node block -> S -> S * node block) b st,
+  children (snd (map_acc_children f b st)) = snd (map_acc f (children b) st).
+Proof.
+  intros S f.
+  assert (F : forall (A : Type) (k : A -> S -> S * A) (c : A -> blocks),
+            (forall x s, fst (k x s) = fst (map_acc f (c x) s)
+                         /\ c (snd (k x s)) = snd (map_acc f (c x) s)) ->
+            forall its s, flat_map c (snd (map_acc k its s))
+                          = snd (map_acc f (flat_map c its) s)).
+  { intros A k c H. induction its as [|x its IH]; intros s; [reflexivity|].
+    cbn [flat_map]. rewrite map_acc_cons, map_acc_app. cbn [snd flat_map].
+    destruct (H x s) as [H1 H2]. rewrite IH, H1, H2. reflexivity. }
+  intros b st.
+  destruct b; cbn [map_acc_children Ast.children]; try reflexivity;
+    try (destruct (map_acc f _ st); reflexivity).
+  all: try (match goal with |- Ast.children (snd (let (_, _) := ?e in _)) = _ =>
+              let s1 := fresh "st1" in let l1 := fresh "ls1" in let E := fresh "E" in
+              destruct e as [s1 l1] eqn:E; cbn [snd Ast.children];
+              change l1 with (snd (s1, l1)); rewrite <- E end).
+  - apply F. intros [] s. unfold map_acc_node; cbn [node_contents].
+    destruct (map_acc f _ s); split; reflexivity.
+  - apply F. intros [] s. unfold map_acc_node; cbn [node_contents].
+    destruct (map_acc f _ s); split; reflexivity.
+  - apply (F _ _ (fun it => snd (node_contents it))). intros [? ? []] s.
+    unfold map_acc_node, map_acc_snd; cbn [node_contents snd].
+    destruct (map_acc f _ s); split; reflexivity.
+  - apply (F _ _ (fun it => node_contents (snd (node_contents it)))). intros [? ? [? []]] s.
+    unfold map_acc_node, map_acc_snd; cbn [node_contents snd].
+    destruct (map_acc f _ s); split; reflexivity.
+  - rewrite map_acc_cons. reflexivity.
+Qed.
+
+(* Every block below `b`, in document order: each child, then what is
+   below it. *)
+Fixpoint below (b : block) : blocks :=
+  fold_children
+    (fun acc n => (acc ++ n :: match n with Node _ _ x => below x end)%list) b [].
+
+(* A list of blocks in document order, nested ones included. *)
+Definition preorder (bs : blocks) : blocks :=
+  flat_map (fun n => n :: below (node_contents n)) bs.
+
+Lemma preorder_cons : forall n bs,
+  preorder (n :: bs) = (n :: below (node_contents n) ++ preorder bs)%list.
+Proof. reflexivity. Qed.
+
+Lemma below_children : forall b, below b = preorder (children b).
+Proof.
+  assert (F : forall l acc,
+            fold_left (fun acc n => (acc ++ n :: match n with Node _ _ x => below x end)%list)
+              l acc = (acc ++ preorder l)%list).
+  { induction l as [|[p a x] l IH]; intros acc; cbn [fold_left].
+    - symmetry. apply app_nil_r.
+    - rewrite IH, preorder_cons, <- app_assoc. reflexivity. }
+  intros b.
+  transitivity (fold_children
+    (fun acc n => (acc ++ n :: match n with Node _ _ x => below x end)%list) b []).
+  - destruct b; reflexivity.
+  - rewrite fold_children_spec. apply F.
+Qed.
+
 (*
 Assembling blocks
 -----------------

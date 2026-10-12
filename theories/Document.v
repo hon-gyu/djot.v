@@ -689,6 +689,209 @@ Proof.
   rewrite map_acc_cons. cbn [fst]. apply IH, of_block_inv, H.
 Qed.
 
+(*
+The pass in document order
+--------------------------
+*)
+
+(* The pass at one block: a heading gets its identifier, and any other
+   block's own identifier is taken. *)
+Definition visit (n : node block) (st : id_state) : id_state * node block :=
+  match n with
+  | Node p a (Heading lvl ils) => assign_heading_id p a lvl ils st
+  | Node _ a _ => (register_id a st, n)
+  end.
+
+Definition is_heading (n : node block) : bool :=
+  match node_contents n with Heading _ _ => true | _ => false end.
+
+(* No section at any depth.  The pass does not enter one, and the line
+   fold builds none. *)
+Definition no_sections (bs : blocks) : bool :=
+  forallb (fun n => match node_contents n with Section _ => false | _ => true end)
+    (preorder bs).
+
+Lemma no_sections_cons : forall n bs,
+  no_sections (n :: bs)
+  = (match node_contents n with Section _ => false | _ => true end
+     && no_sections (children (node_contents n)) && no_sections bs)%bool.
+Proof.
+  intros n bs. unfold no_sections. rewrite preorder_cons. cbn [forallb].
+  rewrite forallb_app, below_children, andb_assoc. reflexivity.
+Qed.
+
+(* Two listings with the same attributes and the same headings. *)
+Local Definition agrees (out spec : blocks) : Prop :=
+  map (@node_attrs _) out = map (@node_attrs _) spec
+  /\ filter is_heading out = filter is_heading spec.
+
+Local Lemma agrees_app : forall o1 s1 o2 s2,
+  agrees o1 s1 -> agrees o2 s2 -> agrees (o1 ++ o2)%list (s1 ++ s2)%list.
+Proof.
+  intros o1 s1 o2 s2 [A1 H1] [A2 H2]. split.
+  - rewrite !map_app, A1, A2. reflexivity.
+  - rewrite !filter_app, H1, H2. reflexivity.
+Qed.
+
+Local Definition in_order (n : node block) : Prop :=
+  forall st, no_sections [n] = true ->
+    fst (of_node n st) = fst (map_acc visit (preorder [n]) st)
+    /\ agrees (preorder [snd (of_node n st)])
+              (snd (map_acc visit (preorder [n]) st)).
+
+Local Lemma of_nodes_in_order : forall l,
+  Forall in_order l ->
+  forall st, no_sections l = true ->
+    fst (of_list l st) = fst (map_acc visit (preorder l) st)
+    /\ agrees (preorder (snd (of_list l st)))
+              (snd (map_acc visit (preorder l) st)).
+Proof.
+  assert (PA : forall l1 l2 : blocks,
+            preorder (l1 ++ l2)%list = (preorder l1 ++ preorder l2)%list)
+    by (intros; apply flat_map_app).
+  unfold of_list.
+  induction 1 as [|n l Hn _ IH]; intros st Hs; [split; [|split]; reflexivity|].
+  rewrite no_sections_cons in Hs. apply andb_true_iff in Hs as [Hn' Hl].
+  assert (Hn1 : no_sections [n] = true)
+    by (rewrite no_sections_cons, Hn'; reflexivity).
+  destruct (Hn st Hn1) as [F1 A1].
+  destruct (IH (fst (of_node n st)) Hl) as [F2 A2].
+  rewrite map_acc_cons. cbn [fst snd].
+  change (n :: l) with ([n] ++ l)%list.
+  change (snd (of_node n st) :: snd (map_acc of_node l (fst (of_node n st))))
+    with ([snd (of_node n st)]
+          ++ snd (map_acc of_node l (fst (of_node n st))))%list.
+  rewrite !PA, map_acc_app. cbn [fst snd]. rewrite <- F1.
+  split; [exact F2|]. apply agrees_app; assumption.
+Qed.
+
+Local Lemma of_node_in_order : forall b p a, in_order (Node p a b).
+Proof.
+  intros b. induction b as [b IH] using block_children_ind. intros p a st Hs.
+  rewrite no_sections_cons in Hs. cbn [node_contents] in Hs.
+  apply andb_true_iff in Hs as [Hs _]. apply andb_true_iff in Hs as [Hb Hc].
+  unfold preorder. cbn [flat_map node_contents of_node]. rewrite !app_nil_r.
+  destruct (plain_block b) eqn:Hp.
+  - rewrite of_block_plain by exact Hp. cbn [fst snd node_contents].
+    assert (V : visit (Node p a b) st = (register_id a st, Node p a b))
+      by (destruct b; try discriminate; reflexivity).
+    rewrite map_acc_cons, V. cbn [fst snd].
+    rewrite map_acc_children_fst, !below_children, map_acc_children_snd.
+    assert (NH : forall x, plain_block x = true -> is_heading (Node p a x) = false)
+      by (intros x Hx; destruct x; try discriminate; reflexivity).
+    assert (Hch : Forall in_order (children b)).
+    { apply Forall_forall. intros [q c x] Hn. rewrite Forall_forall in IH.
+      exact (IH _ Hn q c). }
+    destruct (of_nodes_in_order (children b) Hch (register_id a st) Hc)
+      as [F [A1 A2]].
+    split; [exact F|]. split.
+    + cbn [map node_attrs]. f_equal. exact A1.
+    + cbn [filter].
+      rewrite (NH b Hp),
+        (NH _ (eq_trans (plain_block_map_acc_children _ _ _ _) Hp)).
+      exact A2.
+  - (* a heading: the pass is `visit` itself *)
+    destruct b as [| |lvl ils| | | | | | | | | | | | | | |]; try discriminate.
+    cbn [of_block below fold_children map_acc preorder flat_map visit].
+    assert (E : node_contents (snd (assign_heading_id p a lvl ils st))
+                = Heading lvl ils)
+      by (unfold assign_heading_id; destruct (alist_lookup "id" a); reflexivity).
+    rewrite E. destruct (assign_heading_id p a lvl ils st) as [s1 y].
+    split; [reflexivity|split; reflexivity].
+Qed.
+
+(** The pass is `visit` applied to the document's blocks in document
+    order, nested ones included: it ends in the same state, every block
+    has the attributes `visit` gives it, and the headings are the ones
+    `visit` gives. *)
+Theorem of_list_document_order : forall bs st,
+  no_sections bs = true ->
+  fst (of_list bs st) = fst (map_acc visit (preorder bs) st)
+  /\ map (@node_attrs _) (preorder (snd (of_list bs st)))
+     = map (@node_attrs _) (snd (map_acc visit (preorder bs) st))
+  /\ filter is_heading (preorder (snd (of_list bs st)))
+     = filter is_heading (snd (map_acc visit (preorder bs) st)).
+Proof.
+  intros bs st H. apply of_nodes_in_order; [|exact H].
+  apply Forall_forall. intros [p a b] _. apply of_node_in_order.
+Qed.
+
+(* `visit` keeps what the pass keeps. *)
+Local Lemma visit_inv : forall n st, id_inv st -> id_inv (fst (visit n st)).
+Proof.
+  intros [p a b] st H.
+  destruct b; cbn [visit fst];
+    first [apply assign_heading_id_inv, H | apply register_id_inv, H].
+Qed.
+
+(* The derived identifiers are distinct and are among the taken ones. *)
+Local Definition derived_ok (st : id_state) : Prop :=
+  NoDup (id_derived st) /\ incl (id_derived st) (id_used st).
+
+Local Lemma visit_derived_ok : forall n st,
+  id_inv st -> derived_ok st -> derived_ok (fst (visit n st)).
+Proof.
+  assert (R : forall a st, derived_ok st -> derived_ok (register_id a st)).
+  { intros a st [N I]. unfold register_id.
+    destruct (alist_lookup "id" a); [|split; assumption].
+    split; [exact N|]. intros x Hx. right. apply I, Hx. }
+  assert (A : forall l i st, derived_ok st -> derived_ok (add_auto_ref l i st)).
+  { intros l i st D. unfold add_auto_ref.
+    destruct (StrSet.mem l (id_ref_labels st)); exact D. }
+  intros [p a b] st Hinv D. destruct b; cbn [visit fst]; try (apply R, D).
+  unfold assign_heading_id. destruct (alist_lookup "id" a) eqn:Ha; cbn [fst];
+    apply A.
+  - unfold register_id. rewrite Ha. destruct D as [N I].
+    split; [exact N|]. intros x Hx. right. apply I, Hx.
+  - destruct D as [N I].
+    destruct (fresh_for_spec st (id_base (inlines_text ils)) Hinv) as [Hc _].
+    rewrite Hc.
+    destruct (unique_id_fresh (id_used st) (id_base (inlines_text ils)))
+      as [_ Hf].
+    split; cbn [id_derived id_used take_id].
+    + constructor; [|exact N]. intros Hin. apply Hf, I, Hin.
+    + intros x [<-|Hx]; [left; reflexivity|right; apply I, Hx].
+Qed.
+
+(** Every heading the pass leaves carries an identifier, at any depth. *)
+Theorem headings_identified : forall bs st,
+  no_sections bs = true ->
+  Forall (fun n => is_heading n = true -> alist_lookup "id" (node_attrs n) <> None)
+    (preorder (snd (of_list bs st))).
+Proof.
+  intros bs st H. destruct (of_list_document_order bs st H) as (_ & _ & Hh).
+  assert (Q : forall l s,
+            Forall (fun n => is_heading n = true ->
+                             alist_lookup "id" (node_attrs n) <> None)
+              (snd (map_acc visit l s))).
+  { induction l as [|[p a b] l IH]; intros s; [constructor|].
+    rewrite map_acc_cons. cbn [snd]. constructor; [|apply IH].
+    destruct b; cbn [visit snd]; try (intros X; discriminate X).
+    unfold assign_heading_id. destruct (alist_lookup "id" a) eqn:E;
+      cbn [snd node_attrs]; intros _; [rewrite E|cbn]; discriminate. }
+  apply Forall_forall. intros o Ho Hhd.
+  assert (Hin : In o (filter is_heading (snd (map_acc visit (preorder bs) st))))
+    by (rewrite <- Hh; apply filter_In; split; assumption).
+  apply filter_In in Hin as [Hin _].
+  exact (proj1 (Forall_forall _ _) (Q _ _) o Hin Hhd).
+Qed.
+
+(** The identifiers the pass derives are pairwise distinct.  An
+    identifier written on a later block can still repeat one. *)
+Theorem derived_ids_distinct : forall bs,
+  no_sections bs = true ->
+  NoDup (id_derived (fst (of_list bs id_state_init))).
+Proof.
+  intros bs H. destruct (of_list_document_order bs id_state_init H) as [-> _].
+  assert (L : forall l st, id_inv st -> derived_ok st ->
+                derived_ok (fst (map_acc visit l st))).
+  { induction l as [|n l IH]; intros st Hi Hd; [exact Hd|].
+    rewrite map_acc_cons. cbn [fst].
+    apply IH; [apply visit_inv, Hi|apply visit_derived_ok; assumption]. }
+  apply L; [apply id_inv_init|].
+  split; [constructor|intros x []].
+Qed.
+
 End WithTable.
 End Ids.
 
