@@ -76,6 +76,10 @@ type foot_state = { foot_labels : string list; foot_index : int StrMap.t;
 
 val foot_initial : foot_state
 
+val flat_map_st :
+  (foot_state -> 'a1 -> foot_state * helt list) -> foot_state -> 'a1 list ->
+  foot_state * helt list
+
 val number_footnote : string -> foot_state -> (foot_state * int) * bool
 
 val render_inline_foot :

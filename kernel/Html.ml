@@ -604,6 +604,16 @@ type foot_state = { foot_labels : string list; foot_index : int StrMap.t;
 let foot_initial =
   { foot_labels = []; foot_index = StrMap.empty; foot_next = (Stdlib.succ 0) }
 
+(** val flat_map_st :
+    (foot_state -> 'a1 -> foot_state * helt list) -> foot_state -> 'a1 list ->
+    foot_state * helt list **)
+
+let rec flat_map_st f st = function
+| [] -> (st, [])
+| x :: rest ->
+  let (st1, s1) = f st x in
+  let (st2, s2) = flat_map_st f st1 rest in (st2, (app s1 s2))
+
 (** val number_footnote :
     string -> foot_state -> (foot_state * int) * bool **)
 
@@ -622,13 +632,8 @@ let number_footnote label st =
 
 let rec render_inline_foot refs st il a =
   let render_ils =
-    let rec go st0 = function
-    | [] -> (st0, [])
-    | n :: rest ->
-      let Node (_, a', x) = n in
-      let (st1, s1) = render_inline_foot refs st0 x a' in
-      let (st2, s2) = go st1 rest in (st2, (app s1 s2))
-    in go
+    flat_map_st (fun st0 n ->
+      let Node (_, a', x) = n in render_inline_foot refs st0 x a')
   in
   (match il with
    | Emph ils ->
@@ -687,12 +692,9 @@ let rec render_inline_foot refs st il a =
 (** val render_inlines_foot :
     resolver -> foot_state -> inlines -> foot_state * helt list **)
 
-let rec render_inlines_foot refs st = function
-| [] -> (st, [])
-| n :: rest ->
-  let Node (_, a, x) = n in
-  let (st1, s1) = render_inline_foot refs st x a in
-  let (st2, s2) = render_inlines_foot refs st1 rest in (st2, (app s1 s2))
+let render_inlines_foot refs st ils =
+  flat_map_st (fun st0 n ->
+    let Node (_, a, x) = n in render_inline_foot refs st0 x a) st ils
 
 (** val render_cell_foot :
     resolver -> foot_state -> cell node -> foot_state * helt **)
@@ -742,57 +744,37 @@ let render_caption_foot refs st = function
     resolver -> foot_state -> bool -> block -> attr -> foot_state * helt list **)
 
 let rec render_block_foot refs st tight b a =
-  let render_bs_at =
-    let rec go st0 t0 = function
-    | [] -> (st0, [])
-    | n :: rest ->
-      let Node (_, a', x) = n in
-      let (st1, s1) = render_block_foot refs st0 t0 x a' in
-      let (st2, s2) = go st1 t0 rest in (st2, (app s1 s2))
-    in go
+  let render_bs_at = fun st0 t0 ->
+    flat_map_st (fun st1 n ->
+      let Node (_, a', x) = n in render_block_foot refs st1 t0 x a') st0
   in
-  let render_items =
-    let rec goi st0 sp = function
-    | [] -> (st0, [])
-    | n :: rest ->
-      let Node (_, ia, it) = n in
-      let t0 = match sp with
-               | Tight -> true
-               | Loose -> false in
-      let (st1, s1) = render_bs_at st0 t0 it in
-      let (st2, s2) = goi st1 sp rest in
-      (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), ia, s1)) :: s2))
-    in goi
+  let item_tight = fun sp -> match sp with
+                             | Tight -> true
+                             | Loose -> false in
+  let render_items = fun st0 sp ->
+    flat_map_st (fun st1 it ->
+      let Node (_, ia, it0) = it in
+      let (st2, s) = render_bs_at st1 (item_tight sp) it0 in
+      (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), ia, s)) :: []))) st0
   in
-  let render_task_items =
-    let rec got st0 sp = function
-    | [] -> (st0, [])
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (chk, it) = x in
-      let t0 = match sp with
-               | Tight -> true
-               | Loose -> false in
-      let (st1, s1) = render_bs_at st0 t0 it in
-      let (st2, s2) = got st1 sp rest in
+  let render_task_items = fun st0 sp ->
+    flat_map_st (fun st1 it ->
+      let Node (_, _, x) = it in
+      let (chk, it0) = x in
+      let (st2, s) = render_bs_at st1 (item_tight sp) it0 in
       (st2, ((HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
-      ((checkbox_elt chk) :: ((HText nl) :: s1)))) :: s2))
-    in got
+      ((checkbox_elt chk) :: ((HText nl) :: s)))) :: []))) st0
   in
-  let render_def_items =
-    let rec god st0 = function
-    | [] -> (st0, [])
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (n0, n1) = x in
-      let Node (_, ta, term) = n0 in
-      let Node (_, da, it) = n1 in
-      let (st1, s1) = render_inlines_foot refs st0 term in
-      let (st2, s2) = render_bs_at st1 tight it in
-      let (st3, s3) = god st2 rest in
+  let render_def_items = fun st0 ->
+    flat_map_st (fun st1 it ->
+      let Node (_, _, x) = it in
+      let (y, y0) = x in
+      let Node (_, ta, term) = y in
+      let Node (_, da, it0) = y0 in
+      let (st2, s1) = render_inlines_foot refs st1 term in
+      let (st3, s2) = render_bs_at st2 tight it0 in
       (st3, ((HElem ("dt", (Stdlib.succ 0), ta, s1)) :: ((HElem ("dd",
-      (Stdlib.succ (Stdlib.succ 0)), da, s2)) :: s3)))
-    in god
+      (Stdlib.succ (Stdlib.succ 0)), da, s2)) :: [])))) st0
   in
   (match b with
    | Para ils ->
@@ -868,12 +850,9 @@ let rec render_block_foot refs st tight b a =
 (** val render_blocks_foot :
     resolver -> foot_state -> blocks -> foot_state * helt list **)
 
-let rec render_blocks_foot refs st = function
-| [] -> (st, [])
-| n :: rest ->
-  let Node (_, a, b) = n in
-  let (st1, s1) = render_block_foot refs st false b a in
-  let (st2, s2) = render_blocks_foot refs st1 rest in (st2, (app s1 s2))
+let render_blocks_foot refs st bs =
+  flat_map_st (fun st0 n ->
+    let Node (_, a, b) = n in render_block_foot refs st0 false b a) st bs
 
 (** val note_backlink : int -> helt **)
 
