@@ -428,11 +428,68 @@ Definition bare_ok (at_end : bool) (pre : string) (c : ascii) (rest : string)
       || delim_alone p c d
   end.
 
+(* The characters that open a block at the start of a line and that
+   `needs_escape` need not claim, since the scanner does not dispatch on
+   them: a heading, a quote, a table row, a parenthesized list number,
+   and the bullets and fence a table may leave unclaimed.  Every other
+   opener starts with a character `needs_escape` claims, or with a list
+   number. *)
+Definition opens_line (c : ascii) : bool :=
+  (Ascii.eqb c "#"%char || Ascii.eqb c ">"%char || Ascii.eqb c "|"%char
+   || Ascii.eqb c lparen || Ascii.eqb c "+"%char || Ascii.eqb c "*"%char
+   || Ascii.eqb c "~"%char)%bool.
+
+(* Whether a character is escaped for the block layer, which asks about
+   the start of a line: a run's first character if it opens a block
+   there, and a `)` that ends a possible list number before a space or
+   the run's end, as `bare_ok` keeps a period. *)
+Definition opens_block (pre : string) (c : ascii) (rest : string) : bool :=
+  match pre with
+  | EmptyString => opens_line c
+  | _ =>
+      Ascii.eqb c rparen && marker_core pre
+      && match rest with EmptyString => true | String d _ => is_space d end
+  end.
+
+Definition escapes (at_end : bool) (pre : string) (c : ascii) (rest : string)
+  : bool :=
+  (needs_escape c && negb (bare_ok at_end pre c rest) || opens_block pre c rest)%bool.
+
+Lemma escapes_punct :
+  forall b pre c rest, escapes b pre c rest = true -> is_punct c = true.
+Proof.
+  intros b pre c rest H. unfold escapes in H.
+  apply orb_true_iff in H as [H|H];
+    [apply andb_true_iff in H as [H _]; exact (needs_escape_punct c H)|].
+  destruct pre as [|p pre'].
+  - unfold opens_line in H.
+    repeat (apply orb_true_iff in H as [H|H]);
+      apply Ascii.eqb_eq in H; subst c; reflexivity.
+  - apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [H _].
+    apply Ascii.eqb_eq in H. subst c. reflexivity.
+Qed.
+
+(* A character `escapes` leaves bare is one the scanner rules leave bare. *)
+Lemma escapes_false :
+  forall b pre c rest, escapes b pre c rest = false ->
+    (needs_escape c && negb (bare_ok b pre c rest))%bool = false.
+Proof. intros b pre c rest H. apply orb_false_iff in H as [H _]. exact H. Qed.
+
+Lemma escapes_lead :
+  forall b c rest, escapes b EmptyString c rest = (needs_escape c || opens_line c)%bool.
+Proof. intros b c rest. unfold escapes. cbn [bare_ok negb]. rewrite andb_true_r. reflexivity. Qed.
+
+Lemma escapes_lead_false :
+  forall b c rest, escapes b EmptyString c rest = false -> needs_escape c = false.
+Proof.
+  intros b c rest H. rewrite escapes_lead in H. apply orb_false_iff in H as [H _]. exact H.
+Qed.
+
 Fixpoint escape_from (at_end : bool) (pre s : string) : string :=
   match s with
   | EmptyString => EmptyString
   | String c rest =>
-      if needs_escape c && negb (bare_ok at_end pre c rest)
+      if escapes at_end pre c rest
       then String "\"%char (String c (escape_from at_end (String c pre) rest))
       else String c (escape_from at_end (String c pre) rest)
   end.

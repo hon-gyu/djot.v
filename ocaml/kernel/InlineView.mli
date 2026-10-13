@@ -66,6 +66,12 @@ val delim_alone : dtable -> char -> char -> char -> bool
 
 val bare_ok : dtable -> bool -> string -> char -> string -> bool
 
+val opens_line : char -> bool
+
+val opens_block : string -> char -> string -> bool
+
+val escapes : dtable -> bool -> string -> char -> string -> bool
+
 val escape_from : dtable -> bool -> string -> string -> string
 
 val escape_str : dtable -> string -> string

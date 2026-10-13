@@ -548,6 +548,22 @@ Definition para_ok (ls : list string) : bool :=
            (last ls EmptyString)
   end.
 
+(* A first line whose first run starts with a character escaped there
+   classifies as text, whatever block that character would have opened.
+   That covers every opener but a list number, whose delimiter is
+   escaped instead. *)
+Lemma is_text_ci_line_lead :
+  forall c s rest, (needs_escape c || opens_line c)%bool = true ->
+    is_text (ci_line (CIStr (String c s) :: rest)) = true.
+Proof.
+  intros c s rest H. unfold ci_line.
+  destruct rest as [|c' rest'].
+  - rewrite ci_text_at_last. cbn [escape_from]. rewrite escapes_lead, H.
+    apply is_text_bslash.
+  - rewrite ci_text_at_cons2. cbn [ci_src]. unfold escape_str. cbn [escape_from].
+    rewrite escapes_lead, H. apply is_text_bslash.
+Qed.
+
 (* A canonical code block: valid info string, and content lines that are
    newline-free and do not close a 3-backtick fence.  Content lines may
    be blank or look like any other construct: fences are verbatim. *)
@@ -1976,4 +1992,21 @@ Example render_keeps_bullet_marker :
 
 * d" in
   render_djot (parse_blocks src) = src.
+Proof. reflexivity. Qed.
+
+(* A paragraph spelling a block opener renders with that opener escaped,
+   so it is canonical and reads back as the paragraph. *)
+Example paragraph_openers_canonical :
+  forallb (fun l => cb_ok (cpara [l]))
+    ["# x"; "> x"; "| a |"; "1) x"; "ii) x"; "(a) x"; "+ x"; "* x"; "~~~"]
+  = true.
+Proof. reflexivity. Qed.
+
+Example render_paragraph_openers :
+  render_djot (blocks_of_cblocks [cpara ["# x"]; cpara ["1) x"]; cpara ["| a |"]])
+  = "\# x
+
+1\) x
+
+\| a |".
 Proof. reflexivity. Qed.

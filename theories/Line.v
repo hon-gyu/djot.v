@@ -3055,6 +3055,18 @@ Proof.
   destruct (classify l); (discriminate || reflexivity).
 Qed.
 
+(* No block opens on a backslash, which is what makes an escaped first
+   character enough to keep a line text. *)
+Lemma is_text_bslash : forall s, is_text (String "\" s) = true.
+Proof.
+  intros s. unfold is_text, classify, quote_prefix, heading_open, fence_open,
+    div_open, is_thematic, list_marker, attr_open, foot_open, ref_open, table_row.
+  cbn. change (is_alnum "\"%char) with false. cbn.
+  destruct s as [|c s]; [reflexivity|]. cbn.
+  destruct (Ascii.eqb c "."), (Ascii.eqb c ")"); cbn;
+    first [reflexivity | destruct s; reflexivity].
+Qed.
+
 (*
 Canonical code fences
 =====================

@@ -1143,15 +1143,14 @@ Qed.
 
 (* An escaped character is that character pushed as text. *)
 Local Lemma iscan_escaped :
-  forall c t txt prev o, needs_escape c = true ->
+  forall c t txt prev o, is_punct c = true ->
     iscan_str (String "\"%char (String c t)) (IText false txt prev o)
     = iscan_str t (IText false (txt ++ one c)%string (Some c) o).
 Proof.
   intros c t txt prev o Hc.
   cbn [iscan_str istep istep_at]. unfold ilead.
   change (is_bslash "\"%char) with true. cbn [iscan_str istep istep_at].
-  rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
-          (needs_escape_punct c Hc).
+  rewrite (is_punct_not_ws c Hc), Hc.
   reflexivity.
 Qed.
 
@@ -1242,13 +1241,16 @@ Proof.
        destruct (dstyle_of c); [|discriminate].
        apply andb_true_iff in Hd as [_ Hd].
        destruct (is_space_plain d Hd) as [Hnd _].
-       cbn [escape_from]. rewrite Hnd. cbn [andb iscan_str]. f_equal.
+       cbn [escape_from]. unfold escapes. rewrite Hnd. cbn [andb orb opens_block].
+       replace (Ascii.eqb d rparen) with false
+         by (destruct d as [[] [] [] [] [] [] [] []]; first [reflexivity | discriminate Hd]).
+       cbn [andb iscan_str]. f_equal.
        apply delim_alone_step, Halone. }
   assert (Hd1 : typography_dashes 1 = one hyphen)
     by (unfold typography_dashes; destruct smart_typography; reflexivity).
   cbn [escape_from].
-  destruct (needs_escape d && negb (bare_ok b (String c (String p pre')) d r))%bool
-    eqn:Hd; cbn [iscan_str]; f_equal.
+  destruct (escapes b (String c (String p pre')) d r) eqn:Hd;
+    [|apply escapes_false in Hd]; cbn [iscan_str]; f_equal.
   - (* the next byte is a backslash, which claims nothing the waiting
        state could complete *)
     f_equal.
@@ -1301,14 +1303,10 @@ Proof.
   induction s as [|c rest IH]; intros pre txt prev o Hprev.
   - cbn [escape_from iscan_str]. rewrite append_empty_r. reflexivity.
   - cbn [escape_from].
-    destruct (needs_escape c && negb (bare_ok false pre c rest))%bool eqn:Hesc.
-    + apply andb_true_iff in Hesc as [Hc _].
-      cbn [iscan_str istep istep_at]. unfold ilead.
-      change (is_bslash "\"%char) with true. cbn [iscan_str istep istep_at].
-      rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
-              (needs_escape_punct c Hc).
+    destruct (escapes false pre c rest) eqn:Hesc.
+    + rewrite (iscan_escaped c _ txt prev o (escapes_punct _ _ _ _ Hesc)).
       rewrite IH, append_assoc by reflexivity. reflexivity.
-    + destruct (needs_escape c) eqn:Hc.
+    + apply escapes_false in Hesc. destruct (needs_escape c) eqn:Hc.
       * cbn [andb negb] in Hesc. apply negb_false_iff in Hesc.
         destruct rest as [|d r]; [destruct pre; discriminate Hesc|].
         destruct pre as [|p pre']; [discriminate Hesc|].
@@ -1338,10 +1336,9 @@ Proof.
     cbn zeta in IH.
     rewrite append_assoc in IH. cbn [append one] in IH.
     change (str_last (String c rest) prev) with (str_last rest (Some c)).
-    destruct (needs_escape c && negb (bare_ok true pre c rest))%bool eqn:Hesc.
-    + apply andb_true_iff in Hesc as [Hc _].
-      rewrite (iscan_escaped c _ txt prev o Hc). exact IH.
-    + destruct (needs_escape c) eqn:Hc.
+    destruct (escapes true pre c rest) eqn:Hesc.
+    + rewrite (iscan_escaped c _ txt prev o (escapes_punct _ _ _ _ Hesc)). exact IH.
+    + apply escapes_false in Hesc. destruct (needs_escape c) eqn:Hc.
       * cbn [andb negb] in Hesc. apply negb_false_iff in Hesc.
         destruct rest as [|d r].
         -- (* the bare last character: the scan ends waiting on it *)
@@ -1407,8 +1404,11 @@ Local Lemma iscan_escape_after_verb :
 Proof.
   intros [|c rest] n body vk o Hne; [discriminate|].
   destruct vk as [|sty|prefix|]; [|destruct sty| |].
-  all: unfold escape_str; cbn [escape_from bare_ok negb]; rewrite andb_true_r;
-       destruct (needs_escape c) eqn:Hc.
+  all: unfold escape_str; cbn [escape_from]; rewrite escapes_lead;
+       destruct (needs_escape c || opens_line c)%bool eqn:Hc;
+       [rewrite <- (escapes_lead false c rest) in Hc;
+        apply escapes_punct in Hc
+       |apply orb_false_iff in Hc as [Hc _]].
   all: first [
     cbn [iscan_str istep istep_at];
     change (is_tick "\"%char) with false;
@@ -1420,8 +1420,7 @@ Proof.
     cbn [iscan_str istep istep_at];
     try change (Ascii.eqb "\"%char lbrace) with false;
     cbn [istep_at];
-    rewrite (is_punct_not_ws c (needs_escape_punct c Hc)),
-            (needs_escape_punct c Hc), iscan_escape_from;
+    rewrite (is_punct_not_ws c Hc), Hc, iscan_escape_from;
     cbn [append one]; reflexivity
   | cbn [iscan_str istep istep_at];
     replace (is_tick c) with false
@@ -1828,8 +1827,9 @@ Qed.
 Local Lemma escape_str_starts_nontick :
   forall s, nonempty_str s = true -> starts_tick (escape_str s) = false.
 Proof.
-  intros [|c s] H; [discriminate|]. unfold escape_str; cbn [escape_from bare_ok negb]; rewrite andb_true_r.
-  destruct (needs_escape c) eqn:Hc; [reflexivity|].
+  intros [|c s] H; [discriminate|]. unfold escape_str; cbn [escape_from].
+  destruct (escapes false EmptyString c s) eqn:Hc; [reflexivity|].
+  apply escapes_lead_false in Hc.
   cbn [starts_tick]. destruct (is_tick c) eqn:Ht; [|reflexivity].
   rewrite (needs_escape_tick c Ht) in Hc. discriminate.
 Qed.
@@ -1862,8 +1862,9 @@ Proof. intros [|c a] b H; [discriminate|reflexivity]. Qed.
 Local Lemma escape_str_starts_nonbrace :
   forall s, starts_brace (escape_str s) = false.
 Proof.
-  intros [|c s]; [reflexivity|]. unfold escape_str; cbn [escape_from bare_ok negb]; rewrite andb_true_r.
-  destruct (needs_escape c) eqn:Hc; [reflexivity|].
+  intros [|c s]; [reflexivity|]. unfold escape_str; cbn [escape_from].
+  destruct (escapes false EmptyString c s) eqn:Hc; [reflexivity|].
+  apply escapes_lead_false in Hc.
   cbn [starts_brace]. destruct (Ascii.eqb c lbrace) eqn:Hb; [|reflexivity].
   apply Ascii.eqb_eq in Hb; subst c.
   rewrite needs_escape_lbrace in Hc. discriminate.
@@ -1872,8 +1873,8 @@ Qed.
 Local Lemma escape_str_nonempty :
   forall s, nonempty_str s = true -> nonempty_str (escape_str s) = true.
 Proof.
-  intros [|c s] H; [discriminate|]. unfold escape_str; cbn [escape_from bare_ok negb]; rewrite andb_true_r.
-  destruct (needs_escape c); reflexivity.
+  intros [|c s] H; [discriminate|]. unfold escape_str; cbn [escape_from].
+  destruct (escapes false EmptyString c s); reflexivity.
 Qed.
 
 (* The two things a closer has to be for the scope machinery: nonempty,
@@ -3538,8 +3539,9 @@ Proof.
   destruct rest as [|c' rest'].
   - rewrite !ci_text_at_last. destruct c; try (repeat split; reflexivity).
     destruct s as [|x s']; [repeat split; reflexivity|].
-    cbn [escape_from bare_ok negb]. rewrite !andb_true_r.
-    destruct (needs_escape x) eqn:Hx; [repeat split; reflexivity|].
+    cbn [escape_from]. rewrite !escapes_lead.
+    destruct (needs_escape x || opens_line x)%bool eqn:Hx; [repeat split; reflexivity|].
+    apply orb_false_iff in Hx as [Hx _].
     cbn [nonempty_str starts_tick after_verb_next].
     destruct (Ascii.eqb x lbrace) eqn:Hb; [|repeat split; reflexivity].
     apply Ascii.eqb_eq in Hb. subst x. rewrite needs_escape_lbrace in Hx. discriminate.
@@ -3554,9 +3556,9 @@ Proof.
     apply Ascii.eqb_eq in Hb. subst x.
     destruct c; cbn [ci_src] in Ec; try discriminate Ec.
     + destruct s as [|x s']; [discriminate Ec|].
-      unfold escape_str in Ec. cbn [escape_from bare_ok negb] in Ec.
-      rewrite andb_true_r in Ec.
-      destruct (needs_escape x) eqn:Hx; injection Ec as Ex Es; [discriminate Ex|].
+      unfold escape_str in Ec. cbn [escape_from] in Ec.
+      destruct (escapes false EmptyString x s') eqn:Hx; injection Ec as Ex Es;
+        [discriminate Ex|apply escapes_lead_false in Hx].
       subst x. rewrite needs_escape_lbrace in Hx. discriminate.
     + unfold verb_text in Ec. pose proof (verb_ticks_nonzero s) as Hn.
       destruct (verb_ticks s) as [|k]; [contradiction|]. cbn in Ec. discriminate Ec.
