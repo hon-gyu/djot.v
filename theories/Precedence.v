@@ -202,10 +202,6 @@ Definition bracket_follows (c : ascii) (rest : string) : bool :=
         && ((wikilinks_enabled && starts_with lbrack rest)
             || (starts_with hat rest && negb (note_ahead rest)))).
 
-(* Nor after a `!`. *)
-Definition bang_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c bang && starts_with lbrack rest && starts_with hat (sdrop 1 rest)).
-
 (* A `{` after a `]` is drawn on only as a span's spec that closes. *)
 Definition close_follows (c : ascii) (rest : string) : bool :=
   negb (Ascii.eqb c rbrack && starts_with lbrace rest && negb (spec_ahead (sdrop 1 rest))).
@@ -216,7 +212,7 @@ Definition tick_follows (c : ascii) (rest : string) : bool :=
 
 Definition follow_ok (c : ascii) (rest : string) : bool :=
   (brace_follows c rest && bracket_follows c rest
-   && bang_follows c rest && close_follows c rest && tick_follows c rest)%bool.
+   && close_follows c rest && tick_follows c rest)%bool.
 
 (* A backslash escapes the byte after it, whatever that byte is but the
    newline, so the escaped byte is not drawn on the alphabet (O2, O3).
@@ -409,9 +405,16 @@ Definition dash_tok (s : string) : token * nat :=
   end.
 
 (* What a `!` begins, from what `s` has after it: an image's bracket
-   before a `[` (I1), or text. *)
+   before a `[` (I1), or text.  A `[` that begins a footnote reference
+   is the reference's, and the `!` before it text, as both djot.js and
+   the scanner read it. *)
 Definition bang_tok (s : string) : token * nat :=
-  if starts_with lbrack s then (TOpen true, 2) else (TText bang, 1).
+  if starts_with lbrack s
+  then match note_at (sdrop 1 s) with
+       | Some _ => (TText bang, 1)
+       | None => (TOpen true, 2)
+       end
+  else (TText bang, 1).
 
 (* What a `[` begins, from what `s` has after it: a footnote reference
    before a `^` and a label that closes (F1), or a bracket. *)

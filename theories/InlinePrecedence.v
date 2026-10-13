@@ -3895,7 +3895,13 @@ Proof.
   { change (String c (rest ++ after)) with (String c rest ++ after)%string.
     rewrite (dash_tok_app _ after Ha). reflexivity. }
   destruct (Ascii.eqb c bang).
-  { rewrite SW by (intros E; discriminate E). reflexivity. }
+  { rewrite SW by (intros E; discriminate E).
+    destruct rest as [|d r]; [reflexivity|]. cbn [starts_with append].
+    destruct (Ascii.eqb d lbrack); [|reflexivity].
+    cbn [no_char] in Hn. apply andb_true_iff in Hn as [_ Hn].
+    change (sdrop 1 (String d (r ++ after))) with (r ++ after)%string.
+    change (sdrop 1 (String d r)) with r.
+    rewrite (note_at_app r after Hn Ha). reflexivity. }
   destruct (Ascii.eqb c lbrack); [rewrite (note_at_app rest after Hn Ha); reflexivity|].
   destruct (Ascii.eqb c rbrack).
   { rewrite !SW by (intros E; discriminate E).
@@ -4266,12 +4272,12 @@ Definition prev_ok (prev : option ascii) (s : string) : bool :=
 
 Local Lemma prev_ok_plain : forall p s,
   Ascii.eqb p lbrace = false -> Ascii.eqb p lbrack = false -> Ascii.eqb p rbrack = false ->
-  is_tick p = false -> Ascii.eqb p bang = false ->
+  is_tick p = false ->
   prev_ok (Some p) s = true.
 Proof.
-  intros p s H1 H2 H3 H4 H7. unfold prev_ok, follow_ok, brace_follows, bracket_follows,
-    bang_follows, close_follows, tick_follows.
-  rewrite H1, H2, H3, H4, H7. reflexivity.
+  intros p s H1 H2 H3 H4. unfold prev_ok, follow_ok, brace_follows, bracket_follows,
+    close_follows, tick_follows.
+  rewrite H1, H2, H3, H4. reflexivity.
 Qed.
 
 Local Lemma prev_ok_follow : forall c s,
@@ -6121,7 +6127,7 @@ Proof.
   intros [|] s H; cbn [with_esc] in H.
   - cbn [over_alphabet] in H. change (is_bslash bslash) with true in H. cbn iota in H.
     apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
-    unfold follow_ok, brace_follows, bracket_follows, bang_follows,
+    unfold follow_ok, brace_follows, bracket_follows,
       close_follows, tick_follows.
     change (is_tick tick) with true in H |- *. rewrite H. reflexivity.
   - exact (proj1 (proj2 (over_alphabet_cons tick s eq_refl H))).
@@ -6698,7 +6704,7 @@ Local Lemma auto_stop_alpha : forall d r,
 Proof.
   intros d r Hs Hn Hr. cbn [over_alphabet].
   destruct d as [[] [] [] [] [] [] [] []]; try discriminate Hs; try discriminate Hn;
-    unfold in_alphabet, follow_ok, brace_follows, bracket_follows, bang_follows,
+    unfold in_alphabet, follow_ok, brace_follows, bracket_follows,
       close_follows, tick_follows; cbn; rewrite ?andb_false_r, Hr;
     destruct (dstyle_of _); reflexivity.
 Qed.
@@ -7224,6 +7230,40 @@ Proof. intros c j x. induction j as [|j IH]; [reflexivity|exact IH]. Qed.
 Local Lemma dashes_0 : typography_dashes 0 = "".
 Proof. unfold typography_dashes. destruct smart_typography; reflexivity. Qed.
 
+(* A `^`, a label and the `]` right after a bracket opens: the bracket is
+   taken back, and an image's `!` put back as text before the reference. *)
+Local Lemma note_after_open : forall im l o,
+  lab_all l = true -> notes_enabled = true ->
+  iscan_str (String hat l ++ one rbrack) (IText false "" (Some lbrack) (bpush im o))
+  = IText false "" (Some rbrack)
+      (oemit (mk (FootnoteReference (normalize_label l))) (ospan_bang im o)).
+Proof.
+  intros im l o Hla Hen. cbn [append iscan_str]. unfold istep at 1. cbn [istep_at].
+  unfold ilead.
+  change (is_bslash hat) with false. change (is_tick hat) with false.
+  change (Ascii.eqb hat dollar) with false. change (Ascii.eqb hat period) with false.
+  change (Ascii.eqb hat hyphen) with false. change (Ascii.eqb hat lbrace) with false.
+  change (Ascii.eqb hat bang) with false. change (Ascii.eqb hat lt) with false.
+  change (Ascii.eqb hat ":"%char) with false. change (Ascii.eqb hat lbrack) with false.
+  change (Ascii.eqb hat rbrack) with false. change (Ascii.eqb hat hat) with true. cbn iota.
+  change (note_pos "" (Some lbrack)) with true. cbn [andb]. rewrite Hen, bunpush_bpush. tred.
+  rewrite iscan_str_app, (iscan_note l im "" null_span _ Hla). cbn [append iscan_str one].
+  unfold istep. cbn [istep_at]. unfold inote_step.
+  change (is_bslash rbrack) with false. rewrite Ascii.eqb_refl. cbn iota. tred. reflexivity.
+Qed.
+
+(* The `!` an image's bracket put back, against the `!` read as text. *)
+Local Lemma bang_flush : forall v txt o, sim v txt o -> tidy v ->
+  ospan_bang true (flush_text txt o) = flush_text (txt ++ one bang) o.
+Proof.
+  intros v txt o Hsim Ti. destruct (tidy_top v Ti) as [Hn Hc].
+  pose proof Hsim as (v0 & Eo & Ht0 & Ev).
+  assert (Fl : flush_text txt o = oview v) by (rewrite Eo, Ev; apply flush_view, Ht0).
+  rewrite Fl, (ospan_bang_view true v Hn Hc).
+  destruct (sim_text v txt o (one bang) Hsim eq_refl) as (v1 & Eo1 & Ht1 & Ev1).
+  rewrite Eo1, (flush_view _ _ Ht1), Ev1. reflexivity.
+Qed.
+
 (* A `[^`, its label and the `]`: a footnote reference. *)
 Local Lemma scan_note : forall ps after len, scan_ih ps after len -> line_end after ->
   forall s' lab prev n v ws txt o,
@@ -7258,20 +7298,11 @@ Proof.
   set (x := FootnoteReference (normalize_label l)).
   assert (Sc : iscan_str (String lbrack (String hat l) ++ one rbrack) (IText false txt prev o)
                = IText false "" (Some rbrack) (oemit (mk x) (oview v))).
-  { cbn [append iscan_str]. unfold istep at 2. cbn [istep_at].
-    rewrite (ilead_lbrack txt prev o Hnp).
-    unfold istep at 1. cbn [istep_at]. unfold ilead.
-    change (is_bslash hat) with false. change (is_tick hat) with false.
-    change (Ascii.eqb hat dollar) with false. change (Ascii.eqb hat period) with false.
-    change (Ascii.eqb hat hyphen) with false. change (Ascii.eqb hat lbrace) with false.
-    change (Ascii.eqb hat bang) with false. change (Ascii.eqb hat lt) with false.
-    change (Ascii.eqb hat ":"%char) with false. change (Ascii.eqb hat lbrack) with false.
-    change (Ascii.eqb hat rbrack) with false. change (Ascii.eqb hat hat) with true. cbn iota.
-    change (note_pos "" (Some lbrack)) with true. cbn [andb]. rewrite Hen, bunpush_bpush.
-    rewrite iscan_str_app, (iscan_note l false "" null_span _ Hla). cbn [append iscan_str one].
-    unfold istep. cbn [istep_at]. unfold inote_step.
-    change (is_bslash rbrack) with false. rewrite Ascii.eqb_refl. cbn iota. tred.
-    unfold ospan_bang. rewrite Fl. reflexivity. }
+  { change (String lbrack (String hat l) ++ one rbrack)%string
+      with (String lbrack (String hat l ++ one rbrack)).
+    cbn [iscan_str]. unfold istep at 1. cbn [istep_at].
+    rewrite (ilead_lbrack txt prev o Hnp), (note_after_open false l _ Hla Hen).
+    cbn [ospan_bang]. rewrite Fl. reflexivity. }
   apply (scan_tok ps after len IH (String lbrack (String hat (l ++ String rbrack rest))) n false v
            ws (IText false txt prev o) (TNote l) (S (S (S (String.length l)))) rest (Some rbrack)
            (IText false "" (Some rbrack) (oemit (mk x) (oview v))) Hl Hs Fn V Em Ht).
@@ -7591,11 +7622,60 @@ Proof.
     - destruct s' as [|d s'']; [discriminate|]. cbn [starts_with] in Sb.
       apply Ascii.eqb_eq in Sb. subst d.
       pose proof (over_alphabet_cons lbrack s'' eq_refl Hs') as (_ & Hf2 & Hs'').
+      destruct (note_at s'') as [lab|] eqn:Na.
+      { (* a footnote reference after it: the `!` is text *)
+        destruct s'' as [|c0 r0]; [discriminate|]. cbn [note_at] in Na.
+        destruct (notes_enabled && Ascii.eqb c0 hat)%bool eqn:E0; [|discriminate].
+        apply andb_true_iff in E0 as [Hen E0]. apply Ascii.eqb_eq in E0. subst c0.
+        assert (Hpl : note_plain r0 = true).
+        { apply follow_bracket in Hf2. unfold bracket_follows in Hf2.
+          cbn in Hf2. rewrite andb_false_r, Hen in Hf2.
+          cbn in Hf2. destruct (note_plain r0); [reflexivity|discriminate]. }
+        destruct (note_plain_go r0 Hpl) as (l & rest & Er0 & Hla & Hgo). subst r0.
+        apply (scan_tok_in ps after len IH _ n false v ws (IText false txt prev o)
+                 (TText bang) 1 (String lbrack (String hat (l ++ String rbrack rest)))
+                 (Some bang) (IText false (txt ++ one bang) (Some bang) o) Hl Hs Fn V Em).
+        - rewrite Htok. cbn [next_tok]. unfold bang_tok.
+          change (starts_with lbrack (String lbrack ?x)) with true. cbn iota.
+          change (sdrop 1 (String lbrack ?x)) with x. cbn [note_at].
+          rewrite Hen. change (Ascii.eqb hat hat) with true. cbn [andb]. rewrite Hgo.
+          reflexivity.
+        - reflexivity.
+        - reflexivity.
+        - reflexivity.
+        - cbn [pend_esc with_esc]. exact Hs'.
+        - left. apply prev_ok_follow; [exact Hf|reflexivity].
+        - (* the scanner holds the `!`, takes the bracket for an image's,
+             and puts the `!` back when the label closes *)
+          exists (String lbrack (String hat l ++ one rbrack)), rest.
+          split; [cbn [append]; rewrite append_assoc; reflexivity|left].
+          cbn [tok_text one iscan_str]. rewrite S0.
+          unfold istep at 1. cbn [istep_at]. unfold ibang_step. rewrite Ascii.eqb_refl.
+          change (@flush_text_to_at semantic_pos semantic_inline_cursor ?s (tval txt) o)
+            with (flush_text txt o).
+          tred. rewrite (note_after_open true l _ Hla Hen), (bang_flush v txt o Hsim Ti).
+          unfold istep. cbn [istep_at].
+          rewrite (ilead_lbrack (txt ++ one bang) (Some bang) o)
+            by (unfold note_pos; cbn; rewrite andb_false_r; reflexivity).
+          rewrite (note_after_open false l _ Hla Hen). reflexivity.
+        - cbn [is_hard]. apply linked_normal.
+          + apply pstep_mode; [exact Em|discriminate|discriminate|discriminate].
+          + unfold pstep. apply sim_text; [exact Hsim|reflexivity].
+        - left. apply pstep_mode; [exact Em|discriminate|discriminate|discriminate]. }
       assert (Hh2 : starts_with hat s'' = false).
-      { apply follow_bang in Hf. unfold bang_follows in Hf.
-        cbn in Hf. apply negb_true_iff in Hf. exact Hf. }
+      { destruct (starts_with hat s'') eqn:Sh; [|reflexivity]. exfalso.
+        apply follow_bracket in Hf2. unfold bracket_follows in Hf2.
+        rewrite Ascii.eqb_refl, Sh in Hf2. cbn [andb] in Hf2.
+        destruct (wikilinks_enabled && starts_with lbrack s'')%bool; [discriminate|].
+        cbn [orb negb] in Hf2. destruct (note_ahead s'') eqn:Nh; [|discriminate].
+        destruct s'' as [|c0 r0]; [discriminate|]. cbn [note_ahead] in Nh.
+        apply andb_true_iff in Nh as [Nh Hpl].
+        destruct (note_plain_go r0 Hpl) as (l & rest & _ & _ & Hgo).
+        cbn [note_at] in Na. rewrite Nh, Hgo in Na. discriminate. }
       apply (Nrm (TOpen true) 2 s'' (Some lbrack) "" (bpush true (flush_text txt o)));
-        [rewrite Htok; reflexivity|reflexivity|reflexivity|reflexivity
+        [rewrite Htok; cbn [next_tok]; unfold bang_tok; cbn [starts_with sdrop];
+         rewrite Ascii.eqb_refl, Na; reflexivity
+        |reflexivity|reflexivity|reflexivity
         |exact Hs''|cbn [prev_ok]; rewrite Hf2, Hh2; reflexivity| | | |].
       + cbn [iscan_str tok_text bracket_open]. rewrite S0. apply settles_refl.
       + reflexivity.
@@ -8254,15 +8334,6 @@ Proof.
   rewrite (IH b Hb). reflexivity.
 Qed.
 
-Local Lemma hat_blank : forall x b,
-  is_blank b = true -> starts_with hat (x ++ b) = starts_with hat x.
-Proof.
-  intros [|c x] b Hb; [|reflexivity]. destruct b as [|c b]; [reflexivity|].
-  cbn [is_blank] in Hb. apply andb_true_iff in Hb as [Hc _]. cbn [append starts_with].
-  destruct (Ascii.eqb c hat) eqn:E; [|reflexivity]. apply Ascii.eqb_eq in E. subst c.
-  discriminate Hc.
-Qed.
-
 Local Lemma over_alphabet_app_l : forall a b,
   over_alphabet (a ++ b) = true -> is_blank b = true -> over_alphabet a = true.
 Proof.
@@ -8286,10 +8357,10 @@ Proof.
     + pose proof (spec_ahead_blank "" b Hb) as Sb. cbn [append] in Sb, Hf.
       apply follow_brace in Hf. unfold brace_follows in Hf.
       rewrite (blank_not_row b Hb), Sb, !orb_false_r in Hf.
-      unfold follow_ok, brace_follows, bracket_follows, bang_follows,
+      unfold follow_ok, brace_follows, bracket_follows,
         close_follows, tick_follows. cbn.
       rewrite !andb_false_r, orb_false_r, Hf. reflexivity.
-    + unfold follow_ok, brace_follows, bracket_follows, bang_follows,
+    + unfold follow_ok, brace_follows, bracket_follows,
         close_follows, tick_follows, raw_ahead in *.
       change (sdrop 1 (String d a ++ b)) with (a ++ b)%string in Hf.
       change (sdrop 1 (String d a)) with a.
@@ -8297,7 +8368,7 @@ Proof.
         with (notes_enabled && Ascii.eqb d hat && note_plain (a ++ b))%bool in Hf.
       change (note_ahead (String d a))
         with (notes_enabled && Ascii.eqb d hat && note_plain a)%bool.
-      rewrite (note_plain_blank a b Hb), (hat_blank a b Hb) in Hf.
+      rewrite (note_plain_blank a b Hb) in Hf.
       rewrite (spec_ahead_blank a b Hb) in Hf.
       rewrite (spec_ahead_blank (String d a) b Hb), (raw_spec_blank (String d a) b Hb) in Hf.
       exact Hf.
