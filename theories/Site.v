@@ -375,7 +375,7 @@ Local Fixpoint ci_map_dest (f : string -> string) (c : cinline) : cinline :=
 
 (* The inline layer's own two-predicate induction: `cinline`'s children
    are a `list cinline`, which the generated principle does not descend
-   into.  Same shape as `Render.cblock_ind2`. *)
+   into. *)
 Local Definition cinline_ind2
   (P : cinline -> Prop) (Q : list cinline -> Prop)
   (hstr : forall s, P (CIStr s))
@@ -501,6 +501,16 @@ Proof.
     cbn [ctrow_cells]; apply css_dests_map.
 Qed.
 
+(* The containers' side of `cb_dests_map`. *)
+Local Lemma dests_map_children :
+  forall f cbs,
+    Forall (fun cb => cb_dests (cb_map_dest f cb) = map f (cb_dests cb)) cbs ->
+    flat_map cb_dests (map (cb_map_dest f) cbs) = map f (flat_map cb_dests cbs).
+Proof.
+  intros f cbs IH. induction IH as [|c rest Hc _ IHrest]; [reflexivity|].
+  cbn [map flat_map]. rewrite map_app, Hc, IHrest. reflexivity.
+Qed.
+
 (** The naturality law the codec layer is built on: mapping over a
     document's destinations maps over the list of them.  It mentions no
     codec, so it is proved once and every codec-level fact below is list
@@ -508,34 +518,23 @@ Qed.
 Lemma cb_dests_map :
   forall f cb, cb_dests (cb_map_dest f cb) = map f (cb_dests cb).
 Proof.
-  intros f.
-  refine (cblock_ind2
-            (fun cb => cb_dests (cb_map_dest f cb) = map f (cb_dests cb))
-            (fun cbs => flat_map cb_dests (map (cb_map_dest f) cbs)
-                        = map f (flat_map cb_dests cbs))
-            (fun items => flat_map (flat_map cb_dests)
-                            (map (map (cb_map_dest f)) items)
-                          = map f (flat_map (flat_map cb_dests) items))
-            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+  intros f cb. induction cb as [cb IH] using cblock_children_ind.
+  destruct cb; cbn [cchildren] in IH; cbn [cb_dests cb_map_dest];
     try reflexivity.
-  - intros ls. apply css_dests_map.
-  - intros lvl ls. apply css_dests_map.
-  - intros inner IH. exact IH.
-  - intros kind fold title inner IH.
-    cbn [cb_dests cb_map_dest].
-    rewrite map_app, cis_dests_map, IH. reflexivity.
-  - intros name inner IH. exact IH.
-  - intros k sp items IH. exact IH.
-  - intros rows. cbn [cb_dests cb_map_dest].
-    induction rows as [|r rows IH]; [reflexivity|].
-    cbn [map flat_map]. rewrite map_app, ctrow_dests_map, IH. reflexivity.
-  - intros i inner IH. exact IH.
-  - intros label inner IH. cbn [cb_dests cb_map_dest].
+  - apply css_dests_map.
+  - apply css_dests_map.
+  - exact (dests_map_children f _ IH).
+  - rewrite map_app, cis_dests_map, (dests_map_children f _ IH). reflexivity.
+  - exact (dests_map_children f _ IH).
+  - apply Forall_concat_inv in IH. induction IH as [|it rest Hit _ IHrest];
+      [reflexivity|].
+    cbn [map flat_map]. rewrite map_app, (dests_map_children f _ Hit), IHrest.
+    reflexivity.
+  - induction rows as [|r rows IHr]; [reflexivity|].
+    cbn [map flat_map]. rewrite map_app, ctrow_dests_map, IHr. reflexivity.
+  - apply Forall_cons_iff in IH as [IH _]. exact IH.
+  - apply Forall_cons_iff in IH as [IH _].
     rewrite map_app, ci_dests_map, IH. reflexivity.
-  - intros c rest IHc IHrest. cbn [map flat_map].
-    rewrite map_app, IHc, IHrest. reflexivity.
-  - intros item items IHitem IHitems. cbn [map flat_map].
-    rewrite map_app, IHitem, IHitems. reflexivity.
 Qed.
 
 Local Definition doc_dests (d : list cblock) : list string := flat_map cb_dests d.
@@ -836,44 +835,45 @@ Proof.
     cbn [ctrow_map_dest]; rewrite css_map_dest_id; auto.
 Qed.
 
+(* The containers' side of `cb_map_dest_id`. *)
+Local Lemma map_dest_id_children :
+  forall f cbs,
+    Forall (fun cb => (forall s, In s (cb_dests cb) -> f s = s) -> cb_map_dest f cb = cb) cbs ->
+    (forall s, In s (flat_map cb_dests cbs) -> f s = s) -> map (cb_map_dest f) cbs = cbs.
+Proof.
+  intros f cbs IH. induction IH as [|c rest Hc _ IHrest]; intros H; [reflexivity|].
+  cbn [map flat_map] in *. rewrite Hc, IHrest; [reflexivity| |].
+  - intros s Hs. apply H, in_or_app. right. exact Hs.
+  - intros s Hs. apply H, in_or_app. left. exact Hs.
+Qed.
+
 Local Lemma cb_map_dest_id :
   forall f cb, (forall s, In s (cb_dests cb) -> f s = s) -> cb_map_dest f cb = cb.
 Proof.
-  intros f.
-  refine (cblock_ind2
-    (fun cb => (forall s, In s (cb_dests cb) -> f s = s) -> cb_map_dest f cb = cb)
-    (fun cbs => (forall s, In s (flat_map cb_dests cbs) -> f s = s)
-                -> map (cb_map_dest f) cbs = cbs)
-    (fun items => (forall s, In s (flat_map (flat_map cb_dests) items) -> f s = s)
-                  -> map (map (cb_map_dest f)) items = items)
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); try (intros; reflexivity).
-  - intros ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
-  - intros lvl ls H. cbn [cb_map_dest]. rewrite css_map_dest_id; [reflexivity|exact H].
-  - intros inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
-  - intros kind fold title inner IH H.
-    cbn [cb_map_dest cb_dests] in *.
-    rewrite cis_map_dest_id, IH; [reflexivity| |].
+  intros f cb. induction cb as [cb IH] using cblock_children_ind. intros H.
+  destruct cb; cbn [cchildren] in IH; cbn [cb_map_dest cb_dests] in *;
+    try reflexivity.
+  - rewrite css_map_dest_id; [reflexivity|exact H].
+  - rewrite css_map_dest_id; [reflexivity|exact H].
+  - rewrite (map_dest_id_children f _ IH H). reflexivity.
+  - rewrite cis_map_dest_id, (map_dest_id_children f _ IH); [reflexivity| |].
     + intros s Hs. apply H, in_or_app. right. exact Hs.
     + intros s Hs. apply H, in_or_app. left. exact Hs.
-  - intros name inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
-  - intros k sp items IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
-  - intros label dest H. cbn [cb_map_dest]. rewrite H; [reflexivity|left; reflexivity].
-  - intros rows H. cbn [cb_map_dest] in *. f_equal.
-    induction rows as [|r rows IHr]; [reflexivity|].
+  - rewrite (map_dest_id_children f _ IH H). reflexivity.
+  - f_equal. apply Forall_concat_inv in IH. induction IH as [|it rest Hit _ IHrest];
+      [reflexivity|].
+    cbn [map flat_map] in *. rewrite (map_dest_id_children f _ Hit), IHrest;
+      [reflexivity| |].
+    + intros s Hs. apply H, in_or_app. right. exact Hs.
+    + intros s Hs. apply H, in_or_app. left. exact Hs.
+  - rewrite H; [reflexivity|left; reflexivity].
+  - f_equal. induction rows as [|r rows IHr]; [reflexivity|].
     cbn [map flat_map] in *. rewrite ctrow_map_dest_id, IHr; [reflexivity| |].
     + intros s Hs. apply H, in_or_app. right. exact Hs.
     + intros s Hs. apply H, in_or_app. left. exact Hs.
-  - intros i inner IH H. cbn [cb_map_dest]. rewrite IH; [reflexivity|exact H].
-  - intros label inner IH H. cbn [cb_map_dest cb_dests] in *.
+  - apply Forall_cons_iff in IH as [IH _]. rewrite IH; [reflexivity|exact H].
+  - apply Forall_cons_iff in IH as [IH _].
     rewrite ci_map_dest_id, IH; [reflexivity| |].
-    + intros s Hs. apply H, in_or_app. right. exact Hs.
-    + intros s Hs. apply H, in_or_app. left. exact Hs.
-  - intros c rest IHc IHrest H. cbn [map flat_map] in *.
-    rewrite IHc, IHrest; [reflexivity| |].
-    + intros s Hs. apply H, in_or_app. right. exact Hs.
-    + intros s Hs. apply H, in_or_app. left. exact Hs.
-  - intros item items IHitem IHitems H. cbn [map flat_map] in *.
-    rewrite IHitem, IHitems; [reflexivity| |].
     + intros s Hs. apply H, in_or_app. right. exact Hs.
     + intros s Hs. apply H, in_or_app. left. exact Hs.
 Qed.

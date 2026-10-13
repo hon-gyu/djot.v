@@ -298,11 +298,9 @@ Canonical blocks
    quote by the canonical blocks inside it.  One constructor per block
    construct the roundtrip covers.
 
-   The list-valued constructor makes `cblock` a nested inductive.  A
-   quote's or div's contents recurse through `map` directly, but a list's
-   list of items needs a hand-inlined fixpoint (Rocq rejects the mutual
-   recursion), so each projection carries one and each gets an equation
-   lemma recovering the `map`/`forallb` form the proofs use. *)
+   The list-valued constructors make `cblock` a nested inductive.  Its
+   functions recurse through `map` and `forallb`, a list's items through
+   two of them, and proofs induct with `cblock_children_ind`. *)
 Inductive cblock : Type :=
   (* A paragraph's within-line content, one `list cinline` per source
      line: the block layer owns line structure, `Inline.v` owns what sits
@@ -347,12 +345,6 @@ Inductive cblock : Type :=
 
 (* The two projections a cblock sits between: its source lines... *)
 Fixpoint cb_lines (cb : cblock) : list string :=
-  let itemss :=
-    fix goitems (iss : list (list cblock)) : list (list string) :=
-      match iss with
-      | [] => []
-      | it :: rest => sep_lines (map cb_lines it) :: goitems rest
-      end in
   match cb with
   | CPara lss => map ci_line lss
   | CThematic => [thematic_line]
@@ -373,7 +365,8 @@ Fixpoint cb_lines (cb : cblock) : list string :=
      decimal list's is not, which is why the markers go on here rather
      than inside the per-item map. *)
   | CList k sp items =>
-      list_lines sp (map litem_lines (ck_items k (itemss items)))
+      list_lines sp
+        (map litem_lines (ck_items k (map (fun it => sep_lines (map cb_lines it)) items)))
   | CRef label dest => [ref_line label dest]
   | CTable rows => flat_map ctrow_lines rows
   | CId id inner => ("{#" ++ id ++ "}") :: cb_lines inner
@@ -386,9 +379,6 @@ Fixpoint cb_lines (cb : cblock) : list string :=
 (* ...and the AST node the parser builds from those lines.  Roundtrip is
    then: cb_lines, rendered and reparsed, gives back cb_ast. *)
 Fixpoint cb_ast (cb : cblock) : node block :=
-  let itemsof :=
-    fix goitems (iss : list (list cblock)) : list blocks :=
-      match iss with [] => [] | it :: rest => map cb_ast it :: goitems rest end in
   match cb with
   | CPara lss => mk (Para (ci_para lss))
   | CThematic => mk ThematicBreak
@@ -399,7 +389,7 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CCallout kind fold title inner =>
       mk (Ext_callout kind fold (ci_inlines title) (map cb_ast inner))
   | CDiv name inner => mk (Div name (map cb_ast inner))
-  | CList k sp items => mk (ck_block k sp (itemsof items))
+  | CList k sp items => mk (ck_block k sp (map (map cb_ast) items))
   | CRef label dest => mk (RefDef label dest)
   | CTable rows => mk (Table (mk []) (map (fun r => mk (map mk r)) (ctable_cells [] rows)))
   | CId id inner => add_attr [("id", id)] (cb_ast inner)
@@ -407,9 +397,8 @@ Fixpoint cb_ast (cb : cblock) : node block :=
   | CAttrs => mk AttrBlock
   end.
 
-(* The container equations.  All hold by conversion: an inlined
-   `fix goitems` and `map` applied to the same body are the same term to
-   the kernel, so these name the `map` form rather than proving it. *)
+(* The container equations, which proofs rewrite with instead of
+   unfolding. *)
 Lemma cb_ast_quote :
   forall inner, cb_ast (CQuote inner) = mk (BlockQuote (map cb_ast inner)).
 Proof. reflexivity. Qed.
@@ -435,63 +424,41 @@ Lemma cb_lines_list :
     = list_lines sp (map litem_lines (ck_items k (map item_lines items))).
 Proof. reflexivity. Qed.
 
-(* Induction over cblocks that reaches into containers: the generated
-   `cblock_ind` does not descend into `CQuote`'s list or `CList`'s list of
-   lists.  P for a block, Q for a list of them (a quote's contents, or one
-   list item), R for a list of item lists (a whole `CList`'s items), which
-   packages "Q holds for every item". *)
-Definition cblock_ind2
-  (P : cblock -> Prop) (Q : list cblock -> Prop) (R : list (list cblock) -> Prop)
-  (hpara : forall ls, P (CPara ls))
-  (hthem : P CThematic)
-  (hcode : forall info content, P (CCode info content))
-  (hraw : forall format content, P (CRaw format content))
-  (hhead : forall lvl ls, P (CHeading lvl ls))
-  (hquote : forall inner, Q inner -> P (CQuote inner))
-  (hcallout : forall kind fold title inner,
-      Q inner -> P (CCallout kind fold title inner))
-  (hdiv : forall name inner, Q inner -> P (CDiv name inner))
-  (hlist : forall k sp items, R items -> P (CList k sp items))
-  (href : forall label dest, P (CRef label dest))
-  (htable : forall rows, P (CTable rows))
-  (hid : forall id inner, P inner -> P (CId id inner))
-  (hkey : forall label inner, P inner -> P (CKey label inner))
-  (hattrs : P CAttrs)
-  (hnil : Q [])
-  (hcons : forall c rest, P c -> Q rest -> Q (c :: rest))
-  (hrnil : R [])
-  (hrcons : forall item items, Q item -> R items -> R (item :: items))
-  : forall cb, P cb :=
-  fix go (cb : cblock) : P cb :=
-    let golist :=
-      fix golist (cs : list cblock) : Q cs :=
-        match cs with
-        | [] => hnil
-        | c :: rest => hcons c rest (go c) (golist rest)
-        end in
-    match cb with
-    | CPara ls => hpara ls
-    | CThematic => hthem
-    | CCode info content => hcode info content
-    | CRaw format content => hraw format content
-    | CHeading lvl ls => hhead lvl ls
-    | CQuote inner => hquote inner (golist inner)
-    | CCallout kind fold title inner =>
-        hcallout kind fold title inner (golist inner)
-    | CDiv name inner => hdiv name inner (golist inner)
-    | CList k sp items =>
-        hlist k sp items
-          ((fix golistlist (iss : list (list cblock)) : R iss :=
-              match iss with
-              | [] => hrnil
-              | it :: rest => hrcons it rest (golist it) (golistlist rest)
-              end) items)
-    | CRef label dest => href label dest
-    | CTable rows => htable rows
-    | CId id inner => hid id inner (go inner)
-    | CKey label inner => hkey label inner (go inner)
-    | CAttrs => hattrs
-    end.
+(* The cblocks right under a cblock, list items' contents included, in
+   document order. *)
+Definition cchildren (cb : cblock) : list cblock :=
+  match cb with
+  | CQuote inner | CCallout _ _ _ inner | CDiv _ inner => inner
+  | CList _ _ items => concat items
+  | CId _ inner | CKey _ inner => [inner]
+  | _ => []
+  end.
+
+(* Induction over cblocks that reaches into containers, which the
+   generated `cblock_ind` does not: P holds of a cblock if it holds of
+   each of its children. *)
+Lemma cblock_children_ind :
+  forall P : cblock -> Prop,
+    (forall cb, Forall P (cchildren cb) -> P cb) -> forall cb, P cb.
+Proof.
+  intros P H. fix go 1. intros cb. apply H.
+  destruct cb; cbn [cchildren]; try solve [constructor].
+  1-3: induction inner as [|c cs IH]; constructor; [apply go | exact IH].
+  - induction items as [|it its IH]; [constructor|]. cbn [concat].
+    apply Forall_app. split; [|exact IH].
+    induction it as [|c cs IHc]; constructor; [apply go | exact IHc].
+  - constructor; [apply go | constructor].
+  - constructor; [apply go | constructor].
+Qed.
+
+(* A list item's children are the blocks in it, so a fact about a list's
+   children is one about each of its items. *)
+Lemma Forall_concat_inv :
+  forall (A : Type) (P : A -> Prop) xss, Forall P (concat xss) -> Forall (Forall P) xss.
+Proof.
+  intros A P xss. induction xss as [|xs xss IH]; intros H; [constructor|].
+  cbn [concat] in H. apply Forall_app in H as [Hxs Hxss]. constructor; auto.
+Qed.
 
 Definition blocks_of_cblocks (cbs : list cblock) : blocks := map cb_ast cbs.
 
@@ -950,27 +917,9 @@ Proof.
   apply andb_true_iff in H as [H _]. rewrite H. reflexivity.
 Qed.
 
+(* A quote and a list item are nonempty, since an empty one renders to no
+   lines; a div and a callout may be empty. *)
 Fixpoint cb_ok (cb : cblock) : bool :=
-  let inner_ok :=
-    fix go (cs : list cblock) : bool :=
-      match cs with
-      | [] => false                        (* empty quote/item: not renderable *)
-      | [c] => cb_ok c
-      | c :: rest => (cb_ok c && go rest)%bool
-      end in
-  (* Unlike `inner_ok`, the empty case is `true`: an empty div renders. *)
-  let divs_ok :=
-    fix godiv (cs : list cblock) : bool :=
-      match cs with
-      | [] => true
-      | c :: rest => (cb_ok c && godiv rest)%bool
-      end in
-  let items_ok :=
-    fix goitems (iss : list (list cblock)) : bool :=
-      match iss with
-      | [] => true
-      | it :: rest => (inner_ok it && goitems rest)%bool
-      end in
   match cb with
   (* The block obligation is on the rendered lines, unchanged; the inline
      obligation is `cis_ok` per line.  Splitting it this way is what keeps
@@ -986,20 +935,22 @@ Fixpoint cb_ok (cb : cblock) : bool :=
          end
   | CRaw format content => braw_blocks && raw_ok format content
   | CHeading lvl lss => heading_ok lvl (map ci_line lss) && forallb cis_ok lss
-  | CQuote inner => inner_ok inner && cb_pairs_ok inner && quote_header_safe inner
+  | CQuote inner =>
+      nonempty inner && forallb cb_ok inner && cb_pairs_ok inner
+      && quote_header_safe inner
   | CCallout kind fold title inner =>
       bcallouts && callout_kind_ok kind && callout_title_ok title
-      && cis_ok title && divs_ok inner && cb_pairs_ok inner
+      && cis_ok title && forallb cb_ok inner && cb_pairs_ok inner
   (* A div's contents may be empty (`:::` then `:::` is a legal,
-     contentless div in djot.js), so this is the one container
-     without `inner_ok`'s nonempty obligation.  `div_content_ok` is the
+     contentless div in djot.js), so it has no nonempty obligation.  `div_content_ok` is the
      side condition of Parser.div_uniformity, specialised to the lines
      this rendering produces. *)
   | CDiv name inner =>
-      bdivs && div_name_ok name && divs_ok inner && cb_pairs_ok inner
+      bdivs && div_name_ok name && forallb cb_ok inner && cb_pairs_ok inner
       && div_content_ok (sep_lines (map cb_lines inner))
   | CList k sp items =>
-      nonempty items && items_ok items
+      nonempty items
+      && forallb (fun it => nonempty it && forallb cb_ok it) items
       && ck_ok k (List.length items)
       && forallb (fun it => item_ok (ck_first k) (item_lines it)) items
       && forallb cb_pairs_ok items
@@ -1042,32 +993,6 @@ Lemma cb_ok_id :
       && cb_ok inner)%bool.
 Proof. reflexivity. Qed.
 
-(* cb_ok's `inner_ok` helper, spelled out: a quote's contents or a list
-   item are renderable exactly when nonempty and every cblock in them is
-   cb_ok.  One fact, reused for both cb_ok_quote and cb_ok_list. *)
-Local Lemma inner_ok_eq :
-  forall cs,
-    (fix go (cs : list cblock) : bool :=
-       match cs with
-       | [] => false
-       | [c] => cb_ok c
-       | c :: rest => (cb_ok c && go rest)%bool
-       end) cs
-    = (nonempty cs && forallb cb_ok cs)%bool.
-Proof.
-  induction cs as [|c rest IH]; [reflexivity|].
-  destruct rest as [|c2 rest'].
-  - cbn [forallb nonempty]. rewrite andb_true_r. reflexivity.
-  - change ((fix go (cs : list cblock) : bool :=
-               match cs with [] => false | [c0] => cb_ok c0
-               | c0 :: r => (cb_ok c0 && go r)%bool end) (c :: c2 :: rest'))
-      with (cb_ok c &&
-            (fix go (cs : list cblock) : bool :=
-               match cs with [] => false | [c0] => cb_ok c0
-               | c0 :: r => (cb_ok c0 && go r)%bool end) (c2 :: rest'))%bool.
-    rewrite IH. cbn [nonempty forallb]. reflexivity.
-Qed.
-
 (* The two arms that split into a block obligation on the rendered lines
    and an inline one per line. *)
 Lemma cb_ok_para :
@@ -1087,33 +1012,21 @@ Lemma cb_ok_quote :
     cb_ok (CQuote inner)
     = (nonempty inner && forallb cb_ok inner && cb_pairs_ok inner
        && quote_header_safe inner)%bool.
-Proof. intros inner. unfold cb_ok. rewrite inner_ok_eq. reflexivity. Qed.
-
-(* The div analogues.  `divs_ok` collapses to a plain `forallb` because
-   it has no nonempty case to carry. *)
-Local Lemma divs_ok_eq :
-  forall cs,
-    (fix godiv (cs : list cblock) : bool :=
-       match cs with
-       | [] => true
-       | c :: rest => (cb_ok c && godiv rest)%bool
-       end) cs
-    = forallb cb_ok cs.
-Proof. induction cs as [|c rest IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
+Proof. reflexivity. Qed.
 
 Lemma cb_ok_callout :
   forall kind fold title inner,
     cb_ok (CCallout kind fold title inner) =
       (bcallouts && callout_kind_ok kind && callout_title_ok title
        && cis_ok title && forallb cb_ok inner && cb_pairs_ok inner)%bool.
-Proof. intros. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
+Proof. reflexivity. Qed.
 
 Lemma cb_ok_div :
   forall name inner,
     cb_ok (CDiv name inner)
     = (bdivs && div_name_ok name && forallb cb_ok inner && cb_pairs_ok inner
        && div_content_ok (sep_lines (map cb_lines inner)))%bool.
-Proof. intros name inner. unfold cb_ok. rewrite divs_ok_eq. reflexivity. Qed.
+Proof. reflexivity. Qed.
 
 Lemma cb_ast_div :
   forall name inner, cb_ast (CDiv name inner) = mk (Div name (map cb_ast inner)).
@@ -1158,26 +1071,6 @@ Proof.
   intros cbs H. unfold cblocks_ok in H. apply andb_true_iff in H. exact H.
 Qed.
 
-(* cb_ok's `items_ok` helper, spelled out via inner_ok_eq per item. *)
-Local Lemma items_ok_eq :
-  forall items,
-    (fix goitems (iss : list (list cblock)) : bool :=
-       match iss with
-       | [] => true
-       | it :: rest =>
-           ((fix go (cs : list cblock) : bool :=
-               match cs with
-               | [] => false
-               | [c] => cb_ok c
-               | c :: r => (cb_ok c && go r)%bool
-               end) it && goitems rest)%bool
-       end) items
-    = forallb (fun it => nonempty it && forallb cb_ok it)%bool items.
-Proof.
-  induction items as [|it rest IH]; [reflexivity|].
-  cbn [forallb]. rewrite <- IH, <- inner_ok_eq. reflexivity.
-Qed.
-
 Lemma cb_ok_list :
   forall k sp items,
     cb_ok (CList k sp items)
@@ -1191,9 +1084,7 @@ Lemma cb_ok_list :
           | Loose => items_seps_loosen items || items_force_loose items
           end
        && ck_content_ok k items)%bool.
-Proof.
-  intros k sp items. unfold cb_ok. fold cb_ok. rewrite items_ok_eq. reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 
 Lemma cb_ok_table :
   forall rows,
@@ -1367,40 +1258,25 @@ Local Definition note_indent (l : string) : string :=
    blocks: its attributes came off its heading, and the line in front of
    the section is the line in front of the heading. *)
 Fixpoint render_lines (a : attr) (b : block) : list string :=
-  let itemss :=
-    fix goitems (items : list (node blocks)) : list (list string) :=
-      match items with
-      | [] => []
-      | Node _ _ it :: rest =>
-          sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) it)
-          :: goitems rest
-      end in
+  let blocks_lines (bs : blocks) :=
+    sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs) in
+  let itemss := map (fun it : node blocks => blocks_lines (node_contents it)) in
   let taskitemss :=
-    fix gotasks (items : list (node (task_status * blocks)))
-      : list (task_status * list string) :=
-      match items with
-      | [] => []
-      | Node _ _ (chk, it) :: rest =>
-          (chk, sep_lines
-                  (map (fun n => render_lines (node_attrs n) (node_contents n)) it))
-          :: gotasks rest
-      end in
+    map (fun it : node (task_status * blocks) =>
+           let (chk, bs) := node_contents it in (chk, blocks_lines bs)) in
   (* A definition item's lines are its definition's, with the term put
      back at the head as the paragraph it was split from.  An absent term
      puts nothing back, which is what makes `: # h` render as one line. *)
   let defitemss :=
-    fix godefs (its : list (node (node inlines * node blocks))) : list (list string) :=
-      match its with
-      | [] => []
-      | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
-          sep_lines
-            ((match term with
-              | [] => []
-              | _ => [text_lines term]
-              end)
-             ++ map (fun n => render_lines (node_attrs n) (node_contents n)) it)%list
-          :: godefs rest
-      end in
+    map (fun it : node (node inlines * node blocks) =>
+           let (term, def) := node_contents it in
+           sep_lines
+             ((match node_contents term with
+               | [] => []
+               | ils => [text_lines ils]
+               end)
+              ++ map (fun n => render_lines (node_attrs n) (node_contents n))
+                   (node_contents def))%list) in
   let cls := fence_class a b in
   (attr_lines (drop_class cls a) ++
    match b with
@@ -1413,18 +1289,18 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
        (code_open ("=" ++ fmt)%string :: split_lines text ++ [code_close])%list
    | BlockQuote bs =>
        map quote_line
-         (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs))
+         (blocks_lines bs)
    | Ext_callout kind fold title bs =>
        (quote_line
           (callout_header_line kind fold (String.concat " " (text_lines title)))
         :: map quote_line
-          (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)))%list
+          (blocks_lines bs))%list
    | Div name bs =>
-       let body := sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs) in
+       let body := blocks_lines bs in
        let word := match name with EmptyString => cls | _ => name end in
        (div_open_line (div_fence_for body) word :: body ++ [div_fence_for body])%list
    | Section bs =>
-       sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
+       blocks_lines bs
    | BulletList bc sp items =>
        list_lines sp
          (map item_or_marker_lines (same_marker (MBullet bc) (itemss items)))
@@ -1441,7 +1317,7 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
    | FootnoteDef label bs =>
        ("[^" ++ label ++ "]:")%string
        :: map note_indent
-            (sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs))
+            (blocks_lines bs)
    | Ext_keyed label inner =>
        key_lines
          (String.concat "" (map (fun n => inline_text (node_contents n)) label))
@@ -1582,31 +1458,24 @@ Lemma render_ck_list :
            (ck_items k (map (fun it => sep_lines (render_blocks_lines it)) items))).
 Proof.
   assert (H : forall items,
-            (fix goitems (its : list (node blocks)) : list (list string) :=
-               match its with
-               | [] => []
-               | Node _ _ it :: rest =>
-                   sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) it)
-                   :: goitems rest
-               end) (map mk items)
-            = map (fun it => sep_lines (render_blocks_lines it)) items).
-  { induction items as [|it rest IH]; [reflexivity|].
-    cbn [map]. rewrite IH. reflexivity. }
+            map (fun it : node blocks =>
+                   sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n))
+                                (node_contents it)))
+              (map mk items)
+            = map (fun it => sep_lines (render_blocks_lines it)) items)
+    by (intros items; rewrite map_map; reflexivity).
   assert (Hdef : forall items,
              forallb def_head_ok items = true ->
-             (fix godefs (its : list (node (node inlines * node blocks)))
-                 : list (list string) :=
-                match its with
-                | [] => []
-                | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
+             map (fun it : node (node inlines * node blocks) =>
+                    let (term, def) := node_contents it in
                     sep_lines
-                      ((match term with
+                      ((match node_contents term with
                         | [] => []
-                        | _ => [text_lines term]
+                        | ils => [text_lines ils]
                         end)
-                       ++ map (fun n => render_lines (node_attrs n) (node_contents n)) it)%list
-                    :: godefs rest
-                end) (def_items items)
+                       ++ map (fun n => render_lines (node_attrs n) (node_contents n))
+                            (node_contents def))%list)
+               (def_items items)
              = map (fun it => sep_lines (render_blocks_lines it)) items).
   { unfold def_items. induction items as [|it rest IH]; [reflexivity|].
     cbn [map forallb]. intros Hok. apply andb_true_iff in Hok as [Hit Hrest].
@@ -1650,7 +1519,7 @@ Proof.
     change (fun n : node block =>
               render_lines (node_attrs n) (node_contents n))
       with render_node_lines.
-    fold (render_blocks_lines it). rewrite E.
+    cbn [node_contents mk]. fold (render_blocks_lines it). rewrite E.
     cbn [task_litem_lines litem_lines indent_lines mk_open mk_cont].
     destruct chk; cbn [task_open]; f_equal; apply IH; assumption.
 Qed.
@@ -1853,90 +1722,25 @@ Local Definition drop_derived (a : attr) (q : list string)
   end.
 
 (* Recursion is on the block, with its node's position and attributes
-   alongside, which is the shape the guard accepts (`Undo.pass_block`).
-   The order is `Document.Ids.of_block`'s, a section standing where its
+   alongside, which is the shape the guard accepts (`Ids.of_block`).  The
+   order is `Document.Ids.of_block`'s, a section standing where its
    heading did. *)
 Fixpoint drop_auto_ids (b : block) (p : pos) (a : attr) (q : list string)
   {struct b} : list string * node block :=
-  let go :=
-    fix go (bs : blocks) (q : list string) : list string * blocks :=
-      match bs with
-      | [] => (q, [])
-      | Node p' a' x :: rest =>
-          let (q1, n) := drop_auto_ids x p' a' q in
-          let (q2, rest') := go rest q1 in
-          (q2, n :: rest')
-      end in
-  let goits :=
-    fix goits (its : list (node blocks)) (q : list string)
-      : list string * list (node blocks) :=
-      match its with
-      | [] => (q, [])
-      | Node ip ia it :: rest =>
-          let (q1, it') := go it q in
-          let (q2, rest') := goits rest q1 in
-          (q2, Node ip ia it' :: rest')
-      end in
+  let children q :=
+    map_acc_children
+      (fun n q => match n with Node p' a' x => drop_auto_ids x p' a' q end) b q in
   match b with
-  | Heading lvl ils =>
-      let (q', a') := drop_derived a q in (q', Node p a' (Heading lvl ils))
-  | Section bs =>
+  | Heading _ _ => let (q', a') := drop_derived a q in (q', Node p a' b)
+  | Section _ =>
       let (q1, a') := drop_derived a q in
-      let (q2, bs') := go bs q1 in
-      (q2, Node p a' (Section bs'))
-  | BlockQuote bs =>
-      let (q', bs') := go bs q in (q', Node p a (BlockQuote bs'))
-  | Ext_callout kind fold title bs =>
-      let (q', bs') := go bs q in
-      (q', Node p a (Ext_callout kind fold title bs'))
-  | Div name bs => let (q', bs') := go bs q in (q', Node p a (Div name bs'))
-  | FootnoteDef l bs =>
-      let (q', bs') := go bs q in (q', Node p a (FootnoteDef l bs'))
-  | BulletList bc sp its =>
-      let (q', its') := goits its q in (q', Node p a (BulletList bc sp its'))
-  | OrderedList oa sp its =>
-      let (q', its') := goits its q in (q', Node p a (OrderedList oa sp its'))
-  | TaskList sp its =>
-      let (q', its') :=
-        (fix gotasks (ts : list (node (task_status * blocks)))
-             (q : list string)
-           : list string * list (node (task_status * blocks)) :=
-           match ts with
-           | [] => (q, [])
-           | Node ip ia (chk, it) :: rest =>
-               let (q1, it') := go it q in
-               let (q2, rest') := gotasks rest q1 in
-               (q2, Node ip ia (chk, it') :: rest')
-           end) its q in
-      (q', Node p a (TaskList sp its'))
-  | DefinitionList sp its =>
-      let (q', its') :=
-        (fix godefs (ds : list (node (node inlines * node blocks)))
-             (q : list string)
-           : list string * list (node (node inlines * node blocks)) :=
-           match ds with
-           | [] => (q, [])
-           | Node ip ia (term, Node dp da it) :: rest =>
-               let (q1, it') := go it q in
-               let (q2, rest') := godefs rest q1 in
-               (q2, Node ip ia (term, Node dp da it') :: rest')
-           end) its q in
-      (q', Node p a (DefinitionList sp its'))
-  | Ext_keyed label (Node p' a' x) =>
-      let (q', n) := drop_auto_ids x p' a' q in
-      (q', Node p a (Ext_keyed label n))
-  | _ => (q, Node p a b)
+      let (q2, b') := children q1 in (q2, Node p a' b')
+  | _ => let (q', b') := children q in (q', Node p a b')
   end.
 
 Definition doc_source_blocks (d : doc) : blocks :=
-  snd ((fix go (bs : blocks) (q : list string) : list string * blocks :=
-          match bs with
-          | [] => (q, [])
-          | Node p a x :: rest =>
-              let (q1, n) := drop_auto_ids x p a q in
-              let (q2, rest') := go rest q1 in
-              (q2, n :: rest')
-          end) (doc_blocks d) (doc_auto_identifiers d)).
+  snd (map_acc (fun n q => match n with Node p a x => drop_auto_ids x p a q end)
+         (doc_blocks d) (doc_auto_identifiers d)).
 
 Definition render_doc (d : doc) : string := render_djot (doc_source_blocks d).
 

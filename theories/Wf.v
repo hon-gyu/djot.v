@@ -251,8 +251,7 @@ Proof.
     rewrite wf_block_div, H; reflexivity.
 Qed.
 
-(* wf_block's hand-inlined item-list fixpoint, named for the same reason
-   as wf_block_quote. *)
+(* wf_block on a list, named for the same reason as wf_block_quote. *)
 Local Lemma wf_block_bullet :
   forall bc sp items,
     wf_block (BulletList bc sp items)

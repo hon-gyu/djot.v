@@ -244,37 +244,22 @@ Local Definition table_lines (rows : list (list cell)) : list string :=
 (* A block with its attributes [a], to lines.  The cases follow
    `Render.render_lines`. *)
 Fixpoint readable_lines (a : attr) (b : block) : list string :=
-  let itemss :=
-    fix goitems (items : list (node blocks)) : list (list string) :=
-      match items with
-      | [] => []
-      | Node _ _ it :: rest =>
-          sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) it)
-          :: goitems rest
-      end in
+  let blocks_lines (bs : blocks) :=
+    sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs) in
+  let itemss := map (fun it : node blocks => blocks_lines (node_contents it)) in
   let taskitemss :=
-    fix gotasks (items : list (node (task_status * blocks)))
-      : list (task_status * list string) :=
-      match items with
-      | [] => []
-      | Node _ _ (chk, it) :: rest =>
-          (chk, sep_lines
-                  (map (fun n => readable_lines (node_attrs n) (node_contents n)) it))
-          :: gotasks rest
-      end in
+    map (fun it : node (task_status * blocks) =>
+           let (chk, bs) := node_contents it in (chk, blocks_lines bs)) in
   let defitemss :=
-    fix godefs (its : list (node (node inlines * node blocks))) : list (list string) :=
-      match its with
-      | [] => []
-      | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
-          sep_lines
-            ((match term with
-              | [] => []
-              | _ => [readable_inline_lines term]
-              end)
-             ++ map (fun n => readable_lines (node_attrs n) (node_contents n)) it)%list
-          :: godefs rest
-      end in
+    map (fun it : node (node inlines * node blocks) =>
+           let (term, def) := node_contents it in
+           sep_lines
+             ((match node_contents term with
+               | [] => []
+               | ils => [readable_inline_lines ils]
+               end)
+              ++ map (fun n => readable_lines (node_attrs n) (node_contents n))
+                   (node_contents def))%list) in
   let cls := fence_class a b in
   (attr_lines (drop_class cls a) ++
    match b with
@@ -287,19 +272,19 @@ Fixpoint readable_lines (a : attr) (b : block) : list string :=
        (code_open ("=" ++ fmt)%string :: split_lines text ++ [code_close])%list
    | BlockQuote bs =>
        map quoted
-         (sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs))
+         (blocks_lines bs)
    | Ext_callout kind fold title bs =>
        (quote_line
           (callout_header_line kind fold
              (String.concat " " (readable_inline_lines title)))
         :: map quoted
-          (sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs)))%list
+          (blocks_lines bs))%list
    | Div name bs =>
-       let body := sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs) in
+       let body := blocks_lines bs in
        let word := match name with EmptyString => cls | _ => name end in
        (div_open_line (div_fence_for body) word :: body ++ [div_fence_for body])%list
    | Section bs =>
-       sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs)
+       blocks_lines bs
    | BulletList bc sp items =>
        list_lines sp (map item_lines (same_marker (MBullet bc) (itemss items)))
    | DefinitionList sp its =>
@@ -313,7 +298,7 @@ Fixpoint readable_lines (a : attr) (b : block) : list string :=
    | FootnoteDef label bs =>
        note_lines label
          (match bs with Node _ [] (Para _) :: _ => true | _ => false end)
-         (sep_lines (map (fun n => readable_lines (node_attrs n) (node_contents n)) bs))
+         (blocks_lines bs)
    | Ext_keyed label inner =>
        key_lines
          (readable_nodes label None)

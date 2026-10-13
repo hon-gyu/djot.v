@@ -133,8 +133,8 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
-(* Induction that reaches the children, in the shape `Render.cblock_ind2`
-   established: the inner `fix` is what carries `P` through `list helt`. *)
+(* Induction that reaches the children: the inner `fix` is what carries
+   `P` through `list helt`. *)
 Local Definition helt_ind2
   (P : helt -> Prop) (Q : list helt -> Prop)
   (htext : forall s, P (HText s))
