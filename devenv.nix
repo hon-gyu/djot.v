@@ -45,6 +45,10 @@ in
     ocamlPackages.odoc
     ocamlPackages.js_of_ocaml-compiler
     ocamlPackages.wasm_of_ocaml-compiler
+    # <ai> `ocamllsp`, built with the same OCaml as dune: one built with
+    # another OCaml cannot read the .cmi files in _build </ai>
+    ocamlPackages.ocaml-lsp
+    ocamlPackages.ocamlformat  # ocamllsp formats through it
     rocqPackages.rocq-core
     # <ai> `pet`, the proof server rocq-mcp drives.  It has to come from the
     # same Rocq as the build: a Rocq built with another OCaml cannot read
