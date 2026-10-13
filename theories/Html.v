@@ -691,6 +691,20 @@ Record foot_state : Type := FootState
 
 Definition foot_initial : foot_state := FootState [] (@StrMap.empty nat) 1.
 
+(* `flat_map` with the counter passed from each element to the next.
+   Right recursion, each element's output put in front of the rest's: an
+   accumulator appended at the back would copy the output so far once per
+   element. *)
+Local Fixpoint flat_map_st {A : Type} (f : foot_state -> A -> foot_state * list helt)
+  (st : foot_state) (l : list A) : foot_state * list helt :=
+  match l with
+  | [] => (st, [])
+  | x :: rest =>
+      let '(st1, s1) := f st x in
+      let '(st2, s2) := flat_map_st f st1 rest in
+      (st2, (s1 ++ s2)%list)
+  end.
+
 Local Definition number_footnote (label : string) (st : foot_state)
   : foot_state * nat * bool :=
   let label := normalize_label label in
@@ -705,15 +719,7 @@ Local Definition number_footnote (label : string) (st : foot_state)
 Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   {struct il} : foot_state * list helt :=
   let render_ils :=
-    fix go (st0 : foot_state) (ns : list (node inline))
-      : foot_state * list helt :=
-      match ns with
-      | [] => (st0, [])
-      | Node _ a' x :: rest =>
-          let '(st1, s1) := render_inline_foot st0 x a' in
-          let '(st2, s2) := go st1 rest in
-          (st2, (s1 ++ s2)%list)
-      end in
+    flat_map_st (fun st0 n => match n with Node _ a' x => render_inline_foot st0 x a' end) in
   match il with
   | Emph ils =>
       let '(st', s) := render_ils st ils in (st', [HElem "em" 0 a s])
@@ -764,19 +770,9 @@ Local Fixpoint render_inline_foot (st : foot_state) (il : inline) (a : attr)
   | _ => (st, render_inline il a)
   end.
 
-(* Right recursion, each node's output put in front of the rest's: an
-   accumulator appended at the back would copy the output so far once per
-   node. *)
 Local Definition render_inlines_foot (st : foot_state) (ils : inlines)
   : foot_state * list helt :=
-  (fix go (st0 : foot_state) (ns : inlines) : foot_state * list helt :=
-     match ns with
-     | [] => (st0, [])
-     | Node _ a x :: rest =>
-         let '(st1, s1) := render_inline_foot st0 x a in
-         let '(st2, s2) := go st1 rest in
-         (st2, (s1 ++ s2)%list)
-     end) st ils.
+  flat_map_st (fun st0 n => match n with Node _ a x => render_inline_foot st0 x a end) st ils.
 
 (* The table renderers again, threading the footnote counter: a cell may
    carry a footnote reference, and it is numbered in source order like
@@ -821,52 +817,30 @@ Local Definition render_caption_foot (st : foot_state) (caption : node inlines)
 
 Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   (b : block) (a : attr) {struct b} : foot_state * list helt :=
-  let render_bs_at :=
-    fix go (st0 : foot_state) (t : bool) (ns : list (node block))
-      : foot_state * list helt :=
-      match ns with
-      | [] => (st0, [])
-      | Node _ a' x :: rest =>
-          let '(st1, s1) := render_block_foot st0 t x a' in
-          let '(st2, s2) := go st1 t rest in
-          (st2, (s1 ++ s2)%list)
-      end in
-  let render_items :=
-    fix goi (st0 : foot_state) (sp : list_spacing)
-      (its : list (node (list (node block)))) {struct its}
-      : foot_state * list helt :=
-      match its with
-      | [] => (st0, [])
-      | Node _ ia it :: rest =>
-          let t := match sp with Tight => true | Loose => false end in
-          let '(st1, s1) := render_bs_at st0 t it in
-          let '(st2, s2) := goi st1 sp rest in
-          (st2, HElem "li" 2 ia s1 :: s2)
-      end in
-  let render_task_items :=
-    fix got (st0 : foot_state) (sp : list_spacing)
-      (its : list (node (task_status * list (node block)))) {struct its}
-      : foot_state * list helt :=
-      match its with
-      | [] => (st0, [])
-      | Node _ _ (chk, it) :: rest =>
-          let t := match sp with Tight => true | Loose => false end in
-          let '(st1, s1) := render_bs_at st0 t it in
-          let '(st2, s2) := got st1 sp rest in
-          (st2, HElem "li" 2 [] (checkbox_elt chk :: HText nl :: s1) :: s2)
-      end in
-  let render_def_items :=
-    fix god (st0 : foot_state)
-      (its : list (node (node inlines * node (list (node block))))) {struct its}
-      : foot_state * list helt :=
-      match its with
-      | [] => (st0, [])
-      | Node _ _ (Node _ ta term, Node _ da it) :: rest =>
-          let '(st1, s1) := render_inlines_foot st0 term in
-          let '(st2, s2) := render_bs_at st1 tight it in
-          let '(st3, s3) := god st2 rest in
-          (st3, HElem "dt" 1 ta s1 :: HElem "dd" 2 da s2 :: s3)
-      end in
+  let render_bs_at st0 t :=
+    flat_map_st (fun st1 n => match n with Node _ a' x => render_block_foot st1 t x a' end) st0 in
+  let item_tight sp := match sp with Tight => true | Loose => false end in
+  let render_items st0 sp :=
+    flat_map_st (fun st1 it =>
+      match it with
+      | Node _ ia it =>
+          let '(st2, s) := render_bs_at st1 (item_tight sp) it in (st2, [HElem "li" 2 ia s])
+      end) st0 in
+  let render_task_items st0 sp :=
+    flat_map_st (fun st1 it =>
+      match it with
+      | Node _ _ (chk, it) =>
+          let '(st2, s) := render_bs_at st1 (item_tight sp) it in
+          (st2, [HElem "li" 2 [] (checkbox_elt chk :: HText nl :: s)])
+      end) st0 in
+  let render_def_items st0 :=
+    flat_map_st (fun st1 it =>
+      match it with
+      | Node _ _ (Node _ ta term, Node _ da it) =>
+          let '(st2, s1) := render_inlines_foot st1 term in
+          let '(st3, s2) := render_bs_at st2 tight it in
+          (st3, [HElem "dt" 1 ta s1; HElem "dd" 2 da s2])
+      end) st0 in
   match b with
   | Para ils =>
       let '(st', s) := render_inlines_foot st ils in
@@ -934,17 +908,9 @@ Local Fixpoint render_block_foot (st : foot_state) (tight : bool)
   | _ => (st, render_block tight b a)
   end.
 
-(* Right recursion, as `render_inlines_foot`. *)
 Definition render_blocks_foot (st : foot_state) (bs : blocks)
   : foot_state * list helt :=
-  (fix go (st0 : foot_state) (ns : blocks) : foot_state * list helt :=
-     match ns with
-     | [] => (st0, [])
-     | Node _ a b :: rest =>
-         let '(st1, s1) := render_block_foot st0 false b a in
-         let '(st2, s2) := go st1 rest in
-         (st2, (s1 ++ s2)%list)
-     end) st bs.
+  flat_map_st (fun st0 n => match n with Node _ a b => render_block_foot st0 false b a end) st bs.
 
 Local Definition note_backlink (n : nat) : helt :=
   HElem "a" 0
@@ -1075,6 +1041,33 @@ Proof.
   rewrite Hshape. reflexivity.
 Qed.
 
+Local Lemma foot_shape_bind :
+  forall {A} (x y : foot_state * list helt)
+    (f g : foot_state -> list helt -> foot_state * A)
+    (R : foot_state * A -> foot_state * A -> Prop),
+    foot_shape x y ->
+    (forall st o o', map erase_helt_attrs o = map erase_helt_attrs o' ->
+       R (f st o) (g st o')) ->
+    R (let '(st, o) := x in f st o) (let '(st, o) := y in g st o).
+Proof.
+  intros A [st o] [st' o'] f g R [Hs Ho] H. cbn [fst snd] in *. subst st'.
+  exact (H st o o' Ho).
+Qed.
+
+(* `flat_map_st` keeps the shape when each element's rendering does. *)
+Local Lemma flat_map_st_shape :
+  forall (A : Type) (f g : foot_state -> A -> foot_state * list helt) l st,
+    (forall x st, In x l -> foot_shape (f st x) (g st x)) ->
+    foot_shape (flat_map_st f st l) (flat_map_st g st l).
+Proof.
+  intros A f g. induction l as [|x l IH]; intros st H; [split; reflexivity|].
+  cbn [flat_map_st].
+  eapply foot_shape_bind; [apply H; left; reflexivity|intros st1 o o' Ho].
+  eapply foot_shape_bind; [apply IH; intros y st' Hy; apply H; right; exact Hy|].
+  intros st2 r r' Hr. split; [reflexivity|]. cbn [snd]. rewrite !map_app, Ho, Hr.
+  reflexivity.
+Qed.
+
 Theorem render_inline_foot_reference_shape :
   forall il st a refs refs',
     foot_shape (render_inline_foot refs st il a)
@@ -1121,51 +1114,19 @@ Proof.
       rewrite E1, E2 in H. cbn [fst snd] in H.
       destruct H as [Hs Ho]. unfold foot_shape. cbn [fst snd].
       split; [exact Hs|]. repeat rewrite map_app. rewrite Ho. reflexivity.
-  - unfold Q. intros st refs refs'. cbn [render_inlines_foot].
-    destruct (render_inline_foot refs st x a) as [s1 o1] eqn:E1.
-    destruct (render_inline_foot refs' st x a) as [s2 o2] eqn:E2.
-    pose proof (H st a refs refs') as Hhead.
-    unfold foot_shape in Hhead. rewrite E1, E2 in Hhead.
-    cbn [fst snd] in Hhead. destruct Hhead as [Hs Ho]. subst s2.
-    change (foot_shape
-      (let '(u,v) := render_inlines_foot refs s1 rest in (u, (o1 ++ v)%list))
-      (let '(u,v) := render_inlines_foot refs' s1 rest in (u, (o2 ++ v)%list))).
-    destruct (render_inlines_foot refs s1 rest) as [s3 o3] eqn:E3.
-    destruct (render_inlines_foot refs' s1 rest) as [s4 o4] eqn:E4.
-    pose proof (H0 s1 refs refs') as Htail.
-    unfold Q, foot_shape in Htail. rewrite E3, E4 in Htail.
-    cbn [fst snd] in Htail. destruct Htail as [Hs HoTail].
-    unfold foot_shape. cbn [fst snd].
-    split; [exact Hs|]. rewrite !map_app, Ho, HoTail. reflexivity.
+  - unfold Q in *. intros st refs refs'. unfold render_inlines_foot. cbn [flat_map_st].
+    eapply foot_shape_bind; [apply H|intros st1 o o' Ho].
+    eapply foot_shape_bind; [apply H0|intros st2 r r' Hr].
+    split; [reflexivity|]. cbn [snd]. rewrite !map_app, Ho, Hr. reflexivity.
 Qed.
-
-Local Lemma render_inlines_foot_cons : forall refs st p a x rest,
-  render_inlines_foot refs st (Node p a x :: rest)
-  = let '(st1, s1) := render_inline_foot refs st x a in
-    let '(st2, s2) := render_inlines_foot refs st1 rest in
-    (st2, (s1 ++ s2)%list).
-Proof. reflexivity. Qed.
 
 Theorem render_inlines_foot_reference_shape :
   forall ils st refs refs',
     foot_shape (render_inlines_foot refs st ils)
                (render_inlines_foot refs' st ils).
 Proof.
-  induction ils as [|[p a x] rest IH]; intros st refs refs';
-    [split; reflexivity|].
-  rewrite !render_inlines_foot_cons.
-  destruct (render_inline_foot refs st x a) as [s1 o1] eqn:E1.
-  destruct (render_inline_foot refs' st x a) as [s2 o2] eqn:E2.
-  pose proof (render_inline_foot_reference_shape x st a refs refs') as Hx.
-  unfold foot_shape in Hx. rewrite E1, E2 in Hx.
-  cbn [fst snd] in Hx. destruct Hx as [Hs Ho]. subst s2.
-  destruct (render_inlines_foot refs s1 rest) as [s3 o3] eqn:E3.
-  destruct (render_inlines_foot refs' s1 rest) as [s4 o4] eqn:E4.
-  pose proof (IH s1 refs refs') as Hr.
-  unfold foot_shape in Hr. rewrite E3, E4 in Hr.
-  cbn [fst snd] in Hr. destruct Hr as [Hs Hr].
-  unfold foot_shape. cbn [fst snd].
-  split; [exact Hs|]. rewrite !map_app, Ho, Hr. reflexivity.
+  intros ils st refs refs'. apply flat_map_st_shape.
+  intros [p a x] st' _. apply render_inline_foot_reference_shape.
 Qed.
 
 Local Lemma render_caption_foot_reference_shape :
@@ -1240,107 +1201,58 @@ Proof.
   split; [exact Ht|]. rewrite He, Ho. reflexivity.
 Qed.
 
-Local Definition render_bs_foot (refs : resolver) (st : foot_state)
-  (tight : bool) (bs : blocks) : foot_state * list helt :=
-  (fix go (st0 : foot_state) (t : bool) (ns : blocks)
-     : foot_state * list helt :=
-     match ns with
-     | [] => (st0, [])
-     | Node _ a b :: rest =>
-         let '(st1, s1) := render_block_foot refs st0 t b a in
-         let '(st2, s2) := go st1 t rest in
-         (st2, (s1 ++ s2)%list)
-     end) st tight bs.
-
-Local Definition render_items_foot (refs : resolver)
-  : foot_state -> list_spacing -> list (node blocks) -> foot_state * list helt :=
-  fix goi (st : foot_state) (sp : list_spacing) (items : list (node blocks))
-    {struct items} : foot_state * list helt :=
-    match items with
-    | [] => (st, [])
-    | Node _ ia it :: rest =>
-        let t := match sp with Tight => true | Loose => false end in
-        let '(st1, s1) := render_bs_foot refs st t it in
-        let '(st2, s2) := goi st1 sp rest in
-        (st2, HElem "li" 2 ia s1 :: s2)
-    end.
-
-Local Definition render_task_items_foot (refs : resolver)
-  : foot_state -> list_spacing -> list (node (task_status * blocks))
-    -> foot_state * list helt :=
-  fix got (st : foot_state) (sp : list_spacing)
-    (items : list (node (task_status * blocks))) {struct items}
-    : foot_state * list helt :=
-    match items with
-    | [] => (st, [])
-    | Node _ _ (chk, it) :: rest =>
-        let t := match sp with Tight => true | Loose => false end in
-        let '(st1, s1) := render_bs_foot refs st t it in
-        let '(st2, s2) := got st1 sp rest in
-        (st2, HElem "li" 2 [] (checkbox_elt chk :: HText nl :: s1) :: s2)
-    end.
-
-Local Definition render_def_items_foot (refs : resolver) (tight : bool)
-  : foot_state -> list (node (node inlines * node blocks)) -> foot_state * list helt :=
-  fix god (st : foot_state) (items : list (node (node inlines * node blocks)))
-    {struct items} : foot_state * list helt :=
-    match items with
-    | [] => (st, [])
-    | Node _ _ (Node _ ta term, Node _ da it) :: rest =>
-        let '(st1, s1) := render_inlines_foot refs st term in
-        let '(st2, s2) := render_bs_foot refs st1 tight it in
-        let '(st3, s3) := god st2 rest in
-        (st3, HElem "dt" 1 ta s1 :: HElem "dd" 2 da s2 :: s3)
-    end.
-
-Local Lemma foot_shape_bind :
-  forall {A} (x y : foot_state * list helt)
-    (f g : foot_state -> list helt -> foot_state * A)
-    (R : foot_state * A -> foot_state * A -> Prop),
-    foot_shape x y ->
-    (forall st o o', map erase_helt_attrs o = map erase_helt_attrs o' ->
-       R (f st o) (g st o')) ->
-    R (let '(st, o) := x in f st o) (let '(st, o) := y in g st o).
-Proof.
-  intros A [st o] [st' o'] f g R [Hs Ho] H. cbn [fst snd] in *. subst st'.
-  exact (H st o o' Ho).
-Qed.
-
 Theorem render_block_foot_reference_shape :
   forall b st tight a refs refs',
     foot_shape (render_block_foot refs st tight b a)
                (render_block_foot refs' st tight b a).
 Proof.
-  intros b. induction b using block_ind2 with
-    (Q := fun bs => forall st t refs refs',
-       foot_shape (render_bs_foot refs st t bs) (render_bs_foot refs' st t bs))
-    (R := fun its => forall st sp refs refs',
-       foot_shape (render_items_foot refs st sp its)
-                  (render_items_foot refs' st sp its))
-    (K := fun its => forall st sp refs refs',
-       foot_shape (render_task_items_foot refs st sp its)
-                  (render_task_items_foot refs' st sp its))
-    (D := fun its => forall st t refs refs',
-       foot_shape (render_def_items_foot refs t st its)
-                  (render_def_items_foot refs' t st its));
-    intros; try destruct term; cbn [render_block_foot];
-    unfold render_bs_foot, render_items_foot, render_task_items_foot,
-      render_def_items_foot; cbn iota beta;
-    repeat match goal with
-           | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
-           end;
-    repeat (eapply foot_shape_bind;
-      [first [apply IHb | apply IHb0 | exact (IHb _ tight refs refs')
-             | apply render_inlines_foot_reference_shape
+  (* An item's blocks are among its list's children. *)
+  assert (I : forall (A : Type) (g : A -> blocks) its it,
+            In it its -> forall n, In n (g it) -> In n (flat_map g its))
+    by (intros; apply in_flat_map; eauto).
+  intros b. induction b as [b IH] using block_children_ind. rewrite Forall_forall in IH.
+  intros st tight a refs refs'.
+  assert (C : forall l, (forall n, In n l -> In n (children b)) -> forall st t,
+    foot_shape
+      (flat_map_st (fun st1 n => match n with Node _ a' x => render_block_foot refs st1 t x a' end) st l)
+      (flat_map_st (fun st1 n => match n with Node _ a' x => render_block_foot refs' st1 t x a' end) st l)).
+  { intros l Hl st' t. apply flat_map_st_shape. intros [p a' x] st1 Hx.
+    exact (IH _ (Hl _ Hx) st1 t a' refs refs'). }
+  destruct b; cbn [render_block_foot Ast.children] in C |- *;
+    repeat match goal with |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x) end.
+  all: try (split; reflexivity).
+  all: repeat (eapply foot_shape_bind;
+      [first [apply (C _ (fun n H => H)) | apply render_inlines_foot_reference_shape
              | apply render_caption_foot_reference_shape
-             | apply render_rows_foot_reference_shape]|];
-      intros ? ? ? ?);
-    try destruct tight;
-    unfold foot_shape; cbn [fst snd]; split; try reflexivity;
-    cbn [map erase_helt_attrs]; rewrite ?map_app; try congruence.
-  all: destruct fold as [[|]|]; destruct title;
-    cbn [fst snd map erase_helt_attrs]; rewrite ?map_app;
-    cbn [map erase_helt_attrs]; rewrite ?H, ?H0; reflexivity.
+             | apply render_rows_foot_reference_shape]|]; intros ? ? ? ?).
+  (* ordered and bullet items *)
+  all: try (eapply foot_shape_bind; [apply flat_map_st_shape; intros [ip ia it] st1 Hit;
+          eapply foot_shape_bind; [apply C; intros n Hn; exact (I _ _ _ _ Hit n Hn)|];
+          intros ? ? ? Hx; split; [reflexivity|]; cbn [snd map erase_helt_attrs]; rewrite Hx;
+          reflexivity|];
+          intros ? ? ? ?).
+  (* task items *)
+  all: try (eapply foot_shape_bind; [apply flat_map_st_shape; intros x st1 Hit;
+          destruct x as [ip ia [chk it]];
+          eapply foot_shape_bind;
+          [apply C; intros n Hn; exact (I _ (fun it => snd (node_contents it)) _ _ Hit n Hn)|];
+          intros ? ? ? Hx; split; [reflexivity|]; cbn [snd map erase_helt_attrs]; rewrite Hx;
+          reflexivity|];
+          intros ? ? ? ?).
+  (* definition items *)
+  all: try (eapply foot_shape_bind; [apply flat_map_st_shape; intros x st1 Hit;
+          destruct x as [ip ia [[tp ta term] [dp da it]]];
+          eapply foot_shape_bind; [apply render_inlines_foot_reference_shape|]; intros ? ? ? Hx;
+          eapply foot_shape_bind;
+          [apply C; intros n Hn;
+           exact (I _ (fun it => node_contents (snd (node_contents it))) _ _ Hit n Hn)|];
+          intros ? ? ? Hy; split; [reflexivity|]; cbn [snd map erase_helt_attrs];
+          rewrite Hx, Hy; reflexivity|];
+          intros ? ? ? ?).
+  all: try (match goal with x : option callout_fold |- _ => destruct x as [[|]|] end;
+            destruct title).
+  all: try destruct tight; split; try reflexivity; cbn [snd map erase_helt_attrs];
+    rewrite ?map_app; cbn [map erase_helt_attrs]; rewrite ?H, ?H0; reflexivity.
 Qed.
 
 Local Lemma render_blocks_foot_cons : forall refs st p a b rest,
@@ -1355,14 +1267,8 @@ Theorem render_blocks_foot_reference_shape :
     foot_shape (render_blocks_foot refs st bs)
                (render_blocks_foot refs' st bs).
 Proof.
-  induction bs as [|[p a b] rest IH]; intros st refs refs';
-    [split; reflexivity|].
-  rewrite !render_blocks_foot_cons.
-  eapply foot_shape_bind;
-    [apply render_block_foot_reference_shape|intros st1 o o' Ho].
-  eapply foot_shape_bind; [apply IH|intros st2 r r' Hr].
-  unfold foot_shape. cbn [fst snd].
-  split; [reflexivity|]. rewrite !map_app, Ho, Hr. reflexivity.
+  intros bs st refs refs'. apply flat_map_st_shape.
+  intros [p a b] st' _. apply render_block_foot_reference_shape.
 Qed.
 
 (* Note bodies are keyed by label; only the bodies' attributes may differ. *)
@@ -1563,79 +1469,74 @@ An attribute block renders to nothing, so the tree without them
 (`Document.DropAttrBlocks`) renders the same.
 *)
 
-Local Lemma render_bs_foot_cons : forall refs st t p a b rest,
-  render_bs_foot refs st t (Node p a b :: rest)
-  = let '(st1, s1) := render_block_foot refs st t b a in
-    let '(st2, s2) := render_bs_foot refs st1 t rest in
-    (st2, (s1 ++ s2)%list).
-Proof. reflexivity. Qed.
+Local Lemma flat_map_st_map :
+  forall (A B : Type) (f : foot_state -> B -> foot_state * list helt) (g : A -> B) l st,
+    flat_map_st f st (map g l) = flat_map_st (fun st x => f st (g x)) st l.
+Proof.
+  intros A B f g. induction l as [|x l IH]; intros st; [reflexivity|].
+  cbn [map flat_map_st]. destruct (f st (g x)). rewrite IH. reflexivity.
+Qed.
+
+Local Lemma flat_map_st_ext_in :
+  forall (A : Type) (f g : foot_state -> A -> foot_state * list helt) l st,
+    (forall x st, In x l -> f st x = g st x) ->
+    flat_map_st f st l = flat_map_st g st l.
+Proof.
+  intros A f g. induction l as [|x l IH]; intros st H; [reflexivity|].
+  cbn [flat_map_st]. rewrite H by (left; reflexivity). destruct (g st x).
+  rewrite IH by (intros; apply H; right; assumption). reflexivity.
+Qed.
 
 Local Lemma render_block_foot_drop :
   forall b refs st tight a,
     render_block_foot refs st tight (DropAttrBlocks.of_block b) a
     = render_block_foot refs st tight b a.
 Proof.
-  intros b. induction b using block_ind2 with
-    (Q := fun bs => forall refs st t,
-       render_bs_foot refs st t (DropAttrBlocks.of_list bs) = render_bs_foot refs st t bs)
-    (R := fun its => forall refs st sp,
-       render_items_foot refs st sp
-         (map (fun it => match it with Node p a x => Node p a (DropAttrBlocks.of_list x) end) its)
-       = render_items_foot refs st sp its)
-    (K := fun its => forall refs st sp,
-       render_task_items_foot refs st sp
-         (map (fun it => match it with
-                         | Node p a x => Node p a (fst x, DropAttrBlocks.of_list (snd x))
-                         end) its)
-       = render_task_items_foot refs st sp its)
-    (D := fun its => forall refs t st,
-       render_def_items_foot refs t st
-         (map (fun it => match it with
-                         | Node p a x =>
-                             Node p a (fst x, match snd x with
-                                              | Node q c y => Node q c (DropAttrBlocks.of_list y)
-                                              end)
-                         end) its)
-       = render_def_items_foot refs t st its).
-  all: try (intros; rewrite ?DropAttrBlocks.of_block_children;
-            unfold render_bs_foot, render_items_foot, render_task_items_foot,
-              render_def_items_foot in *;
-            cbn [render_block_foot map_children]; rewrite ?IHb; reflexivity).
-  (* what a container renders is its children's rendering *)
-  Local Ltac same_children H :=
-    match goal with
-    | |- (let '(_, _) := ?l in _) = (let '(_, _) := ?r in _) =>
-        replace l with r by (symmetry; apply H); reflexivity
-    end.
-  1-3: intros; rewrite DropAttrBlocks.of_block_children;
-       cbn [map_children render_block_foot]; same_children IHb.
-  - (* a key keeps its block, an attribute block included *)
-    intros. rewrite DropAttrBlocks.of_block_children.
-    cbn [map_children render_block_foot].
-    destruct (render_inlines_foot refs st label) as [st1 s1]. destruct b as [p' a' x].
+  (* An item's blocks are among its list's children. *)
+  assert (I : forall (A : Type) (g : A -> blocks) its it,
+            In it its -> forall n, In n (g it) -> In n (flat_map g its))
+    by (intros; apply in_flat_map; eauto).
+  intros b. induction b as [b IH] using block_children_ind. rewrite Forall_forall in IH.
+  intros refs st tight a.
+  (* an attribute block renders to nothing *)
+  assert (L : forall l, (forall n, In n l -> In n (children b)) -> forall st t,
+    flat_map_st (fun st1 n => match n with Node _ a' x => render_block_foot refs st1 t x a' end)
+      st (DropAttrBlocks.of_list l)
+    = flat_map_st (fun st1 n => match n with Node _ a' x => render_block_foot refs st1 t x a' end)
+      st l).
+  { induction l as [|[p a' x] l IHl]; intros Hl st' t; [reflexivity|].
+    unfold DropAttrBlocks.of_list. cbn [flat_map node_contents].
+    change (flat_map _ l) with (DropAttrBlocks.of_list l).
+    assert (Hl' : forall n, In n l -> In n (children b)) by (intros; apply Hl; right; assumption).
     destruct (DropAttrBlocks.is_attr_block x) eqn:Hx.
-    + destruct x; try discriminate Hx. reflexivity.
-    + specialize (IHb refs st1 tight). unfold DropAttrBlocks.of_list in IHb.
-      cbn [flat_map node_contents] in IHb. rewrite Hx in IHb. cbn [app] in IHb.
-      same_children IHb.
-  - intros. rewrite DropAttrBlocks.of_block_children.
-    cbn [map_children render_block_foot].
-    destruct (render_inlines_foot refs st title) as [st1 s1]. same_children IHb.
-  - intros. unfold DropAttrBlocks.of_list. cbn [flat_map node_contents].
-    change (flat_map _ rest) with (DropAttrBlocks.of_list rest).
-    destruct (DropAttrBlocks.is_attr_block b) eqn:Hb.
-    + destruct b; try discriminate Hb. cbn [app]. rewrite IHb0, render_bs_foot_cons.
-      cbn [render_block_foot render_block].
-      destruct (render_bs_foot refs st t rest). reflexivity.
-    + cbn [app DropAttrBlocks.of_node]. rewrite !render_bs_foot_cons, IHb.
-      destruct (render_block_foot refs st t b a) as [st1 s1]. rewrite IHb0. reflexivity.
-  - intros. cbn [map render_items_foot]. rewrite IHb.
-    destruct (render_bs_foot refs st _ it) as [st1 s1]. rewrite IHb0. reflexivity.
-  - intros. destruct term as [tp ta term]. cbn [map fst snd render_def_items_foot].
-    destruct (render_inlines_foot refs st term) as [st1 s1]. rewrite IHb.
-    destruct (render_bs_foot refs st1 t it) as [st2 s2]. rewrite IHb0. reflexivity.
-  - intros. cbn [map fst snd render_task_items_foot]. rewrite IHb.
-    destruct (render_bs_foot refs st _ it) as [st1 s1]. rewrite IHb0. reflexivity.
+    - destruct x; try discriminate Hx. cbn [app flat_map_st render_block_foot render_block].
+      rewrite (IHl Hl'). destruct (flat_map_st _ st' l). reflexivity.
+    - cbn [app flat_map_st DropAttrBlocks.of_node].
+      rewrite (IH (Node p a' x) (Hl _ (or_introl eq_refl))). cbn [node_contents].
+      destruct (render_block_foot refs st' t x a'). rewrite (IHl Hl'). reflexivity. }
+  rewrite DropAttrBlocks.of_block_children.
+  destruct b; cbn [map_children render_block_foot Ast.children] in L |- *; try reflexivity.
+  all: try (rewrite (L _ (fun n H => H)); reflexivity).
+  all: try (destruct (render_inlines_foot refs st _) as [st1 s1]).
+  (* what a container renders is its children's rendering *)
+  all: match goal with |- (let '(_, _) := ?l in _) = (let '(_, _) := ?r in _) =>
+         replace l with r; [reflexivity|symmetry] end.
+  all: try (rewrite (L _ (fun n H => H)); reflexivity).
+  all: try (rewrite flat_map_st_map; apply flat_map_st_ext_in;
+            intros [ip ia it] st1 Hit; cbn [fst snd];
+            rewrite L; [reflexivity|intros n Hn; exact (I _ _ _ _ Hit n Hn)]).
+  all: try (rewrite flat_map_st_map; apply flat_map_st_ext_in;
+            intros x st1 Hit; destruct x as [ip ia [chk it]]; cbn [fst snd];
+            rewrite L; [reflexivity|intros n Hn;
+              exact (I _ (fun it => snd (node_contents it)) _ _ Hit n Hn)]).
+  all: try (rewrite flat_map_st_map; apply flat_map_st_ext_in;
+            intros x st1 Hit; destruct x as [ip ia [[tp ta term] [dp da it]]]; cbn [fst snd];
+            destruct (render_inlines_foot refs st1 term);
+            rewrite L; [reflexivity|intros n Hn;
+              exact (I _ (fun it => node_contents (snd (node_contents it))) _ _ Hit n Hn)]).
+  (* a key keeps its block, an attribute block included *)
+  destruct b as [p a' x]. cbn [flat_map_st DropAttrBlocks.of_node].
+  rewrite (IH (Node p a' x) (or_introl eq_refl)). reflexivity.
 Qed.
 
 Local Lemma render_blocks_foot_drop : forall refs bs st,
