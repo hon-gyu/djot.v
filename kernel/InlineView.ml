@@ -220,6 +220,45 @@ let bare_ok t at_end pre c rest =
       rest)
     pre
 
+(** val opens_line : char -> bool **)
+
+let opens_line c =
+  (||)
+    ((||)
+      ((||)
+        ((||) ((||) ((||) ((=) c '#') ((=) c '>')) ((=) c '|'))
+          ((=) c lparen))
+        ((=) c '+'))
+      ((=) c '*'))
+    ((=) c '~')
+
+(** val opens_block : string -> char -> string -> bool **)
+
+let opens_block pre c rest =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> opens_line c)
+    (fun _ _ ->
+    (&&) ((&&) ((=) c rparen) (marker_core pre))
+      ((* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+         (fun _ -> true)
+         (fun d _ -> is_space d)
+         rest))
+    pre
+
+(** val escapes : dtable -> bool -> string -> char -> string -> bool **)
+
+let escapes t at_end pre c rest =
+  (||) ((&&) (needs_escape t c) (negb (bare_ok t at_end pre c rest)))
+    (opens_block pre c rest)
+
 (** val escape_from : dtable -> bool -> string -> string -> string **)
 
 let rec escape_from t at_end pre s =
@@ -230,7 +269,7 @@ let rec escape_from t at_end pre s =
 
     (fun _ -> "")
     (fun c rest ->
-    if (&&) (needs_escape t c) (negb (bare_ok t at_end pre c rest))
+    if escapes t at_end pre c rest
     then (* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
