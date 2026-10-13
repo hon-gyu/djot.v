@@ -203,6 +203,10 @@ type blocks = block node list
 
 val fold_children : ('a1 -> block node -> 'a1) -> block -> 'a1 -> 'a1
 
+val map_parts :
+  (pos -> pos) -> (inlines -> inlines) -> (block node -> block node) -> block
+  -> block
+
 val map_acc : ('a2 -> 'a1 -> 'a1 * 'a3) -> 'a2 list -> 'a1 -> 'a1 * 'a3 list
 
 val map_acc_node :
@@ -259,14 +263,6 @@ module Shift :
   val of_inline : int -> inline -> inline
 
   val of_inlines : int -> inlines -> inlines
-
-  val of_cell : int -> cell -> cell
-
-  val cnode : int -> cell node -> cell node
-
-  val row : int -> cell node list node -> cell node list node
-
-  val inlines_node : int -> inlines node -> inlines node
 
   val of_block : int -> block -> block
 

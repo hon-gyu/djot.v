@@ -398,6 +398,37 @@ let fold_children f b acc =
    | Ext_callout (_, _, _, bs) -> go bs acc
    | _ -> acc)
 
+(** val map_parts :
+    (pos -> pos) -> (inlines -> inlines) -> (block node -> block node) ->
+    block -> block **)
+
+let map_parts q i h b =
+  let item = fun f n -> let Node (p, a, x) = n in Node ((q p), a, (f x)) in
+  let cell0 = fun c -> let Cell (ct, al, ils) = c in Cell (ct, al, (i ils)) in
+  (match b with
+   | Para ils -> Para (i ils)
+   | Section bs -> Section (map h bs)
+   | Heading (lvl, ils) -> Heading (lvl, (i ils))
+   | BlockQuote bs -> BlockQuote (map h bs)
+   | Div (name, bs) -> Div (name, (map h bs))
+   | OrderedList (oa, sp, items) ->
+     OrderedList (oa, sp, (map (item (map h)) items))
+   | BulletList (bc, sp, items) ->
+     BulletList (bc, sp, (map (item (map h)) items))
+   | TaskList (sp, items) ->
+     TaskList (sp, (map (item (fun x -> ((fst x), (map h (snd x))))) items))
+   | DefinitionList (sp, items) ->
+     DefinitionList (sp,
+       (map (item (fun x -> ((item i (fst x)), (item (map h) (snd x)))))
+         items))
+   | Table (cap, rows) ->
+     Table ((item i cap), (map (item (map (item cell0))) rows))
+   | FootnoteDef (lbl, bs) -> FootnoteDef (lbl, (map h bs))
+   | Ext_keyed (lbl, n) -> Ext_keyed ((i lbl), (h n))
+   | Ext_callout (kind, fold, title, bs) ->
+     Ext_callout (kind, fold, (i title), (map h bs))
+   | _ -> b)
+
 (** val map_acc :
     ('a2 -> 'a1 -> 'a1 * 'a3) -> 'a2 list -> 'a1 -> 'a1 * 'a3 list **)
 
@@ -643,84 +674,11 @@ module Shift =
     let Node (p, a, x) = n in
     (Node ((of_pos d p), a, (of_inline d x))) :: (of_inlines d rest)
 
-  (** val of_cell : int -> cell -> cell **)
-
-  let of_cell d = function
-  | Cell (ct, al, ils) -> Cell (ct, al, (of_inlines d ils))
-
-  (** val cnode : int -> cell node -> cell node **)
-
-  let cnode d = function
-  | Node (p, a, c) -> Node ((of_pos d p), a, (of_cell d c))
-
-  (** val row : int -> cell node list node -> cell node list node **)
-
-  let row d = function
-  | Node (p, a, cs) -> Node ((of_pos d p), a, (map (cnode d) cs))
-
-  (** val inlines_node : int -> inlines node -> inlines node **)
-
-  let inlines_node d = function
-  | Node (p, a, ils) -> Node ((of_pos d p), a, (of_inlines d ils))
-
   (** val of_block : int -> block -> block **)
 
   let rec of_block d b =
-    let go =
-      let rec go = function
-      | [] -> []
-      | n :: rest ->
-        let Node (p, a, x) = n in
-        (Node ((of_pos d p), a, (of_block d x))) :: (go rest)
-      in go
-    in
-    let goitems =
-      let rec goitems = function
-      | [] -> []
-      | n :: rest ->
-        let Node (p, a, item) = n in
-        (Node ((of_pos d p), a, (go item))) :: (goitems rest)
-      in goitems
-    in
-    (match b with
-     | Para ils -> Para (of_inlines d ils)
-     | Section bs -> Section (go bs)
-     | Heading (lvl, ils) -> Heading (lvl, (of_inlines d ils))
-     | BlockQuote bs -> BlockQuote (go bs)
-     | Div (name, bs) -> Div (name, (go bs))
-     | OrderedList (attrs, sp, items) ->
-       OrderedList (attrs, sp, (goitems items))
-     | BulletList (bc, sp, items) -> BulletList (bc, sp, (goitems items))
-     | TaskList (sp, items) ->
-       TaskList (sp,
-         (let rec gotasks = function
-          | [] -> []
-          | n :: rest ->
-            let Node (p, a, x) = n in
-            let (status, item) = x in
-            (Node ((of_pos d p), a, (status, (go item)))) :: (gotasks rest)
-          in gotasks items))
-     | DefinitionList (sp, items) ->
-       DefinitionList (sp,
-         (let rec godefs = function
-          | [] -> []
-          | n :: rest ->
-            let Node (p, a, x) = n in
-            let (term, n0) = x in
-            let Node (q, b0, item) = n0 in
-            (Node ((of_pos d p), a, ((inlines_node d term), (Node
-            ((of_pos d q), b0, (go item)))))) :: (godefs rest)
-          in godefs items))
-     | Table (caption, rows) ->
-       Table ((inlines_node d caption), (map (row d) rows))
-     | FootnoteDef (label, bs) -> FootnoteDef (label, (go bs))
-     | Ext_keyed (label, b0) ->
-       let Node (p, a, x) = b0 in
-       Ext_keyed ((of_inlines d label), (Node ((of_pos d p), a,
-       (of_block d x))))
-     | Ext_callout (kind, fold, title, bs) ->
-       Ext_callout (kind, fold, (of_inlines d title), (go bs))
-     | _ -> b)
+    map_parts (of_pos d) (of_inlines d) (fun n ->
+      let Node (p, a, x) = n in Node ((of_pos d p), a, (of_block d x))) b
 
   (** val of_blocks : int -> blocks -> blocks **)
 
