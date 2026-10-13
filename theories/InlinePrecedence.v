@@ -3496,6 +3496,43 @@ Proof.
     rewrite !(istep_wrap c _ _ Fc), Hs. reflexivity.
 Qed.
 
+(* The same where the scanner decides later than the byte after the
+   token: the two states agree once some prefix of the rest of the line
+   is read, or at its end.  A run of hyphens before a `}` is one, where
+   the scanner holds the run until the `}` and the reading has cut it
+   into a dash and a closer. *)
+Definition settles_in (X st : iscan) (rest : string) : Prop :=
+  exists p r', rest = (p ++ r')%string
+    /\ (iscan_str p X = iscan_str p st
+        \/ (r' = EmptyString /\ rres (iscan_str p X) = rres (iscan_str p st))).
+
+Local Lemma settles_in_of : forall X st rest, settles X st (get 0 rest) -> settles_in X st rest.
+Proof.
+  intros X st [|c r] H; cbn [get settles] in H.
+  - exists "", "". split; [reflexivity|right; split; [reflexivity|exact H]].
+  - exists (one c), r. split; [reflexivity|left; exact H].
+Qed.
+
+Local Lemma step_through_in : forall bytes rest ws core X st,
+  Forall (fun w => dfeed (bytes ++ rest) (wl_ds w) <> None) ws ->
+  iscan_str bytes core = X -> settles_in X st rest ->
+  rres (iscan_str (bytes ++ rest) (wrap ws core))
+  = rres (iscan_str rest (wrap (map (wl_after bytes) ws) st)).
+Proof.
+  intros bytes rest ws core X st F HX (p & r' & -> & Hs).
+  rewrite iscan_str_app, iscan_wrap, HX.
+  2: { rewrite Forall_forall in F |- *. intros w Hw E. apply (F w Hw).
+       rewrite dfeed_app, E. reflexivity. }
+  assert (Fp : Forall (fun w => dfeed p (wl_ds w) <> None) (map (wl_after bytes) ws)).
+  { rewrite Forall_map. rewrite Forall_forall in F |- *. intros w Hw E. apply (F w Hw).
+    rewrite dfeed_app. unfold wl_after in E. cbn [wl_ds] in E.
+    destruct (dfeed bytes (wl_ds w)) as [d'|]; [|reflexivity].
+    rewrite dfeed_app, E. reflexivity. }
+  rewrite !iscan_str_app, !(iscan_wrap p _ _ Fp).
+  destruct Hs as [E | [-> E]]; [rewrite E; reflexivity|].
+  cbn [iscan_str]. rewrite !rres_wrap, E. reflexivity.
+Qed.
+
 (*
 Tokens, in text mode
 --------------------
@@ -4230,12 +4267,12 @@ Definition prev_ok (prev : option ascii) (s : string) : bool :=
 Local Lemma prev_ok_plain : forall p s,
   Ascii.eqb p lbrace = false -> Ascii.eqb p lbrack = false -> Ascii.eqb p rbrack = false ->
   is_tick p = false -> Ascii.eqb p lt = false -> Ascii.eqb p ":"%char = false ->
-  Ascii.eqb p bang = false -> Ascii.eqb p hyphen = false ->
+  Ascii.eqb p bang = false ->
   prev_ok (Some p) s = true.
 Proof.
-  intros p s H1 H2 H3 H4 H5 H6 H7 H8. unfold prev_ok, follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
-    close_follows, tick_follows, lt_follows, colon_follows.
-  rewrite H1, H2, H3, H4, H5, H6, H7, H8. reflexivity.
+  intros p s H1 H2 H3 H4 H5 H6 H7. unfold prev_ok, follow_ok, brace_follows, bracket_follows,
+    bang_follows, close_follows, tick_follows, lt_follows, colon_follows.
+  rewrite H1, H2, H3, H4, H5, H6, H7. reflexivity.
 Qed.
 
 Local Lemma prev_ok_follow : forall c s,
@@ -5602,7 +5639,7 @@ Proof. induction a as [|w a IH]; intros b core; [reflexivity|]. cbn. rewrite IH.
 
 (* One step of the simulation: a chunk of bytes, then the rest of the
    line. *)
-Local Lemma scan_advance_gen : forall ps after len,
+Local Lemma scan_advance_gen_in : forall ps after len,
   scan_ih ps after len ->
   forall s n h v ws core bytes rest prev1 extra core1 h1 v1,
     String.length s <= S len -> sdrop n ps = (s ++ after)%string ->
@@ -5612,7 +5649,7 @@ Local Lemma scan_advance_gen : forall ps after len,
     vinv ps (n + String.length bytes) h1 v1 ->
     same_prev (before ps (n + String.length bytes)) prev1 ->
     alpha_ok v1 core1 rest -> note_ok prev1 core1 rest ->
-    settles (iscan_str bytes core) (wrap extra core1) (get 0 rest) ->
+    settles_in (iscan_str bytes core) (wrap extra core1) rest ->
     Forall (never ps (n + String.length bytes)) extra ->
     linked ps (n + String.length bytes) h1 v1 prev1 core1 ->
     scanned ps n h v ws core s.
@@ -5634,8 +5671,50 @@ Proof.
   rewrite length_append, Nat.add_assoc.
   split; [|split; [exact (pruns_trans _ _ _ _ _ _ _ _ _ _ Hr R)|split; [exact V'|split; [exact Fn''|exact L']]]].
   rewrite <- E, wrap_app.
-  apply (step_through bytes rest ws core (iscan_str bytes core) (wrap extra core1));
+  apply (step_through_in bytes rest ws core (iscan_str bytes core) (wrap extra core1));
     [exact Hopen|reflexivity|exact Hset].
+Qed.
+
+Local Lemma scan_advance_gen : forall ps after len,
+  scan_ih ps after len ->
+  forall s n h v ws core bytes rest prev1 extra core1 h1 v1,
+    String.length s <= S len -> sdrop n ps = (s ++ after)%string ->
+    Forall (never ps n) ws ->
+    s = (bytes ++ rest)%string -> bytes <> "" ->
+    pruns ps n h v (n + String.length bytes) h1 v1 ->
+    vinv ps (n + String.length bytes) h1 v1 ->
+    same_prev (before ps (n + String.length bytes)) prev1 ->
+    alpha_ok v1 core1 rest -> note_ok prev1 core1 rest ->
+    settles (iscan_str bytes core) (wrap extra core1) (get 0 rest) ->
+    Forall (never ps (n + String.length bytes)) extra ->
+    linked ps (n + String.length bytes) h1 v1 prev1 core1 ->
+    scanned ps n h v ws core s.
+Proof.
+  intros ps after len IH s n h v ws core bytes rest prev1 extra core1 h1 v1
+    Hl Hs Fn Es Hne Hr V Hp Ha Hnote Hset.
+  exact (scan_advance_gen_in ps after len IH s n h v ws core bytes rest prev1 extra core1 h1 v1
+           Hl Hs Fn Es Hne Hr V Hp Ha Hnote (settles_in_of _ _ _ Hset)).
+Qed.
+
+Local Lemma scan_advance_in : forall ps after len,
+  scan_ih ps after len ->
+  forall s n h v ws core bytes rest prev1 extra core1 h1 v1,
+    String.length s <= S len -> sdrop n ps = (s ++ after)%string ->
+    Forall (never ps n) ws ->
+    s = (bytes ++ rest)%string -> bytes <> "" ->
+    pruns ps n h v (n + String.length bytes) h1 v1 ->
+    vinv ps (n + String.length bytes) h1 v1 ->
+    same_prev (before ps (n + String.length bytes)) prev1 ->
+    over_alphabet (with_esc (pend_esc core1) rest) = true -> note_ok prev1 core1 rest ->
+    settles_in (iscan_str bytes core) (wrap extra core1) rest ->
+    Forall (never ps (n + String.length bytes)) extra ->
+    linked ps (n + String.length bytes) h1 v1 prev1 core1 ->
+    scanned ps n h v ws core s.
+Proof.
+  intros ps after len IH s n h v ws core bytes rest prev1 extra core1 h1 v1
+    Hl Hs Fn Es Hne Hr V Hp Ha.
+  exact (scan_advance_gen_in ps after len IH s n h v ws core bytes rest prev1 extra core1 h1 v1
+           Hl Hs Fn Es Hne Hr V Hp (alpha_of v1 core1 rest Ha)).
 Qed.
 
 Local Lemma scan_advance : forall ps after len,
@@ -5654,9 +5733,9 @@ Local Lemma scan_advance : forall ps after len,
     scanned ps n h v ws core s.
 Proof.
   intros ps after len IH s n h v ws core bytes rest prev1 extra core1 h1 v1
-    Hl Hs Fn Es Hne Hr V Hp Ha.
-  exact (scan_advance_gen ps after len IH s n h v ws core bytes rest prev1 extra core1 h1 v1
-           Hl Hs Fn Es Hne Hr V Hp (alpha_of v1 core1 rest Ha)).
+    Hl Hs Fn Es Hne Hr V Hp Ha Hnote Hset.
+  exact (scan_advance_in ps after len IH s n h v ws core bytes rest prev1 extra core1 h1 v1
+           Hl Hs Fn Es Hne Hr V Hp Ha Hnote (settles_in_of _ _ _ Hset)).
 Qed.
 
 Local Lemma linked_normal : forall ps n v prev txt o,
@@ -6043,7 +6122,7 @@ Proof.
   intros [|] s H; cbn [with_esc] in H.
   - cbn [over_alphabet] in H. change (is_bslash bslash) with true in H. cbn iota in H.
     apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
-    unfold follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
+    unfold follow_ok, brace_follows, bracket_follows, bang_follows,
       close_follows, tick_follows, lt_follows, colon_follows.
     change (is_tick tick) with true in H |- *. rewrite H. reflexivity.
   - exact (proj1 (proj2 (over_alphabet_cons tick s eq_refl H))).
@@ -6239,6 +6318,34 @@ Proof.
 Qed.
 
 (* A chunk that is one token of the chain, in text mode. *)
+Local Lemma scan_tok_in : forall ps after len, scan_ih ps after len ->
+  forall s n h v ws core t l rest prev1 core1,
+    String.length s <= S len -> sdrop n ps = (s ++ after)%string -> Forall (never ps n) ws ->
+    vinv ps n h v -> pv_mode v = PMNormal -> tok_at ps n = Some (t, l) ->
+    s = (tok_text t ++ rest)%string -> l = String.length (tok_text t) ->
+    same_prev (str_last (tok_text t) (before ps n)) prev1 ->
+    over_alphabet (with_esc (pend_esc core1) rest) = true -> note_ok prev1 core1 rest ->
+    settles_in (iscan_str (tok_text t) core) core1 rest ->
+    linked ps (n + l) (is_hard t) (pstep ps n h t v) prev1 core1 ->
+    pv_mode (pstep ps n h t v) = PMNormal \/ l = 1 ->
+    scanned ps n h v ws core s.
+Proof.
+  intros ps after len IH s n h v ws core t l rest prev1 core1 Hl Hs Fn V Em Ht Es El Hp Ha Hn Hset L
+    Hm.
+  pose proof Hs as Hs0. rewrite Es, append_assoc in Hs0.
+  apply (scan_advance_in ps after len IH s n h v ws core (tok_text t) rest prev1 [] core1
+           (is_hard t) (pstep ps n h t v) Hl Hs Fn Es).
+  - intros E. rewrite E in El. pose proof (tok_at_len ps n t l Ht). cbn in El. lia.
+  - rewrite <- El. exact (pruns_one _ _ _ _ _ _ _ (punit_tok ps n h t l v Em Ht Hm)).
+  - rewrite <- El. exact (vinv_step ps n h t l v V Em Ht).
+  - rewrite (before_chunk ps n _ _ Hs0). exact Hp.
+  - exact Ha.
+  - exact Hn.
+  - exact Hset.
+  - constructor.
+  - rewrite <- El. exact L.
+Qed.
+
 Local Lemma scan_tok : forall ps after len, scan_ih ps after len ->
   forall s n h v ws core t l rest prev1 core1,
     String.length s <= S len -> sdrop n ps = (s ++ after)%string -> Forall (never ps n) ws ->
@@ -6251,20 +6358,9 @@ Local Lemma scan_tok : forall ps after len, scan_ih ps after len ->
     pv_mode (pstep ps n h t v) = PMNormal \/ l = 1 ->
     scanned ps n h v ws core s.
 Proof.
-  intros ps after len IH s n h v ws core t l rest prev1 core1 Hl Hs Fn V Em Ht Es El Hp Ha Hn Hset L
-    Hm.
-  pose proof Hs as Hs0. rewrite Es, append_assoc in Hs0.
-  apply (scan_advance ps after len IH s n h v ws core (tok_text t) rest prev1 [] core1
-           (is_hard t) (pstep ps n h t v) Hl Hs Fn Es).
-  - intros E. rewrite E in El. pose proof (tok_at_len ps n t l Ht). cbn in El. lia.
-  - rewrite <- El. exact (pruns_one _ _ _ _ _ _ _ (punit_tok ps n h t l v Em Ht Hm)).
-  - rewrite <- El. exact (vinv_step ps n h t l v V Em Ht).
-  - rewrite (before_chunk ps n _ _ Hs0). exact Hp.
-  - exact Ha.
-  - exact Hn.
-  - exact Hset.
-  - constructor.
-  - rewrite <- El. exact L.
+  intros ps after len IH s n h v ws core t l rest prev1 core1 Hl Hs Fn V Em Ht Es El Hp Ha Hn Hset.
+  exact (scan_tok_in ps after len IH s n h v ws core t l rest prev1 core1 Hl Hs Fn V Em Ht Es El
+           Hp Ha Hn (settles_in_of _ _ _ Hset)).
 Qed.
 
 Local Lemma scan_esc : forall ps after len, scan_ih ps after len -> line_end after ->
@@ -7334,21 +7430,56 @@ Proof.
     { destruct rest as [|d r]; [reflexivity|]. cbn [starts_with].
       destruct (Ascii.eqb d hyphen) eqn:E; [|reflexivity]. apply Ascii.eqb_eq in E.
       destruct (Hr d r eq_refl E). }
-    assert (Hfh : prev_ok (Some hyphen) rest = true)
-      by (unfold prev_ok, follow_ok, dashes_follow; rewrite Hrh; reflexivity).
+    assert (Hfh : forall s, prev_ok (Some hyphen) s = true)
+      by (intros s; apply prev_ok_plain; reflexivity).
     destruct (match dstyle_of hyphen with Some _ => starts_with rbrace rest | None => false end)
       eqn:Cl.
-    - (* the row's closer: by the alphabet the run is one hyphen *)
+    - (* the row's closer, after a dash when the run is longer than its
+         one hyphen *)
       destruct (dstyle_of hyphen) as [kd|] eqn:Ek; [|discriminate Cl].
-      assert (j = 0).
-      { destruct j as [|j]; [reflexivity|]. exfalso.
-        apply follow_dashes in Hf. unfold dashes_follow in Hf. rewrite Es' in Hf.
-        cbn [chars append starts_with] in Hf. rewrite !Ascii.eqb_refl in Hf.
-        change (String hyphen (chars hyphen j ++ rest)) with (chars hyphen (S j) ++ rest)%string in Hf.
-        rewrite (run_of_split hyphen (S j) rest Hr), sdrop_chars, Cl in Hf. discriminate Hf. }
-      subst j. unfold k in *. clear k.
       pose proof (alphabet_hyphen_row Hc) as Hrow. unfold hyphen_row_ok in Hrow.
       rewrite Ek in Hrow. apply Nat.eqb_eq in Hrow.
+      destruct j as [|j].
+      2: { (* a dash of all but the last hyphen, which the scanner holds with
+              the run until the `}` *)
+        destruct rest as [|c' r]; [discriminate Cl|]. cbn [starts_with] in Cl.
+        apply Ascii.eqb_eq in Cl. subst c'.
+        assert (Hsp2 : String hyphen s'
+                       = (chars hyphen (S j) ++ String hyphen (String rbrace r))%string).
+        { rewrite Hsp. unfold k. clear. generalize (String rbrace r).
+          induction j as [|j IHj]; intros x; [reflexivity|].
+          cbn [chars append] in *. rewrite IHj. reflexivity. }
+        assert (Sl : forall m p, str_last (chars hyphen (S m)) p = Some hyphen)
+          by (induction m as [|m IHm]; intros p; [reflexivity|exact (IHm (Some hyphen))]).
+        apply (scan_tok_in ps after len IH (String hyphen s') n false v ws
+                 (IText false txt prev o) (TDash (S j)) (S j)
+                 (String hyphen (String rbrace r)) (Some hyphen)
+                 (IText false (txt ++ typography_dashes (S j)) (Some hyphen) o)
+                 Hl Hs Fn V Em).
+        - rewrite Htok. unfold next_tok, dash_tok. rewrite Hrun, Ek, Sd, Hrow. cbn. reflexivity.
+        - exact Hsp2.
+        - cbn [tok_text]. symmetry. apply length_chars.
+        - cbn [tok_text]. rewrite Sl. reflexivity.
+        - cbn [pend_esc with_esc]. rewrite Hsp2 in Ha.
+          exact (over_alphabet_app_r _ _ (no_bslash_chars hyphen (S j) eq_refl) Ha).
+        - left. apply Hfh.
+        - (* the two agree once the closer's hyphen and the `}` are read *)
+          exists (String hyphen (one rbrace)), r. split; [reflexivity|left].
+          cbn [tok_text]. rewrite (dash_run_scan (S j) txt prev o ltac:(lia)).
+          cbn [iscan_str one].
+          change (istep hyphen (IText false (txt ++ typography_dashes (S j)) (Some hyphen) o))
+            with (IDash 1 (txt ++ typography_dashes (S j)) (Some hyphen) o).
+          unfold istep. cbn [istep_at]. unfold idash_step. rewrite Ascii.eqb_refl.
+          cbn [istep_at]. unfold idash_step. change (Ascii.eqb rbrace hyphen) with false.
+          rewrite Ascii.eqb_refl, Ek, Hrow. cbn [Nat.leb Nat.sub]. rewrite dashes_0. tred.
+          rewrite append_empty_r. reflexivity.
+        - cbn [is_hard]. apply linked_normal.
+          + apply pstep_mode; [exact Em|discriminate|discriminate|discriminate].
+          + unfold pstep. apply sim_text; [exact Hsim|].
+            destruct (typography_dashes (S j)) eqn:E;
+              [destruct (dashes_ne (S j) ltac:(lia) E)|reflexivity].
+        - left. apply pstep_mode; [exact Em|discriminate|discriminate|discriminate]. }
+      unfold k in *. clear k.
       pose proof (dstyle_of_char _ _ Ek) as Ekc.
       destruct rest as [|c' r]; [discriminate Cl|]. cbn [starts_with] in Cl.
       apply Ascii.eqb_eq in Cl. subst c'.
@@ -7390,7 +7521,7 @@ Proof.
           by (induction m as [|m IHm]; intros p; [reflexivity|exact (IHm (Some hyphen))]).
         rewrite Sl. reflexivity.
       + rewrite Hsp in Ha. exact (over_alphabet_app_r _ rest (no_bslash_chars hyphen k eq_refl) Ha).
-      + exact Hfh.
+      + apply Hfh.
       + cbn [tok_text]. rewrite (dash_run_scan k txt prev o ltac:(unfold k; lia)).
         destruct rest as [|c' r'] eqn:Er; cbn [get settles]; [reflexivity|].
         apply dash_settle; [|exact (Hnc c' r' eq_refl)].
@@ -8112,20 +8243,6 @@ Proof.
   discriminate Hc.
 Qed.
 
-Local Lemma hyphen_close_blank : forall x b, is_blank b = true ->
-  starts_with rbrace (sdrop (run_of hyphen (x ++ b)) (x ++ b))
-  = starts_with rbrace (sdrop (run_of hyphen x) x).
-Proof.
-  induction x as [|d x IH]; intros b Hb.
-  - cbn [append run_of sdrop starts_with]. destruct b as [|c b]; [reflexivity|].
-    cbn [is_blank] in Hb. apply andb_true_iff in Hb as [Hc _]. cbn [run_of].
-    destruct (Ascii.eqb c hyphen) eqn:E;
-      [apply Ascii.eqb_eq in E; subst c; discriminate Hc|].
-    cbn [sdrop starts_with]. destruct (Ascii.eqb c rbrace) eqn:E2; [|reflexivity].
-    apply Ascii.eqb_eq in E2. subst c. discriminate Hc.
-  - cbn [append run_of]. destruct (Ascii.eqb d hyphen); [cbn [sdrop]; apply IH, Hb|reflexivity].
-Qed.
-
 Local Lemma over_alphabet_app_l : forall a b,
   over_alphabet (a ++ b) = true -> is_blank b = true -> over_alphabet a = true.
 Proof.
@@ -8149,12 +8266,11 @@ Proof.
     + pose proof (spec_ahead_blank "" b Hb) as Sb. cbn [append] in Sb, Hf.
       apply follow_brace in Hf. unfold brace_follows in Hf.
       rewrite (blank_not_row b Hb), Sb, !orb_false_r in Hf.
-      unfold follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
+      unfold follow_ok, brace_follows, bracket_follows, bang_follows,
         close_follows, tick_follows, lt_follows, colon_follows. cbn.
       rewrite !andb_false_r, orb_false_r, Hf. reflexivity.
-    + unfold follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
+    + unfold follow_ok, brace_follows, bracket_follows, bang_follows,
         close_follows, tick_follows, lt_follows, colon_follows, raw_ahead in *.
-      rewrite (hyphen_close_blank (String d a) b Hb) in Hf.
       change (sdrop 1 (String d a ++ b)) with (a ++ b)%string in Hf.
       change (sdrop 1 (String d a)) with a.
       change (note_ahead (String d a ++ b))

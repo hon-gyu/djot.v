@@ -203,13 +203,7 @@ Fixpoint run_of (c : ascii) (s : string) : nat :=
   end.
 
 (* What may follow a byte: one condition per shape the alphabet leaves
-   out, each `true` for every byte but the one it is about.
-
-   Two hyphens or more do not come right before a `}`, which takes the
-   run's last hyphen back for a closer. *)
-Definition dashes_follow (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c hyphen && starts_with hyphen rest
-        && starts_with rbrace (sdrop (run_of hyphen rest) rest)).
+   out, each `true` for every byte but the one it is about. *)
 
 (* A `{` before anything but a row's character is drawn on only as an
    attribute spec that closes. *)
@@ -245,7 +239,7 @@ Definition colon_follows (c : ascii) (rest : string) : bool :=
   negb (Ascii.eqb c ":"%char && negb (colon_ok rest)).
 
 Definition follow_ok (c : ascii) (rest : string) : bool :=
-  (dashes_follow c rest && brace_follows c rest && bracket_follows c rest
+  (brace_follows c rest && bracket_follows c rest
    && bang_follows c rest && close_follows c rest && tick_follows c rest
    && lt_follows c rest && colon_follows c rest)%bool.
 
