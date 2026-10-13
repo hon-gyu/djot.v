@@ -304,69 +304,38 @@ let table_lines t rows =
 (** val readable_lines : dtable -> bconfig -> attr -> block -> string list **)
 
 let rec readable_lines t k a b =
-  let itemss =
-    let rec goitems = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, it) = n in
-      (sep_lines
-        (map (fun n0 -> readable_lines t k (node_attrs n0) (node_contents n0))
-          it)) :: (goitems rest)
-    in goitems
+  let blocks_lines = fun bs ->
+    sep_lines
+      (map (fun n -> readable_lines t k (node_attrs n) (node_contents n)) bs)
   in
+  let itemss = map (fun it -> blocks_lines (node_contents it)) in
   let taskitemss =
-    let rec gotasks = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (chk, it) = x in
-      (chk,
-      (sep_lines
-        (map (fun n0 -> readable_lines t k (node_attrs n0) (node_contents n0))
-          it))) :: (gotasks rest)
-    in gotasks
+    map (fun it ->
+      let (chk, bs) = node_contents it in (chk, (blocks_lines bs)))
   in
   let defitemss =
-    let rec godefs = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (n0, n1) = x in
-      let Node (_, _, term) = n0 in
-      let Node (_, _, it) = n1 in
-      (sep_lines
+    map (fun it ->
+      let (term, def) = node_contents it in
+      sep_lines
         (app
-          (match term with
+          (match node_contents term with
            | [] -> []
-           | _ :: _ -> (readable_inline_lines t term) :: [])
-          (map (fun n2 ->
-            readable_lines t k (node_attrs n2) (node_contents n2)) it))) ::
-      (godefs rest)
-    in godefs
+           | n :: l -> (readable_inline_lines t (n :: l)) :: [])
+          (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
+            (node_contents def))))
   in
   let cls = fence_class k a b in
   app (attr_lines (drop_class cls a))
     (match b with
      | Para ils -> readable_inline_lines t ils
-     | Section bs ->
-       sep_lines
-         (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
-           bs)
+     | Section bs -> blocks_lines bs
      | Heading (lvl, ils) ->
        map (heading_line lvl) (readable_inline_lines t ils)
-     | BlockQuote bs ->
-       map quoted
-         (sep_lines
-           (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
-             bs))
+     | BlockQuote bs -> map quoted (blocks_lines bs)
      | CodeBlock (lang, text) ->
        (code_open lang) :: (app (split_lines text) (code_close :: []))
      | Div (name, bs) ->
-       let body =
-         sep_lines
-           (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
-             bs)
-       in
+       let body = blocks_lines bs in
        let word =
          (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
@@ -411,9 +380,7 @@ let rec readable_lines t k a b =
                       | Para _ -> true
                       | _ -> false)
              | _ :: _ -> false))
-         (sep_lines
-           (map (fun n -> readable_lines t k (node_attrs n) (node_contents n))
-             bs))
+         (blocks_lines bs)
      | RefDef (label, dest) -> (ref_line label dest) :: []
      | AttrBlock -> (match a with
                      | [] -> "{}" :: []
@@ -432,15 +399,8 @@ let rec readable_lines t k a b =
          (callout_header_line kind fold
            (String.concat " " (readable_inline_lines t title)))) :: (map
                                                                     quoted
-                                                                    (sep_lines
-                                                                    (map
-                                                                    (fun n ->
-                                                                    readable_lines
-                                                                    t k
-                                                                    (node_attrs
-                                                                    n)
-                                                                    (node_contents
-                                                                    n)) bs))))
+                                                                    (blocks_lines
+                                                                    bs)))
 
 (** val readable_djot : dtable -> bconfig -> blocks -> string **)
 

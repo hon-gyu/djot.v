@@ -145,74 +145,64 @@ type cblock =
 
 (** val cb_lines : dtable -> cblock -> string list **)
 
-let rec cb_lines t cb =
-  let itemss =
-    let rec goitems = function
-    | [] -> []
-    | it :: rest -> (sep_lines (map (cb_lines t) it)) :: (goitems rest)
-    in goitems
-  in
-  (match cb with
-   | CPara lss -> map (ci_line t) lss
-   | CThematic -> thematic_line :: []
-   | CCode (info, content) ->
-     (code_open info) :: (app content (code_close :: []))
-   | CRaw (format, content) ->
-     (code_open
-       ((* If this appears, you're using String internals. Please don't *)
+let rec cb_lines t = function
+| CPara lss -> map (ci_line t) lss
+| CThematic -> thematic_line :: []
+| CCode (info, content) ->
+  (code_open info) :: (app content (code_close :: []))
+| CRaw (format, content) ->
+  (code_open
+    ((* If this appears, you're using String internals. Please don't *)
   (fun (c, s) -> String.make 1 c ^ s)
 
-       ('=', format))) :: (app content (code_close :: []))
-   | CHeading (lvl, lss) -> map (heading_line lvl) (map (ci_line t) lss)
-   | CQuote inner -> map quote_line (sep_lines (map (cb_lines t) inner))
-   | CCallout (kind, fold, title, inner) ->
-     (quote_line (callout_header_line kind fold (ci_line t title))) ::
-       (map quote_line (sep_lines (map (cb_lines t) inner)))
-   | CDiv (name, inner) ->
-     (div_open_line div_fence name) :: (app
-                                         (sep_lines (map (cb_lines t) inner))
-                                         (div_fence :: []))
-   | CList (k, sp, items) ->
-     list_lines sp (map litem_lines (ck_items k (itemss items)))
-   | CRef (label, dest) -> (ref_line label dest) :: []
-   | CTable rows -> flat_map (ctrow_lines t) rows
-   | CId (id, inner) -> ((^) "{#" ((^) id "}")) :: (cb_lines t inner)
-   | CKey (label, inner) ->
-     key_lines t (ci_text t (label :: []))
-       (match inner with
-        | CPara _ -> true
-        | _ -> false)
-       (cb_lines t inner)
-   | CAttrs -> "{}" :: [])
+    ('=', format))) :: (app content (code_close :: []))
+| CHeading (lvl, lss) -> map (heading_line lvl) (map (ci_line t) lss)
+| CQuote inner -> map quote_line (sep_lines (map (cb_lines t) inner))
+| CCallout (kind, fold, title, inner) ->
+  (quote_line (callout_header_line kind fold (ci_line t title))) :: (map
+                                                                    quote_line
+                                                                    (sep_lines
+                                                                    (map
+                                                                    (cb_lines
+                                                                    t) inner)))
+| CDiv (name, inner) ->
+  (div_open_line div_fence name) :: (app (sep_lines (map (cb_lines t) inner))
+                                      (div_fence :: []))
+| CList (k, sp, items) ->
+  list_lines sp
+    (map litem_lines
+      (ck_items k (map (fun it -> sep_lines (map (cb_lines t) it)) items)))
+| CRef (label, dest) -> (ref_line label dest) :: []
+| CTable rows -> flat_map (ctrow_lines t) rows
+| CId (id, inner) -> ((^) "{#" ((^) id "}")) :: (cb_lines t inner)
+| CKey (label, inner) ->
+  key_lines t (ci_text t (label :: []))
+    (match inner with
+     | CPara _ -> true
+     | _ -> false)
+    (cb_lines t inner)
+| CAttrs -> "{}" :: []
 
 (** val cb_ast : cblock -> block node **)
 
-let rec cb_ast cb =
-  let itemsof =
-    let rec goitems = function
-    | [] -> []
-    | it :: rest -> (map cb_ast it) :: (goitems rest)
-    in goitems
-  in
-  (match cb with
-   | CPara lss -> mk (Para (ci_para lss))
-   | CThematic -> mk ThematicBreak
-   | CCode (info, content) -> mk (CodeBlock (info, (join_nl content)))
-   | CRaw (format, content) -> mk (RawBlock (format, (join_nl content)))
-   | CHeading (lvl, lss) -> mk (Heading (lvl, (ci_para lss)))
-   | CQuote inner -> mk (BlockQuote (map cb_ast inner))
-   | CCallout (kind, fold, title, inner) ->
-     mk (Ext_callout (kind, fold, (ci_inlines title), (map cb_ast inner)))
-   | CDiv (name, inner) -> mk (Div (name, (map cb_ast inner)))
-   | CList (k, sp, items) -> mk (ck_block k sp (itemsof items))
-   | CRef (label, dest) -> mk (RefDef (label, dest))
-   | CTable rows ->
-     mk (Table ((mk []),
-       (map (fun r -> mk (map mk r)) (ctable_cells [] rows))))
-   | CId (id, inner) -> add_attr (("id", id) :: []) (cb_ast inner)
-   | CKey (label, inner) ->
-     mk (Ext_keyed (((ci_ast label) :: []), (cb_ast inner)))
-   | CAttrs -> mk AttrBlock)
+let rec cb_ast = function
+| CPara lss -> mk (Para (ci_para lss))
+| CThematic -> mk ThematicBreak
+| CCode (info, content) -> mk (CodeBlock (info, (join_nl content)))
+| CRaw (format, content) -> mk (RawBlock (format, (join_nl content)))
+| CHeading (lvl, lss) -> mk (Heading (lvl, (ci_para lss)))
+| CQuote inner -> mk (BlockQuote (map cb_ast inner))
+| CCallout (kind, fold, title, inner) ->
+  mk (Ext_callout (kind, fold, (ci_inlines title), (map cb_ast inner)))
+| CDiv (name, inner) -> mk (Div (name, (map cb_ast inner)))
+| CList (k, sp, items) -> mk (ck_block k sp (map (map cb_ast) items))
+| CRef (label, dest) -> mk (RefDef (label, dest))
+| CTable rows ->
+  mk (Table ((mk []), (map (fun r -> mk (map mk r)) (ctable_cells [] rows))))
+| CId (id, inner) -> add_attr (("id", id) :: []) (cb_ast inner)
+| CKey (label, inner) ->
+  mk (Ext_keyed (((ci_ast label) :: []), (cb_ast inner)))
+| CAttrs -> mk AttrBlock
 
 (** val item_lines : dtable -> cblock list -> string list **)
 
@@ -442,113 +432,97 @@ let div_name_ok k name =
 
 (** val cb_ok : dtable -> bconfig -> cblock -> bool **)
 
-let rec cb_ok t k cb =
-  let inner_ok =
-    let rec go = function
-    | [] -> false
-    | c :: rest ->
-      (match rest with
-       | [] -> cb_ok t k c
-       | _ :: _ -> (&&) (cb_ok t k c) (go rest))
-    in go
-  in
-  let divs_ok =
-    let rec godiv = function
-    | [] -> true
-    | c :: rest -> (&&) (cb_ok t k c) (godiv rest)
-    in godiv
-  in
-  let items_ok =
-    let rec goitems = function
-    | [] -> true
-    | it :: rest -> (&&) (inner_ok it) (goitems rest)
-    in goitems
-  in
-  (match cb with
-   | CPara lss ->
-     (&&) (para_ok t k (map (ci_line t) lss)) (forallb (cis_ok t) lss)
-   | CThematic -> true
-   | CCode (info, content) ->
-     (&&) (code_ok info content)
-       ((* If this appears, you're using String internals. Please don't *)
+let rec cb_ok t k = function
+| CPara lss ->
+  (&&) (para_ok t k (map (ci_line t) lss)) (forallb (cis_ok t) lss)
+| CThematic -> true
+| CCode (info, content) ->
+  (&&) (code_ok info content)
+    ((* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
     let l = String.length s in
     if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
 
-          (fun _ -> true)
-          (fun a _ ->
-          (* If this appears, you're using Ascii internals. Please don't *)
+       (fun _ -> true)
+       (fun a _ ->
+       (* If this appears, you're using Ascii internals. Please don't *)
  (fun f c ->
   let n = Char.code c in
   let h i = (n land (1 lsl i)) <> 0 in
   f (h 0) (h 1) (h 2) (h 3) (h 4) (h 5) (h 6) (h 7))
-            (fun b b0 b1 b2 b3 b4 b5 b6 ->
-            if b
-            then if b0
-                 then true
-                 else if b1
-                      then if b2
-                           then if b3
-                                then if b4
-                                     then if b5
-                                          then true
-                                          else if b6
-                                               then true
-                                               else negb k.braw_blocks
-                                     else true
-                                else true
-                           else true
-                      else true
-            else true)
-            a)
-          info)
-   | CRaw (format, content) -> (&&) k.braw_blocks (raw_ok format content)
-   | CHeading (lvl, lss) ->
-     (&&) (heading_ok k lvl (map (ci_line t) lss)) (forallb (cis_ok t) lss)
-   | CQuote inner ->
-     (&&) ((&&) (inner_ok inner) (cb_pairs_ok t inner))
-       (quote_header_safe t k inner)
-   | CCallout (kind, _, title, inner) ->
-     (&&)
-       ((&&)
-         ((&&)
-           ((&&) ((&&) k.bcallouts (callout_kind_ok kind))
-             (callout_title_ok t title))
-           (cis_ok t title))
-         (divs_ok inner))
-       (cb_pairs_ok t inner)
-   | CDiv (name, inner) ->
-     (&&)
-       ((&&) ((&&) ((&&) k.bdivs (div_name_ok k name)) (divs_ok inner))
-         (cb_pairs_ok t inner))
-       (div_content_ok t k (sep_lines (map (cb_lines t) inner)))
-   | CList (k0, sp, items) ->
-     (&&)
-       ((&&)
-         ((&&)
-           ((&&)
-             ((&&) ((&&) (nonempty items) (items_ok items))
-               (ck_ok k k0 (length items)))
-             (forallb (fun it -> item_ok t k (ck_first k0) (item_lines t it))
-               items))
-           (forallb (cb_pairs_ok t) items))
-         (match sp with
-          | Tight -> negb (items_force_loose t k items)
-          | Loose ->
-            (||) (items_seps_loosen t items) (items_force_loose t k items)))
-       (ck_content_ok k0 items)
-   | CRef (label, dest) -> ref_ok label dest
-   | CTable rows ->
-     (&&) ((&&) k.btables (nonempty rows)) (forallb (ctrow_ok t) rows)
-   | CId (id, inner) ->
-     (&&)
-       ((&&) ((&&) k.battrs (explicit_id_ok id))
-         (negb ((||) (is_cid inner) (is_cattrs inner))))
-       (cb_ok t k inner)
-   | CKey (label, inner) ->
-     (&&) ((&&) ((&&) k.bkeyed (ckey_label_ok t label)) (cb_ok t k inner))
-       (key_content_ok t k (cb_lines t inner) (PPara []))
-   | CAttrs -> k.battrs)
+         (fun b b0 b1 b2 b3 b4 b5 b6 ->
+         if b
+         then if b0
+              then true
+              else if b1
+                   then if b2
+                        then if b3
+                             then if b4
+                                  then if b5
+                                       then true
+                                       else if b6
+                                            then true
+                                            else negb k.braw_blocks
+                                  else true
+                             else true
+                        else true
+                   else true
+         else true)
+         a)
+       info)
+| CRaw (format, content) -> (&&) k.braw_blocks (raw_ok format content)
+| CHeading (lvl, lss) ->
+  (&&) (heading_ok k lvl (map (ci_line t) lss)) (forallb (cis_ok t) lss)
+| CQuote inner ->
+  (&&)
+    ((&&) ((&&) (nonempty inner) (forallb (cb_ok t k) inner))
+      (cb_pairs_ok t inner))
+    (quote_header_safe t k inner)
+| CCallout (kind, _, title, inner) ->
+  (&&)
+    ((&&)
+      ((&&)
+        ((&&) ((&&) k.bcallouts (callout_kind_ok kind))
+          (callout_title_ok t title))
+        (cis_ok t title))
+      (forallb (cb_ok t k) inner))
+    (cb_pairs_ok t inner)
+| CDiv (name, inner) ->
+  (&&)
+    ((&&)
+      ((&&) ((&&) k.bdivs (div_name_ok k name)) (forallb (cb_ok t k) inner))
+      (cb_pairs_ok t inner))
+    (div_content_ok t k (sep_lines (map (cb_lines t) inner)))
+| CList (k0, sp, items) ->
+  (&&)
+    ((&&)
+      ((&&)
+        ((&&)
+          ((&&)
+            ((&&) (nonempty items)
+              (forallb (fun it -> (&&) (nonempty it) (forallb (cb_ok t k) it))
+                items))
+            (ck_ok k k0 (length items)))
+          (forallb (fun it -> item_ok t k (ck_first k0) (item_lines t it))
+            items))
+        (forallb (cb_pairs_ok t) items))
+      (match sp with
+       | Tight -> negb (items_force_loose t k items)
+       | Loose ->
+         (||) (items_seps_loosen t items) (items_force_loose t k items)))
+    (ck_content_ok k0 items)
+| CRef (label, dest) -> ref_ok label dest
+| CTable rows ->
+  (&&) ((&&) k.btables (nonempty rows)) (forallb (ctrow_ok t) rows)
+| CId (id, inner) ->
+  (&&)
+    ((&&) ((&&) k.battrs (explicit_id_ok id))
+      (negb ((||) (is_cid inner) (is_cattrs inner))))
+    (cb_ok t k inner)
+| CKey (label, inner) ->
+  (&&) ((&&) ((&&) k.bkeyed (ckey_label_ok t label)) (cb_ok t k inner))
+    (key_content_ok t k (cb_lines t inner) (PPara []))
+| CAttrs -> k.battrs
 
 (** val lk_of_ol : ordered_list_attributes -> list_kind **)
 
@@ -713,65 +687,37 @@ let note_indent l =
 (** val render_lines : dtable -> bconfig -> attr -> block -> string list **)
 
 let rec render_lines t k a b =
-  let itemss =
-    let rec goitems = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, it) = n in
-      (sep_lines
-        (map (fun n0 -> render_lines t k (node_attrs n0) (node_contents n0))
-          it)) :: (goitems rest)
-    in goitems
+  let blocks_lines = fun bs ->
+    sep_lines
+      (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) bs)
   in
+  let itemss = map (fun it -> blocks_lines (node_contents it)) in
   let taskitemss =
-    let rec gotasks = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (chk, it) = x in
-      (chk,
-      (sep_lines
-        (map (fun n0 -> render_lines t k (node_attrs n0) (node_contents n0))
-          it))) :: (gotasks rest)
-    in gotasks
+    map (fun it ->
+      let (chk, bs) = node_contents it in (chk, (blocks_lines bs)))
   in
   let defitemss =
-    let rec godefs = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (n0, n1) = x in
-      let Node (_, _, term) = n0 in
-      let Node (_, _, it) = n1 in
-      (sep_lines
-        (app (match term with
-              | [] -> []
-              | _ :: _ -> (text_lines t term) :: [])
-          (map (fun n2 -> render_lines t k (node_attrs n2) (node_contents n2))
-            it))) :: (godefs rest)
-    in godefs
+    map (fun it ->
+      let (term, def) = node_contents it in
+      sep_lines
+        (app
+          (match node_contents term with
+           | [] -> []
+           | n :: l -> (text_lines t (n :: l)) :: [])
+          (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
+            (node_contents def))))
   in
   let cls = fence_class k a b in
   app (attr_lines (drop_class cls a))
     (match b with
      | Para ils -> text_lines t ils
-     | Section bs ->
-       sep_lines
-         (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) bs)
+     | Section bs -> blocks_lines bs
      | Heading (lvl, ils) -> map (heading_line lvl) (text_lines t ils)
-     | BlockQuote bs ->
-       map quote_line
-         (sep_lines
-           (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
-             bs))
+     | BlockQuote bs -> map quote_line (blocks_lines bs)
      | CodeBlock (lang, text) ->
        (code_open lang) :: (app (split_lines text) (code_close :: []))
      | Div (name, bs) ->
-       let body =
-         sep_lines
-           (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
-             bs)
-       in
+       let body = blocks_lines bs in
        let word =
          (* If this appears, you're using String internals. Please don't *)
  (fun f0 f1 s ->
@@ -808,12 +754,7 @@ let rec render_lines t k a b =
        (code_open ((^) "=" fmt)) :: (app (split_lines text)
                                       (code_close :: []))
      | FootnoteDef (label, bs) ->
-       ((^) "[^" ((^) label "]:")) :: (map note_indent
-                                        (sep_lines
-                                          (map (fun n ->
-                                            render_lines t k (node_attrs n)
-                                              (node_contents n))
-                                            bs)))
+       ((^) "[^" ((^) label "]:")) :: (map note_indent (blocks_lines bs))
      | RefDef (label, dest) -> (ref_line label dest) :: []
      | AttrBlock -> (match a with
                      | [] -> "{}" :: []
@@ -833,15 +774,7 @@ let rec render_lines t k a b =
        (quote_line
          (callout_header_line kind fold
            (String.concat " " (text_lines t title)))) :: (map quote_line
-                                                           (sep_lines
-                                                             (map (fun n ->
-                                                               render_lines t
-                                                                 k
-                                                                 (node_attrs
-                                                                   n)
-                                                                 (node_contents
-                                                                   n))
-                                                               bs))))
+                                                           (blocks_lines bs)))
 
 (** val render_node_lines : dtable -> bconfig -> block node -> string list **)
 
@@ -873,96 +806,24 @@ let drop_derived a q =
     block -> pos -> attr -> string list -> string list * block node **)
 
 let rec drop_auto_ids b p a q =
-  let go =
-    let rec go bs q0 =
-      match bs with
-      | [] -> (q0, [])
-      | n :: rest ->
-        let Node (p', a', x) = n in
-        let (q1, n0) = drop_auto_ids x p' a' q0 in
-        let (q2, rest') = go rest q1 in (q2, (n0 :: rest'))
-    in go
-  in
-  let goits =
-    let rec goits its q0 =
-      match its with
-      | [] -> (q0, [])
-      | n :: rest ->
-        let Node (ip, ia, it) = n in
-        let (q1, it') = go it q0 in
-        let (q2, rest') = goits rest q1 in
-        (q2, ((Node (ip, ia, it')) :: rest'))
-    in goits
+  let children = fun q0 ->
+    map_acc_children (fun n q1 ->
+      let Node (p', a', x) = n in drop_auto_ids x p' a' q1) b q0
   in
   (match b with
-   | Section bs ->
+   | Section _ ->
      let (q1, a') = drop_derived a q in
-     let (q2, bs') = go bs q1 in (q2, (Node (p, a', (Section bs'))))
-   | Heading (lvl, ils) ->
-     let (q', a') = drop_derived a q in
-     (q', (Node (p, a', (Heading (lvl, ils)))))
-   | BlockQuote bs ->
-     let (q', bs') = go bs q in (q', (Node (p, a, (BlockQuote bs'))))
-   | Div (name, bs) ->
-     let (q', bs') = go bs q in (q', (Node (p, a, (Div (name, bs')))))
-   | OrderedList (oa, sp, its) ->
-     let (q', its') = goits its q in
-     (q', (Node (p, a, (OrderedList (oa, sp, its')))))
-   | BulletList (bc, sp, its) ->
-     let (q', its') = goits its q in
-     (q', (Node (p, a, (BulletList (bc, sp, its')))))
-   | TaskList (sp, its) ->
-     let (q', its') =
-       let rec gotasks ts q0 =
-         match ts with
-         | [] -> (q0, [])
-         | n :: rest ->
-           let Node (ip, ia, x) = n in
-           let (chk, it) = x in
-           let (q1, it') = go it q0 in
-           let (q2, rest') = gotasks rest q1 in
-           (q2, ((Node (ip, ia, (chk, it'))) :: rest'))
-       in gotasks its q
-     in
-     (q', (Node (p, a, (TaskList (sp, its')))))
-   | DefinitionList (sp, its) ->
-     let (q', its') =
-       let rec godefs ds q0 =
-         match ds with
-         | [] -> (q0, [])
-         | n :: rest ->
-           let Node (ip, ia, x) = n in
-           let (term, n0) = x in
-           let Node (dp, da, it) = n0 in
-           let (q1, it') = go it q0 in
-           let (q2, rest') = godefs rest q1 in
-           (q2, ((Node (ip, ia, (term, (Node (dp, da, it'))))) :: rest'))
-       in godefs its q
-     in
-     (q', (Node (p, a, (DefinitionList (sp, its')))))
-   | FootnoteDef (l, bs) ->
-     let (q', bs') = go bs q in (q', (Node (p, a, (FootnoteDef (l, bs')))))
-   | Ext_keyed (label, b0) ->
-     let Node (p', a', x) = b0 in
-     let (q', n) = drop_auto_ids x p' a' q in
-     (q', (Node (p, a, (Ext_keyed (label, n)))))
-   | Ext_callout (kind, fold, title, bs) ->
-     let (q', bs') = go bs q in
-     (q', (Node (p, a, (Ext_callout (kind, fold, title, bs')))))
-   | _ -> (q, (Node (p, a, b))))
+     let (q2, b') = children q1 in (q2, (Node (p, a', b')))
+   | Heading (_, _) ->
+     let (q', a') = drop_derived a q in (q', (Node (p, a', b)))
+   | _ -> let (q', b') = children q in (q', (Node (p, a, b'))))
 
 (** val doc_source_blocks : doc -> blocks **)
 
 let doc_source_blocks d =
   snd
-    (let rec go bs q =
-       match bs with
-       | [] -> (q, [])
-       | n :: rest ->
-         let Node (p, a, x) = n in
-         let (q1, n0) = drop_auto_ids x p a q in
-         let (q2, rest') = go rest q1 in (q2, (n0 :: rest'))
-     in go d.doc_blocks d.doc_auto_identifiers)
+    (map_acc (fun n q -> let Node (p, a, x) = n in drop_auto_ids x p a q)
+      d.doc_blocks d.doc_auto_identifiers)
 
 (** val render_doc : dtable -> bconfig -> doc -> string **)
 
