@@ -101,14 +101,6 @@ Fixpoint symbol_run (s : string) : nat :=
   | EmptyString => 0
   end.
 
-(* Whether what follows a `:` decides at once: no symbol character, or a
-   run of them closed by a `:` (Y1). *)
-Definition colon_ok (s : string) : bool :=
-  match symbol_run s with
-  | O => true
-  | k => starts_with ":"%char (sdrop k s)
-  end.
-
 (* An attribute spec read from after its `{` (AT1): the bytes before the
    `}` that ends it, and its attributes.  The machine is the one block
    attributes use (`Attributes.v`); a spec ends within its line. *)
@@ -222,14 +214,9 @@ Definition close_follows (c : ascii) (rest : string) : bool :=
 Definition tick_follows (c : ascii) (rest : string) : bool :=
   negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest)).
 
-(* A `:` either begins a symbol or is text on the spot. *)
-Definition colon_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c ":"%char && negb (colon_ok rest)).
-
 Definition follow_ok (c : ascii) (rest : string) : bool :=
   (brace_follows c rest && bracket_follows c rest
-   && bang_follows c rest && close_follows c rest && tick_follows c rest
-   && colon_follows c rest)%bool.
+   && bang_follows c rest && close_follows c rest && tick_follows c rest)%bool.
 
 (* A backslash escapes the byte after it, whatever that byte is but the
    newline, so the escaped byte is not drawn on the alphabet (O2, O3).
