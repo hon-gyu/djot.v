@@ -891,6 +891,73 @@ Definition map_children (g : blocks -> blocks) (h : node block -> node block)
   | RefDef _ _ | AttrBlock => b
   end.
 
+(* A block with `q` on the position of each node it holds that is not a
+   child block (an item, a term, a definition, a row, a cell, a caption),
+   `i` on each inline list it holds, and `h` on each child block.  A pass
+   that rewrites positions and inlines throughout is one call. *)
+Definition map_parts (q : pos -> pos) (i : inlines -> inlines)
+  (h : node block -> node block) (b : block) : block :=
+  let item {A : Type} (f : A -> A) (n : node A) : node A :=
+    match n with Node p a x => Node (q p) a (f x) end in
+  let cell (c : cell) : cell := match c with Cell ct al ils => Cell ct al (i ils) end in
+  match b with
+  | Para ils => Para (i ils)
+  | Section bs => Section (map h bs)
+  | Heading lvl ils => Heading lvl (i ils)
+  | BlockQuote bs => BlockQuote (map h bs)
+  | Div name bs => Div name (map h bs)
+  | OrderedList oa sp items => OrderedList oa sp (map (item (map h)) items)
+  | BulletList bc sp items => BulletList bc sp (map (item (map h)) items)
+  | TaskList sp items => TaskList sp (map (item (fun x => (fst x, map h (snd x)))) items)
+  | DefinitionList sp items =>
+      DefinitionList sp (map (item (fun x => (item i (fst x), item (map h) (snd x)))) items)
+  | Table cap rows => Table (item i cap) (map (item (map (item cell))) rows)
+  | FootnoteDef lbl bs => FootnoteDef lbl (map h bs)
+  | Ext_keyed lbl n => Ext_keyed (i lbl) (h n)
+  | Ext_callout kind fold title bs => Ext_callout kind fold (i title) (map h bs)
+  | CodeBlock _ _ | ThematicBreak | RawBlock _ _ | RefDef _ _ | AttrBlock => b
+  end.
+
+Lemma map_parts_map_parts : forall q1 i1 h1 q2 i2 h2 b,
+  map_parts q1 i1 h1 (map_parts q2 i2 h2 b)
+  = map_parts (fun p => q1 (q2 p)) (fun l => i1 (i2 l)) (fun n => h1 (h2 n)) b.
+Proof.
+  intros. destruct b; cbn [map_parts]; rewrite ?map_map; try reflexivity; f_equal;
+    try (apply map_ext; intros [p a x]; cbn [fst snd]; rewrite ?map_map; try reflexivity).
+  - destruct x as [[tp ta t] [dp da y]]. cbn [fst snd]. rewrite map_map. reflexivity.
+  - destruct caption. reflexivity.
+  - f_equal. apply map_ext. intros [cp ca []]. reflexivity.
+Qed.
+
+(* `map_parts` reads `i` only on inline lists and `h` only at the
+   children. *)
+Lemma map_parts_ext : forall q i i' h h' b,
+  (forall l, i l = i' l) ->
+  (forall n, In n (children b) -> h n = h' n) ->
+  map_parts q i h b = map_parts q i' h' b.
+Proof.
+  intros q i i' h h' b Hi H.
+  assert (M : forall l, (forall n, In n l -> In n (children b)) -> map h l = map h' l)
+    by (intros l Hl; apply map_ext_in; intros n Hn; apply H, Hl, Hn).
+  (* An item's blocks are among its list's children. *)
+  assert (F : forall (A : Type) (g : A -> blocks) its it,
+            In it its -> forall n, In n (g it) -> In n (flat_map g its))
+    by (intros; apply in_flat_map; eauto).
+  destruct b; cbn [map_parts children] in *; rewrite ?Hi; try reflexivity; f_equal;
+    try (apply M; intros; assumption).
+  1-2: apply map_ext_in; intros [p a x] Hx; rewrite (M x); [reflexivity|];
+       intros n Hn; exact (F _ _ _ _ Hx n Hn).
+  - apply map_ext_in; intros [p a [c x]] Hx; cbn [fst snd]; rewrite (M x); [reflexivity|];
+      intros n Hn; exact (F _ (fun it => snd (node_contents it)) _ _ Hx n Hn).
+  - apply map_ext_in; intros [p a [[tp ta t] [q' c x]]] Hx; cbn [fst snd];
+      rewrite Hi, (M x); [reflexivity|];
+      intros n Hn; exact (F _ (fun it => node_contents (snd (node_contents it))) _ _ Hx n Hn).
+  - destruct caption. rewrite Hi. reflexivity.
+  - apply map_ext; intros [p a x]; f_equal; apply map_ext; intros [p' a' [ct al ils]];
+      rewrite Hi; reflexivity.
+  - apply H. left. reflexivity.
+Qed.
+
 (* `f` over a list, a state passed from each element to the next. *)
 Fixpoint map_acc {S A B : Type} (f : A -> S -> S * B) (l : list A) (s : S) : S * list B :=
   match l with
@@ -1343,50 +1410,8 @@ Definition inlines_node (n : node inlines) : node inlines :=
   match n with Node _ a ils => Node NoPos a (of_inlines ils) end.
 
 Fixpoint of_block (b : block) : block :=
-  let go :=
-    fix go (bs : blocks) : blocks :=
-      match bs with
-      | [] => []
-      | Node _ a x :: rest => Node NoPos a (of_block x) :: go rest
-      end in
-  let goitems :=
-    fix goitems (items : list (node blocks)) : list (node blocks) :=
-      match items with
-      | [] => []
-      | Node _ a item :: rest => Node NoPos a (go item) :: goitems rest
-      end in
-  match b with
-  | Para ils => Para (of_inlines ils)
-  | Section bs => Section (go bs)
-  | Heading lvl ils => Heading lvl (of_inlines ils)
-  | BlockQuote bs => BlockQuote (go bs)
-  | Div name bs => Div name (go bs)
-  | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
-  | BulletList bc sp items => BulletList bc sp (goitems items)
-  | TaskList sp items =>
-      TaskList sp
-        ((fix gotasks (items : list (node (task_status * blocks))) :=
-            match items with
-            | [] => []
-            | Node _ a (status, item) :: rest =>
-                Node NoPos a (status, go item) :: gotasks rest
-            end) items)
-  | DefinitionList sp items =>
-      DefinitionList sp
-        ((fix godefs (items : list (node (node inlines * node blocks))) :=
-            match items with
-            | [] => []
-            | Node _ a (term, Node _ b item) :: rest =>
-                Node NoPos a (inlines_node term, Node NoPos b (go item)) :: godefs rest
-            end) items)
-  | Table cap rows => Table (inlines_node cap) (map row_node rows)
-  | FootnoteDef label bs => FootnoteDef label (go bs)
-  | Ext_keyed label (Node _ a x) =>
-      Ext_keyed (of_inlines label) (Node NoPos a (of_block x))
-  | Ext_callout kind fold title bs =>
-      Ext_callout kind fold (of_inlines title) (go bs)
-  | x => x
-  end.
+  map_parts (fun _ => NoPos) of_inlines
+    (fun n => match n with Node _ a x => Node NoPos a (of_block x) end) b.
 
 Fixpoint of_blocks (bs : blocks) : blocks :=
   match bs with
@@ -1425,14 +1450,9 @@ Local Lemma def_split_erase : forall bs,
     (def_split bs).
 Proof.
   induction bs as [|[p a b] rest IH]; [reflexivity|].
-  destruct b; cbn [of_blocks of_block def_split invisible_block] in *;
-    try reflexivity;
-    try (rewrite IH; destruct (def_split rest); reflexivity).
-  - rewrite IH. destruct (def_split rest) as [[ils more]|]; cbn.
-    + fold of_blocks. reflexivity.
-    + reflexivity.
-  - rewrite IH. destruct (def_split rest) as [[ils more]|]; reflexivity.
-  - destruct b. reflexivity.
+  destruct b; cbn [of_blocks of_block map_parts def_split invisible_block] in *;
+    rewrite ?IH; try destruct (def_split rest) as [[ils more]|]; try reflexivity.
+  all: destruct b; reflexivity.
 Qed.
 
 Local Lemma def_item_erase : forall bs,
@@ -1442,6 +1462,16 @@ Proof.
   intros bs. unfold def_item. rewrite def_split_erase.
   destruct (def_split bs) as [[term rest]|]; reflexivity.
 Qed.
+
+Definition bnode (n : node block) : node block :=
+  match n with Node _ a x => Node NoPos a (of_block x) end.
+
+Lemma of_block_eq : forall b,
+  of_block b = map_parts (fun _ => NoPos) of_inlines bnode b.
+Proof. intros b. destruct b; reflexivity. Qed.
+
+Lemma blocks_map : forall bs, map bnode bs = of_blocks bs.
+Proof. induction bs as [|[p a x] bs IH]; cbn; [reflexivity|]. rewrite IH. reflexivity. Qed.
 
 (* The item traversals of `of_block`, one item at a time. *)
 Definition item (n : node blocks) : node blocks :=
@@ -1456,46 +1486,36 @@ Definition def_entry (n : node (node inlines * node blocks))
   | Node _ a (t, Node _ b it) => Node NoPos a (inlines_node t, Node NoPos b (of_blocks it))
   end.
 
-Local Lemma blocks_fix : forall bs,
-  (fix go (bs : blocks) : blocks :=
-     match bs with
-     | [] => []
-     | Node _ a x :: rest => Node NoPos a (of_block x) :: go rest
-     end) bs = of_blocks bs.
-Proof. induction bs as [|[p a x] bs IH]; cbn; [reflexivity|]. rewrite IH. reflexivity. Qed.
 
-(* `of_block` on a list spelled with the named item maps. *)
-Lemma olist_items : forall attrs sp its,
-  of_block (OrderedList attrs sp its) = OrderedList attrs sp (map item its).
+(* The item maps as `of_block` unfolds to them. *)
+Lemma items_map : forall its,
+  map (fun n : node blocks => match n with Node _ a x => Node NoPos a (map bnode x) end) its
+  = map item its.
+Proof. intros. apply map_ext. intros [p a x]. rewrite blocks_map. reflexivity. Qed.
+
+Lemma task_items_map : forall its,
+  map (fun n : node (task_status * blocks) =>
+         match n with Node _ a x => Node NoPos a (fst x, map bnode (snd x)) end) its
+  = map task_item its.
+Proof. intros. apply map_ext. intros [p a [c x]]. rewrite blocks_map. reflexivity. Qed.
+
+Lemma def_entries_map : forall its,
+  map (fun n : node (node inlines * node blocks) =>
+         match n with
+         | Node _ a x =>
+             Node NoPos a (match fst x with Node _ a0 x0 => Node NoPos a0 (of_inlines x0) end,
+                           match snd x with Node _ a0 x0 => Node NoPos a0 (map bnode x0) end)
+         end) its
+  = map def_entry its.
 Proof.
-  intros attrs sp its. cbn [of_block]. f_equal.
-  induction its as [|[p a it] its IH]; cbn; [reflexivity|]. rewrite blocks_fix, IH.
-  reflexivity.
+  intros. apply map_ext. intros [p a [[tp ta t] [q b x]]]. cbn [fst snd].
+  rewrite blocks_map. reflexivity.
 Qed.
 
-Lemma blist_items : forall bc sp its,
-  of_block (BulletList bc sp its) = BulletList bc sp (map item its).
-Proof.
-  intros bc sp its. cbn [of_block]. f_equal.
-  induction its as [|[p a it] its IH]; cbn; [reflexivity|]. rewrite blocks_fix, IH.
-  reflexivity.
-Qed.
-
-Lemma tlist_items : forall sp its,
-  of_block (TaskList sp its) = TaskList sp (map task_item its).
-Proof.
-  intros sp its. cbn [of_block]. f_equal.
-  induction its as [|[p a [c it]] its IH]; cbn; [reflexivity|]. rewrite blocks_fix, IH.
-  reflexivity.
-Qed.
-
-Lemma dlist_items : forall sp its,
-  of_block (DefinitionList sp its) = DefinitionList sp (map def_entry its).
-Proof.
-  intros sp its. cbn [of_block]. f_equal.
-  induction its as [|[p a [t [q b it]]] its IH]; cbn; [reflexivity|].
-  rewrite blocks_fix, IH. reflexivity.
-Qed.
+(* After `cbn [of_block map_parts]`: the child lists back as `of_blocks`
+   and the item maps. *)
+Ltac fold_blocks :=
+  rewrite ?items_map, ?task_items_map, ?def_entries_map, ?blocks_map.
 
 (* Rows the parser builds are bare nodes of bare cells. *)
 Lemma rows_erase : forall rs : list (list cell),
@@ -1508,20 +1528,11 @@ Qed.
 (* Items the parser builds are bare nodes, so erasing them erases their
    blocks. *)
 Lemma items_erase : forall its : list blocks,
-  (fix goitems (items : list (node blocks)) : list (node blocks) :=
-     match items with
-     | [] => []
-     | Node _ a item :: rest => Node NoPos a (of_blocks item) :: goitems rest
-     end) (map mk its) = map mk (map of_blocks its).
-Proof. induction its as [|it its IH]; cbn; [reflexivity|]. rewrite IH. reflexivity. Qed.
+  map item (map mk its) = map mk (map of_blocks its).
+Proof. intros its. rewrite !map_map. reflexivity. Qed.
 
 Lemma def_items_erase : forall items,
-  (fix go (items : list (node (node inlines * node blocks))) :=
-     match items with
-     | [] => []
-     | Node _ a (term, Node _ b item) :: rest =>
-         Node NoPos a (inlines_node term, Node NoPos b (of_blocks item)) :: go rest
-     end) (def_items items) = def_items (map of_blocks items).
+  map def_entry (def_items items) = def_items (map of_blocks items).
 Proof.
   induction items as [|item rest IH]; [reflexivity|].
   cbn [def_items map]. fold def_items. unfold def_items in IH.
@@ -1540,7 +1551,7 @@ Proof.
   intros ps [p a x] rest. cbn [set_parts pos_records located_pos of_blocks].
   do 2 f_equal.
   destruct ps as [rs|rs|cap rs], x; cbn [parts_onto]; try reflexivity;
-    cbn [of_block]; f_equal.
+    cbn [of_block map_parts]; f_equal.
   1-3: revert items; induction rs as [|r rs IH]; intros [|[q b it] its];
          try reflexivity; cbn; rewrite IH; reflexivity.
   - revert items; induction rs as [|[[i t] d] rs IH];
@@ -1559,13 +1570,7 @@ Lemma set_pos_parts_erase : forall p ps (n : node block) rest,
 Proof. intros. rewrite blocks_set_pos. apply set_parts_erase. Qed.
 
 Lemma task_items_erase : forall checks items,
-  (fix go (items : list (node (task_status * blocks))) :=
-     match items with
-     | [] => []
-     | Node _ a (status, item) :: rest =>
-         Node NoPos a (status, of_blocks item) :: go rest
-     end) (task_items checks items) =
-  task_items checks (map of_blocks items).
+  map task_item (task_items checks items) = task_items checks (map of_blocks items).
 Proof.
   intros checks items. revert checks.
   induction items as [|item rest IH]; intros checks; [reflexivity|].
@@ -1639,64 +1644,12 @@ Proof.
   cbn [of_inlines]. rewrite IH. reflexivity.
 Qed.
 
-Definition of_cell (d : nat) (c : cell) : cell :=
-  match c with Cell ct al ils => Cell ct al (of_inlines d ils) end.
-
-Definition cnode (d : nat) (n : node cell) : node cell :=
-  match n with Node p a c => Node (of_pos d p) a (of_cell d c) end.
-
-Definition row (d : nat) (r : node (list (node cell))) : node (list (node cell)) :=
-  match r with Node p a cs => Node (of_pos d p) a (map (cnode d) cs) end.
-
 Definition inlines_node (d : nat) (n : node inlines) : node inlines :=
   match n with Node p a ils => Node (of_pos d p) a (of_inlines d ils) end.
 
 Fixpoint of_block (d : nat) (b : block) : block :=
-  let go :=
-    fix go (bs : blocks) : blocks :=
-      match bs with
-      | [] => []
-      | Node p a x :: rest => Node (of_pos d p) a (of_block d x) :: go rest
-      end in
-  let goitems :=
-    fix goitems (items : list (node blocks)) : list (node blocks) :=
-      match items with
-      | [] => []
-      | Node p a item :: rest => Node (of_pos d p) a (go item) :: goitems rest
-      end in
-  match b with
-  | Para ils => Para (of_inlines d ils)
-  | Section bs => Section (go bs)
-  | Heading lvl ils => Heading lvl (of_inlines d ils)
-  | BlockQuote bs => BlockQuote (go bs)
-  | Div name bs => Div name (go bs)
-  | OrderedList attrs sp items => OrderedList attrs sp (goitems items)
-  | BulletList bc sp items => BulletList bc sp (goitems items)
-  | TaskList sp items =>
-      TaskList sp
-        ((fix gotasks (items : list (node (task_status * blocks))) :=
-            match items with
-            | [] => []
-            | Node p a (status, item) :: rest =>
-                Node (of_pos d p) a (status, go item) :: gotasks rest
-            end) items)
-  | DefinitionList sp items =>
-      DefinitionList sp
-        ((fix godefs (items : list (node (node inlines * node blocks))) :=
-            match items with
-            | [] => []
-            | Node p a (term, Node q b item) :: rest =>
-                Node (of_pos d p) a (inlines_node d term, Node (of_pos d q) b (go item))
-                :: godefs rest
-            end) items)
-  | Table caption rows => Table (inlines_node d caption) (map (row d) rows)
-  | FootnoteDef label bs => FootnoteDef label (go bs)
-  | Ext_keyed label (Node p a x) =>
-      Ext_keyed (of_inlines d label) (Node (of_pos d p) a (of_block d x))
-  | Ext_callout kind fold title bs =>
-      Ext_callout kind fold (of_inlines d title) (go bs)
-  | x => x
-  end.
+  map_parts (of_pos d) (of_inlines d)
+    (fun n => match n with Node p a x => Node (of_pos d p) a (of_block d x) end) b.
 
 Fixpoint of_blocks (d : nat) (bs : blocks) : blocks :=
   match bs with
@@ -1724,66 +1677,26 @@ Proof.
   cbn [of_inlines Erase.of_inlines Erase.inode]. rewrite IH, (Hq x). reflexivity.
 Qed.
 
+Definition bnode (d : nat) (n : node block) : node block :=
+  match n with Node p a x => Node (of_pos d p) a (of_block d x) end.
+
+Lemma of_block_eq : forall d b, of_block d b = map_parts (of_pos d) (of_inlines d) (bnode d) b.
+Proof. intros d b. destruct b; reflexivity. Qed.
+
 (* A shift moves only positions, so erasure does not see it. *)
+Lemma erase_block : forall d b, Erase.of_block (of_block d b) = Erase.of_block b.
+Proof.
+  intros d b. induction b as [b IH] using block_children_ind. rewrite Forall_forall in IH.
+  rewrite of_block_eq, !Erase.of_block_eq, map_parts_map_parts.
+  apply map_parts_ext; [apply erase_inlines|].
+  intros [p a x] Hn. cbn [bnode Erase.bnode]. specialize (IH _ Hn); cbn [node_contents] in IH; rewrite IH. reflexivity.
+Qed.
+
 Lemma erase_blocks : forall d bs,
   Erase.of_blocks (of_blocks d bs) = Erase.of_blocks bs.
 Proof.
-  intros d.
-  assert (Hgo : forall bs,
-    (fix go (bs : blocks) : blocks :=
-       match bs with
-       | [] => []
-       | Node p a x :: rest => Node (of_pos d p) a (of_block d x) :: go rest
-       end) bs = of_blocks d bs)
-    by (induction bs as [|[p a x] bs IH]; [reflexivity|cbn [of_blocks]; rewrite IH; reflexivity]).
-  assert (Ego : forall bs,
-    (fix go (bs : blocks) : blocks :=
-       match bs with
-       | [] => []
-       | Node _ a x :: rest => Node NoPos a (Erase.of_block x) :: go rest
-       end) bs = Erase.of_blocks bs)
-    by (induction bs as [|[p a x] bs IH];
-        [reflexivity|cbn [Erase.of_blocks]; rewrite IH; reflexivity]).
-  set (P := fun b => Erase.of_block (of_block d b) = Erase.of_block b).
-  set (Q := fun bs => Erase.of_blocks (of_blocks d bs) = Erase.of_blocks bs).
-  set (R := Forall (fun n : node blocks => Q (node_contents n))).
-  set (D := Forall (fun n : node (node inlines * node blocks) =>
-                      Q (node_contents (snd (node_contents n))))).
-  set (KK := Forall (fun n : node (task_status * blocks) =>
-                       Q (snd (node_contents n)))).
-  assert (HP : forall b, P b).
-  { apply (block_ind2 P Q R D KK); unfold P, Q, R, D, KK; intros;
-      try (constructor; assumption);
-      cbn [of_block Erase.of_block];
-      rewrite ?Hgo, ?Ego, ?erase_inlines; try congruence;
-      try (cbn [Erase.of_blocks of_blocks]; congruence).
-    (* lists: item by item *)
-    all: try (f_equal; clear - H Hgo Ego;
-              induction items as [|[p a it] rest IHi]; [reflexivity|];
-              inversion H as [|? ? H1 H2]; subst; cbn;
-              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it); cbn in H1; rewrite H1;
-              f_equal; apply IHi; exact H2).
-    all: try (f_equal; clear - H Hgo Ego;
-              induction items as [|[p a [c it]] rest IHi]; [reflexivity|];
-              inversion H as [|? ? H1 H2]; subst; cbn;
-              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it); cbn in H1; rewrite H1;
-              f_equal; apply IHi; exact H2).
-    all: try (f_equal; clear - H Hgo Ego;
-              induction items as [|[p a [[tp ta t] [q b it]]] rest IHi]; [reflexivity|];
-              inversion H as [|? ? H1 H2]; subst; cbn;
-              rewrite (Hgo it), (Ego (of_blocks d it)), (Ego it); cbn in H1; rewrite H1;
-              rewrite erase_inlines; f_equal; apply IHi; exact H2).
-    - (* table *)
-      destruct caption as [cp ca cils]. cbn. rewrite erase_inlines. f_equal.
-      rewrite !map_map. apply map_ext. intros [rp ra cs]. cbn.
-      rewrite map_map. f_equal. apply map_ext. intros [p a [ct al ils]]. cbn.
-      rewrite erase_inlines. reflexivity.
-    - (* key *)
-      destruct b as [p a x]. cbn [of_blocks Erase.of_blocks] in H.
-      injection H as Hx. cbn [Erase.of_block]. rewrite erase_inlines, Hx.
-      reflexivity. }
-  intros bs. induction bs as [|[p a x] bs IH]; [reflexivity|].
-  cbn [of_blocks Erase.of_blocks]. rewrite IH, (HP x). reflexivity.
+  intros d. induction bs as [|[p a x] bs IH]; [reflexivity|].
+  cbn [of_blocks Erase.of_blocks]. rewrite IH, erase_block. reflexivity.
 Qed.
 
 End Shift.

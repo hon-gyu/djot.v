@@ -1228,21 +1228,21 @@ Proof.
   unfold list_block, styles_list_checked.
   cbn [ls_styles ls_loose ls_check ls_checks ls_items StateErase.of_list_state].
   destruct styles as [|[sty start] styles].
-  - cbn [styles_list Erase.of_blocks Erase.of_block mk].
-    fold Erase.of_blocks. rewrite Erase.items_erase, map_rev.
+  - cbn [styles_list Erase.of_blocks Erase.of_block mk map_parts].
+    Erase.fold_blocks. rewrite Erase.items_erase, map_rev.
     reflexivity.
   - destruct sty.
-    + cbn [styles_list Erase.of_blocks Erase.of_block mk].
+    + cbn [styles_list Erase.of_blocks Erase.of_block mk map_parts].
       destruct (Ascii.eqb c
           (Ascii.Ascii false true false true true true false false)
           && bdeflists)%bool;
-        cbn [Erase.of_blocks Erase.of_block mk].
-      * fold Erase.of_blocks. rewrite Erase.def_items_erase, map_rev. reflexivity.
-      * fold Erase.of_blocks. rewrite Erase.items_erase, map_rev.
+        cbn [Erase.of_blocks Erase.of_block mk map_parts].
+      * Erase.fold_blocks. rewrite Erase.def_items_erase, map_rev. reflexivity.
+      * Erase.fold_blocks. rewrite Erase.items_erase, map_rev.
         reflexivity.
-    + cbn [styles_list Erase.of_blocks Erase.of_block mk]. fold Erase.of_blocks.
+    + cbn [styles_list Erase.of_blocks Erase.of_block mk map_parts]. Erase.fold_blocks.
       rewrite Erase.task_items_erase, map_rev. reflexivity.
-    + cbn [styles_list Erase.of_blocks Erase.of_block mk]. fold Erase.of_blocks.
+    + cbn [styles_list Erase.of_blocks Erase.of_block mk map_parts]. Erase.fold_blocks.
       rewrite Erase.items_erase, map_rev. reflexivity.
 Qed.
 
@@ -5132,7 +5132,7 @@ Local Lemma erase_table_block : forall `{T : dtable} rows c rest,
   (@table_block T semantic_pos rows (StateErase.of_cap c) :: Erase.of_blocks rest)%list.
 Proof.
   intros T rows c rest. unfold table_block.
-  cbn [Erase.of_blocks Erase.of_block located_pos semantic_pos pos_records mk].
+  cbn [Erase.of_blocks Erase.of_block located_pos semantic_pos pos_records mk map_parts].
   rewrite Erase.rows_erase, (@StateErase.of_table_fold_located T located_pos).
   unfold Erase.inlines_node, mk. rewrite (@erase_caption_of T c). reflexivity.
 Qed.
@@ -5172,18 +5172,18 @@ Proof.
     rewrite ?Erase.set_pos_parts_erase;
     cbn [set_parts StateErase.state StateErase.of_list_state Erase.of_blocks set_pos mkpos
       located_pos semantic_pos Erase.of_block pos_records add_roles_head add_roles
-      pos_head posnode];
+      pos_head posnode map_parts];
     rewrite ?StateErase.of_lines_texts_rev, ?StateErase.of_lines_length, ?erase_table_block,
       ?Erase.blocks_app, ?Erase.blocks_rev, ?IHst;
     try reflexivity;
     (* the arms whose block holds inlines: a paragraph, a heading, and the
        recovery's paragraph, each closing once the located scan's inlines
        are erased (`StateErase.of_para_inlines_at`) *)
-    try (cbn [mk Erase.of_blocks Erase.of_block heading_block];
+    try (cbn [mk Erase.of_blocks Erase.of_block heading_block map_parts];
          rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev, ?StateErase.of_lines_length;
          reflexivity).
   - destruct cur as [|first cur]; [reflexivity|].
-    cbn [mk Erase.of_blocks Erase.of_block].
+    cbn [mk Erase.of_blocks Erase.of_block map_parts].
     rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev. reflexivity.
   - rewrite drop_blank_lines_erase, StateErase.of_lines_texts_rev.
     destruct (@fence_block K f (line_texts (rev (drop_blank_lines acc))))
@@ -5193,14 +5193,14 @@ Proof.
     rewrite Ef in Hf. cbn [Erase.of_blocks] in Hf. exact Hf.
   - destruct header as [[[kind fold] [line source]]|];
       cbn [option_map StateErase.of_line mk Erase.of_block quote_block callout_title
-        located_pos semantic_pos pos_records];
-      fold Erase.of_blocks;
+        located_pos semantic_pos pos_records map_parts];
+      Erase.fold_blocks;
       rewrite Erase.blocks_app, Erase.blocks_rev, IHst;
       try rewrite erase_parse_inline_line_located;
       reflexivity.
   - unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString) eqn:E];
-      cbn [Erase.of_block set_pos mkpos located_pos semantic_pos mk];
-      fold Erase.of_blocks;
+      cbn [Erase.of_block set_pos mkpos located_pos semantic_pos mk map_parts];
+      Erase.fold_blocks;
       rewrite Erase.blocks_app, Erase.blocks_rev, IHst; reflexivity.
   - pose proof (@list_block_erase K (list_settle (attr_waits st) ls)
                   (rev done ++ @finish T K located_pos st)%list) as H.
@@ -5210,10 +5210,10 @@ Proof.
     unfold finish_para_recover. destruct slices as [|slice slices];
       [reflexivity|].
     cbn [decorate_head Erase.of_blocks add_roles_head add_roles set_pos mkpos
-      located_pos semantic_pos mk Erase.of_block].
+      located_pos semantic_pos mk Erase.of_block map_parts].
     rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev, StateErase.of_lines_length.
     reflexivity.
-  - cbn [foot_block mk Erase.of_block]. fold Erase.of_blocks.
+  - cbn [foot_block mk Erase.of_block map_parts]. Erase.fold_blocks.
     rewrite Erase.blocks_app, Erase.blocks_rev, IHst. reflexivity.
   - pose proof (@erase_table_block T (rev rows) cap []) as Ht.
     cbn [Erase.of_blocks] in Ht. exact Ht.
@@ -5230,16 +5230,16 @@ Proof.
   - destruct (@finish T K located_pos st) as [|[p a b] rest] eqn:E.
     + cbn in IHst. symmetry in IHst.
       cbn [key_close Erase.of_blocks pos_head posnode mkpos located_pos
-        semantic_pos mk Erase.of_block].
+        semantic_pos mk Erase.of_block map_parts].
       rewrite IHst, erase_inlines_para_inlines. reflexivity.
     + cbn [Erase.of_blocks] in IHst.
       destruct (@finish T K semantic_pos (StateErase.state st))
         as [|[q a' b'] rest'] eqn:E'; [discriminate|].
       injection IHst as Hq Ha Hb Hrest. subst q a' b' rest'.
       cbn [key_close pos_head posnode mkpos located_pos semantic_pos
-        Erase.of_blocks Erase.of_block mk].
+        Erase.of_blocks Erase.of_block mk map_parts].
       rewrite (key_label_erase _ (extent_start (StateErase.of_extent range))).
-      fold Erase.of_blocks. reflexivity.
+      Erase.fold_blocks. reflexivity.
 Qed.
 
 Local Lemma list_blank_erase : forall ls,
@@ -5360,10 +5360,10 @@ Proof.
   intros T range lbl src [bs st].
   destruct bs as [|[p a b] rest]; [reflexivity|].
   cbn [key_result StateErase.result Erase.of_blocks key_close pos_head set_pos mkpos
-    located_pos semantic_pos Erase.of_block mk posnode].
-  unfold StateErase.result. cbn [fst snd Erase.of_blocks Erase.of_block key_close mk].
+    located_pos semantic_pos Erase.of_block mk posnode map_parts].
+  unfold StateErase.result. cbn [fst snd Erase.of_blocks Erase.of_block key_close mk map_parts].
   rewrite (key_label_erase _ (extent_start (StateErase.of_extent range))).
-  fold Erase.of_blocks. reflexivity.
+  Erase.fold_blocks. reflexivity.
 Qed.
 
 Local Lemma open_line_erase : forall `{T : dtable} `{K : bconfig} `{LI : LineIx}
@@ -5375,7 +5375,7 @@ Proof.
   intros T K LI dl ds ind l k H. destruct k;
     cbn [open_line open_kind StateErase.result StateErase.state StateErase.of_list_state
       posnode mkpos located_pos semantic_pos Erase.of_blocks Erase.of_block mk
-      StateErase.of_lines];
+      StateErase.of_lines map_parts];
     try reflexivity.
   - unfold StateErase.result; cbn [fst snd StateErase.state StateErase.of_lines].
     destruct bdivs; reflexivity.
@@ -5423,7 +5423,7 @@ Proof.
   intros T LI K l k. destruct k;
     unfold StateErase.result, open_kind;
     cbn [fst snd StateErase.state StateErase.of_lines Erase.of_blocks Erase.of_block posnode
-      mkpos located_pos semantic_pos mk];
+      mkpos located_pos semantic_pos mk map_parts];
     rewrite ?erase_push_text;
     try reflexivity.
   - destruct bdivs; reflexivity.
@@ -5484,7 +5484,7 @@ Proof.
       destruct (bunderline_of l) as [lvl|];
       [ unfold StateErase.result; cbn [fst snd StateErase.state];
         rewrite Erase.blocks_set_pos; unfold heading_block;
-        cbn [Erase.of_blocks Erase.of_block mk StateErase.of_lines];
+        cbn [Erase.of_blocks Erase.of_block mk StateErase.of_lines map_parts];
         change (StateErase.of_line c :: map StateErase.of_line cur')
           with (StateErase.of_lines (c :: cur'));
         rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev; reflexivity |];
@@ -5531,7 +5531,7 @@ Proof.
     + unfold StateErase.result; cbn [fst snd StateErase.state].
       rewrite Erase.blocks_set_pos.
       unfold div_block. destruct bdiv_names; [|destruct (String.eqb cls EmptyString) eqn:E];
-        cbn [Erase.of_blocks Erase.of_block mk]; fold Erase.of_blocks;
+        cbn [Erase.of_blocks Erase.of_block mk map_parts]; Erase.fold_blocks;
         rewrite Erase.blocks_app, Erase.blocks_rev, finish_erase; reflexivity.
     + rewrite <- (IH off l st).
       destruct (@step_fuel T K LI located_pos n off l st) as [bs inner'].
@@ -5585,7 +5585,7 @@ Proof.
       destruct (bunderline_of l) as [lvl|];
       [ unfold StateErase.result; cbn [fst snd StateErase.state];
         rewrite Erase.blocks_set_pos; unfold heading_block_off;
-        cbn [Erase.of_blocks Erase.of_block mk];
+        cbn [Erase.of_blocks Erase.of_block mk map_parts];
         rewrite StateErase.of_para_inlines_at, StateErase.of_lines_rev; reflexivity |];
       destruct (classify l);
       try apply close_reopen_kind_erase;
@@ -5628,7 +5628,7 @@ Proof.
       rewrite <- Hp.
       destruct (@step_fuel T K LI located_pos n off l (PPara [])) as [bs st'].
       unfold StateErase.result; cbn [fst snd]. rewrite Erase.blocks_set_pos.
-      cbn [Erase.of_blocks Erase.of_block foot_block mk]. fold Erase.of_blocks.
+      cbn [Erase.of_blocks Erase.of_block foot_block mk map_parts]. Erase.fold_blocks.
       rewrite Erase.blocks_app, Erase.blocks_rev, finish_erase. reflexivity.
   - (* PTable *)
     cbn [step_fuel StateErase.state].
@@ -5673,7 +5673,7 @@ Proof.
     destruct (is_blank l && is_idle st)%bool;
       [unfold StateErase.result;
        cbn [fst snd Erase.of_blocks Erase.of_block posnode mkpos located_pos
-         semantic_pos];
+         semantic_pos map_parts];
        rewrite erase_inlines_para_inlines; reflexivity|].
     rewrite key_result_erase, IH. reflexivity.
 Qed.

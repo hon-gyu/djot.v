@@ -1106,14 +1106,9 @@ Proof.
   destruct (dn_shift src d) as [_ Hils].
   set (G := good (skipn d src)). set (G' := good src).
   assert (Hg : forall ils, G ils -> G' (Shift.of_inlines d ils)) by exact Hils.
-  assert (Hgo : forall bs,
-    (fix go (bs : blocks) : blocks :=
-       match bs with
-       | [] => []
-       | Node p a x :: rest => Node (Shift.of_pos d p) a (Shift.of_block d x) :: go rest
-       end) bs = Shift.of_blocks d bs)
+  assert (Hgo : forall bs, map (Shift.bnode d) bs = Shift.of_blocks d bs)
     by (induction bs as [|[p a x] bs IH];
-        [reflexivity|cbn [Shift.of_blocks]; rewrite IH; reflexivity]).
+        [reflexivity|cbn [Shift.of_blocks]; rewrite <- IH; reflexivity]).
   (* The item traversals of `Shift.of_block`, as maps. *)
   set (ishift := fun n : node blocks =>
          match n with Node p a it => Node (Shift.of_pos d p) a (Shift.of_blocks d it) end).
@@ -1140,7 +1135,7 @@ Proof.
          (map dshift its))
     (fun its => Forall (fun it => Forall (inl_all G) (snd (node_contents it))) its ->
        Forall (fun it => Forall (inl_all G') (snd (node_contents it))) (map tshift its)));
-    intros; cbn [Shift.of_block]; rewrite ?Hgo.
+    intros; cbn [Shift.of_block map_parts]; rewrite ?Hgo.
   all: try (inversion H0; subst; constructor; auto; fail).
   all: try (inversion H; subst; constructor; auto; fail).
   (* A list's items are shifted by an inner fixpoint: name it as a map. *)
@@ -1174,7 +1169,7 @@ Proof.
   - inversion H as [| | | | | | | | | | |? ? ? ? Hcap Hrows| | | | | |]; subst.
     constructor; [destruct caption; apply Hg; assumption|].
     rewrite Forall_map. refine (Forall_impl _ _ Hrows). intros [rp ra cs] Hr.
-    cbn [Shift.row node_contents] in *.
+    cbn [node_contents] in *.
     rewrite Forall_map. refine (Forall_impl _ _ Hr). intros [cp ca [ct al ils]] Hc.
     exact (Hg _ Hc).
   - destruct b0 as [p0 a0 x]. inversion H0; subst. constructor; [apply Hg; assumption|].

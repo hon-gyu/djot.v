@@ -2134,48 +2134,6 @@ Proof.
     rewrite IH. reflexivity.
 Qed.
 
-(* The item erasures as `Erase.of_block` spells them internally, bridged to
-   the map form the statements below use. *)
-Local Lemma erase_items_fix : forall its,
-  (fix goitems (its : list (node blocks)) : list (node blocks) :=
-     match its with
-     | [] => []
-     | Node _ a item :: rest => Node NoPos a (Erase.of_blocks item) :: goitems rest
-     end) its = map Erase.item its.
-Proof.
-  induction its as [|[ip ia it] rest IH]; [reflexivity|].
-  cbn [map Erase.item Erase.task_item Erase.def_entry Erase.inlines_node]. rewrite IH. reflexivity.
-Qed.
-
-Local Lemma erase_def_items_fix : forall its,
-  (fix godefs (its : list (node (node inlines * node blocks)))
-      : list (node (node inlines * node blocks)) :=
-     match its with
-     | [] => []
-     | Node _ a (term, Node _ b item) :: rest =>
-         Node NoPos a (Erase.inlines_node term, Node NoPos b (Erase.of_blocks item))
-         :: godefs rest
-     end) its
-  = map Erase.def_entry its.
-Proof.
-  induction its as [|[ip ia [term [dp da it]]] rest IH]; [reflexivity|].
-  cbn [map Erase.item Erase.task_item Erase.def_entry Erase.inlines_node]. rewrite IH. reflexivity.
-Qed.
-
-Local Lemma erase_task_items_fix : forall its,
-  (fix gotasks (its : list (node (task_status * blocks)))
-      : list (node (task_status * blocks)) :=
-     match its with
-     | [] => []
-     | Node _ a (status, item) :: rest =>
-         Node NoPos a (status, Erase.of_blocks item) :: gotasks rest
-     end) its
-  = map Erase.task_item its.
-Proof.
-  induction its as [|[ip ia [status it]] rest IH]; [reflexivity|].
-  cbn [map Erase.item Erase.task_item Erase.def_entry Erase.inlines_node]. rewrite IH. reflexivity.
-Qed.
-
 (* Erasure keeps a block's children. *)
 Local Lemma erase_children : forall b,
   children (Erase.of_block b) = Erase.of_blocks (children b).
@@ -2186,25 +2144,16 @@ Proof.
   { intros A g e H. induction its as [|x its IH]; [reflexivity|].
     cbn [map flat_map]. rewrite Erase.blocks_app, H, IH. reflexivity. }
   intros b. destruct b as [| | | | | | | | | | | | | | | |? []|];
-    cbn [Erase.of_block Ast.children]; fold Erase.of_blocks; try reflexivity.
-  - rewrite erase_items_fix. apply F. intros []; reflexivity.
-  - rewrite erase_items_fix. apply F. intros []; reflexivity.
-  - rewrite erase_task_items_fix. apply F. intros [? ? []]; reflexivity.
-  - rewrite erase_def_items_fix. apply F. intros [? ? [? []]]; reflexivity.
+    cbn [Erase.of_block Ast.children map_parts]; Erase.fold_blocks; try reflexivity.
+  - apply F. intros []; reflexivity.
+  - apply F. intros []; reflexivity.
+  - apply F. intros [? ? []]; reflexivity.
+  - apply F. intros [? ? [? []]]; reflexivity.
 Qed.
 
 (*
 Ids.of_block
 *)
-
-Local Definition erase_node (n : node block) : node block :=
-  match n with Node _ a b => Node NoPos a (Erase.of_block b) end.
-
-Local Lemma erase_blocks_map : forall bs, Erase.of_blocks bs = map erase_node bs.
-Proof.
-  induction bs as [|[p a b] rest IH]; [reflexivity|].
-  cbn [Erase.of_blocks map erase_node]. rewrite IH. reflexivity.
-Qed.
 
 (* A stateful map that commutes with `e` at each element commutes with
    it over the list. *)
@@ -2224,7 +2173,7 @@ Qed.
 Local Lemma map_acc_children_erase :
   forall (S : Type) (f f' : node block -> S -> S * node block) b st,
     (forall n, In n (children b) ->
-       forall s, f' (erase_node n) s = (fst (f n s), erase_node (snd (f n s)))) ->
+       forall s, f' (Erase.bnode n) s = (fst (f n s), Erase.bnode (snd (f n s)))) ->
     map_acc_children f' (Erase.of_block b) st
     = (fst (map_acc_children f b st),
        Erase.of_block (snd (map_acc_children f b st))).
@@ -2234,7 +2183,7 @@ Proof.
             (forall n, In n l -> In n (children b)) ->
             map_acc f' (Erase.of_blocks l) s
             = (fst (map_acc f l s), Erase.of_blocks (snd (map_acc f l s)))).
-  { intros l s Hl. rewrite !erase_blocks_map. apply map_acc_commute.
+  { intros l s Hl. rewrite <- !Erase.blocks_map. apply map_acc_commute.
     intros n Hn. apply H, Hl, Hn. }
   (* An item's blocks are among the list's children. *)
   Local Ltac item_blocks I Hit :=
@@ -2246,15 +2195,14 @@ Proof.
   Local Ltac items_done st :=
     match goal with |- context [map_acc ?k ?items st] =>
       destruct (map_acc k items st) as [s1 l1] end;
-    cbn [fst snd Erase.of_block]; fold Erase.of_blocks;
-    rewrite ?erase_items_fix, ?erase_def_items_fix, ?erase_task_items_fix;
+    cbn [fst snd Erase.of_block map_parts]; Erase.fold_blocks;
     reflexivity.
   destruct b as [| | | | | | | | | | | | | | | |? []|];
-    cbn [Erase.of_block map_acc_children Ast.children] in *; fold Erase.of_blocks;
-    rewrite ?erase_items_fix, ?erase_def_items_fix, ?erase_task_items_fix;
+    cbn [Erase.of_block map_acc_children Ast.children map_parts] in *; Erase.fold_blocks;
     try reflexivity.
   all: try (rewrite I by (intros; assumption);
-            destruct (map_acc f _ st) as [s1 l1]; reflexivity).
+            destruct (map_acc f _ st) as [s1 l1];
+            cbn [fst snd Erase.of_block map_parts]; Erase.fold_blocks; reflexivity).
   - rewrite (map_acc_commute S _ (map_acc_node (map_acc f))
                (map_acc_node (map_acc f')) Erase.item items); [items_done st|].
     intros [q c x] Hit s. item_blocks I Hit.
@@ -2270,7 +2218,7 @@ Proof.
                (map_acc_node (map_acc_snd (map_acc_node (map_acc f'))))
                Erase.def_entry items); [items_done st|].
     intros [q c [t [r d x]]] Hit s. item_blocks I Hit.
-  - change (Node NoPos a (Erase.of_block x)) with (erase_node (Node p a x)).
+  - change (Node NoPos a (Erase.of_block x)) with (Erase.bnode (Node p a x)).
     rewrite H by (left; reflexivity).
     destruct (f (Node p a x) st) as [s1 [q c y]]. reflexivity.
 Qed.
@@ -2278,18 +2226,18 @@ Qed.
 Local Lemma assign_ids_erase :
   forall b p a st,
     Ids.of_block (Erase.of_block b) NoPos a st
-    = (fst (Ids.of_block b p a st), erase_node (snd (Ids.of_block b p a st))).
+    = (fst (Ids.of_block b p a st), Erase.bnode (snd (Ids.of_block b p a st))).
 Proof.
   intros b. induction b as [b IH] using block_children_ind. intros p a st.
   destruct (plain_block b) eqn:Hp.
   - rewrite !Ids.of_block_plain by (rewrite ?plain_block_erase; exact Hp).
-    cbn [fst snd erase_node].
+    cbn [fst snd Erase.bnode].
     rewrite (map_acc_children_erase _ Ids.of_node Ids.of_node b).
     + reflexivity.
     + intros [q c x] Hn s. rewrite Forall_forall in IH. exact (IH _ Hn q c s).
   - destruct b; try discriminate.
     + reflexivity.
-    + cbn [Erase.of_block Ids.of_block]. unfold assign_heading_id.
+    + cbn [Erase.of_block Ids.of_block map_parts]. unfold assign_heading_id.
       rewrite inlines_text_erase.
       destruct (alist_lookup "id" a); reflexivity.
 Qed.
@@ -2299,8 +2247,8 @@ Local Lemma assign_ids_list_erase : forall bs st,
   /\ Erase.of_blocks (snd (Ids.of_list bs st))
      = snd (Ids.of_list (Erase.of_blocks bs) st).
 Proof.
-  intros bs st. unfold Ids.of_list. rewrite !erase_blocks_map.
-  rewrite (map_acc_commute _ _ Ids.of_node Ids.of_node erase_node).
+  intros bs st. unfold Ids.of_list. rewrite <- !Erase.blocks_map.
+  rewrite (map_acc_commute _ _ Ids.of_node Ids.of_node Erase.bnode).
   - split; reflexivity.
   - intros [p a b] _ s. apply assign_ids_erase.
 Qed.
@@ -2321,7 +2269,7 @@ Proof.
     cbn [Erase.of_blocks Notes.of_list node_contents] in *. rewrite Hx. apply IHr. }
   rewrite L. destruct b as [| | | | | | | | | | | | | | | |? []|]; try reflexivity.
   (* FootnoteDef: the body is erased both in the tree and in its entry *)
-  cbn [Erase.of_block Notes.add_note]. fold Erase.of_blocks.
+  cbn [Erase.of_block Notes.add_note map_parts]. Erase.fold_blocks.
   rewrite erase_note_map_alist_set. reflexivity.
 Qed.
 
@@ -2369,7 +2317,7 @@ Local Lemma section_node_pos : forall a bs,
   Erase.of_blocks [@section_node located_pos a bs]
   = [@section_node semantic_pos a (Erase.of_blocks bs)].
 Proof.
-  intros a bs. cbn [Erase.of_blocks Erase.of_block section_node]. fold Erase.of_blocks.
+  intros a bs. cbn [Erase.of_blocks Erase.of_block section_node map_parts]. Erase.fold_blocks.
   rewrite section_node_nopos. reflexivity.
 Qed.
 
@@ -2421,9 +2369,7 @@ Local Lemma sect_step_pos : forall stk p a b,
 Proof.
   intros stk p a b. destruct b;
     try (cbn [sect_step]; apply sect_push_pos).
-  (* a key's node has to be destructured before `Erase.of_block` reduces *)
-  2: (destruct b; cbn [sect_step Erase.of_block]; apply sect_push_pos).
-  cbn [sect_step erase_sect Erase.of_blocks Erase.of_block].
+  cbn [sect_step erase_sect Erase.of_blocks Erase.of_block map_parts].
   rewrite close_ge_pos. reflexivity.
 Qed.
 
