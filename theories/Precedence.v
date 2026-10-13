@@ -206,8 +206,8 @@ Fixpoint run_of (c : ascii) (s : string) : nat :=
    is drawn on only as an attribute spec that closes; a `{` after a `]`
    only as a span's spec that closes; one after a backtick is drawn on only as a raw
    spec that closes; a `[` before a `^` is drawn on only as a footnote
-   reference whose label closes, and not after a `!`; a `[` before a `[`
-   begins a wikilink; an autolink
+   reference whose label closes, and not after a `!`; with wikilinks on,
+   a `[` before a `[` begins a wikilink; an autolink
    candidate holds no backslash; a `:` either begins a symbol or is
    text on the spot; and two hyphens or more do not come right before a
    `}`, which takes the run's last hyphen back for a closer. *)
@@ -216,7 +216,8 @@ Definition follow_ok (c : ascii) (rest : string) : bool :=
          && starts_with rbrace (sdrop (run_of hyphen rest) rest))
    && (negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest)
    && negb (Ascii.eqb c lbrack
-            && (starts_with lbrack rest || (starts_with hat rest && negb (note_ahead rest))))
+            && ((wikilinks_enabled && starts_with lbrack rest)
+                || (starts_with hat rest && negb (note_ahead rest))))
    && negb (Ascii.eqb c bang && starts_with lbrack rest && starts_with hat (sdrop 1 rest))
    && negb (Ascii.eqb c rbrack && starts_with lbrace rest && negb (spec_ahead (sdrop 1 rest)))
    && negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest))

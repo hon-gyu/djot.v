@@ -4330,19 +4330,27 @@ Qed.
 Local Lemma no_nl_drop : forall s, no_nl s = drop_nl s.
 Proof. induction s as [|c s IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
 
-(* Right after a `[`, a `^` would mark a footnote and a `[` a wikilink;
-   the alphabet has neither there. *)
+(* Right after a `[`, a `^` would mark a footnote and, with wikilinks
+   on, a `[` a wikilink; the alphabet has neither there. *)
 Local Lemma note_free : forall prev c s' txt,
-  prev_ok prev (String c s') = true -> c = lbrack \/ c = hat ->
+  prev_ok prev (String c s') = true -> (c = lbrack /\ wikilinks_enabled = true) \/ c = hat ->
   note_pos txt prev = false.
 Proof.
   intros prev c s' txt H Hc. unfold note_pos.
   destruct prev as [p|]; [|apply andb_false_r].
   destruct (Ascii.eqb p lbrack) eqn:E; [|apply andb_false_r]. exfalso.
   cbn [prev_ok] in H. apply andb_true_iff in H as [H Hh]. rewrite E in Hh.
-  destruct Hc as [-> | ->]; [|discriminate Hh].
+  destruct Hc as [[-> Hw] | ->]; [|discriminate Hh].
   unfold follow_ok in H. do 5 (apply andb_true_iff in H as [H _]).
-  apply andb_true_iff in H as [_ H]. rewrite E in H. discriminate H.
+  apply andb_true_iff in H as [_ H]. rewrite E, Hw in H. discriminate H.
+Qed.
+
+(* A `[` right after a `[` is a wikilink's only with wikilinks on. *)
+Local Lemma wiki_free : forall prev s' txt,
+  prev_ok prev (String lbrack s') = true -> (note_pos txt prev && wikilinks_enabled)%bool = false.
+Proof.
+  intros prev s' txt H. destruct wikilinks_enabled eqn:Hw; [|apply andb_false_r].
+  rewrite (note_free prev lbrack s' txt H (or_introl (conj eq_refl Hw))). reflexivity.
 Qed.
 
 (* The same from `note_ok`, in text mode. *)
@@ -4353,7 +4361,8 @@ Definition note_ok (prev : option ascii) (core : iscan) (s : string) : Prop :=
   \/ (forall txt p o, core = IText false txt p o -> nonempty_str txt = true).
 
 Local Lemma note_free' : forall prev c s' txt p o,
-  note_ok prev (IText false txt p o) (String c s') -> c = lbrack \/ c = hat ->
+  note_ok prev (IText false txt p o) (String c s') ->
+  (c = lbrack /\ wikilinks_enabled = true) \/ c = hat ->
   note_pos txt prev = false.
 Proof.
   intros prev c s' txt p o [H|H] Hc; [exact (note_free prev c s' txt H Hc)|].
@@ -4379,7 +4388,7 @@ Proof.
 Qed.
 
 Local Lemma ilead_lbrack : forall txt prev o,
-  note_pos txt prev = false ->
+  (note_pos txt prev && wikilinks_enabled)%bool = false ->
   ilead lbrack txt prev o = IText false "" (Some lbrack) (bpush false (flush_text txt o)).
 Proof. intros txt prev o H. unfold ilead. cbn. rewrite H. reflexivity. Qed.
 
@@ -7074,7 +7083,7 @@ Local Lemma scan_note : forall ps after len, scan_ih ps after len -> line_end af
     sdrop n ps = (String lbrack s' ++ after)%string ->
     same_prev (before ps n) prev ->
     vinv ps n false v -> Forall (never ps n) ws -> pv_mode v = PMNormal -> sim v txt o ->
-    note_pos txt prev = false -> note_at s' = Some lab ->
+    (note_pos txt prev && wikilinks_enabled)%bool = false -> note_at s' = Some lab ->
     scanned ps n false v ws (IText false txt prev o) (String lbrack s').
 Proof.
   intros ps after len IH Hae s' lab prev n v ws txt o Hl Ha Hs Hpv V Fn Em Hsim Hnp Na.
@@ -7088,8 +7097,8 @@ Proof.
   apply andb_true_iff in E0 as [Hen E0]. apply Ascii.eqb_eq in E0. subst c0.
   assert (Hpl : note_plain r0 = true).
   { unfold follow_ok in Hf. do 5 (apply andb_true_iff in Hf as [Hf _]).
-    apply andb_true_iff in Hf as [_ Hf]. cbn in Hf. rewrite Hen in Hf. cbn in Hf.
-    destruct (note_plain r0); [reflexivity|discriminate]. }
+    apply andb_true_iff in Hf as [_ Hf]. cbn in Hf. rewrite andb_false_r, Hen in Hf.
+    cbn in Hf. destruct (note_plain r0); [reflexivity|discriminate]. }
   destruct (note_plain_go r0 Hpl) as (l & rest & Er0 & Hla & Hgo).
   rewrite Hgo in Na. injection Na as <-. subst r0.
   pose proof (lab_all_bslash l Hla) as Nb.
@@ -7422,7 +7431,10 @@ Proof.
       + unfold pstep. apply sim_text; [exact Hsim|reflexivity]. }
   destruct (Ascii.eqb c lbrack) eqn:Elk.
   { apply Ascii.eqb_eq in Elk. subst c.
-    pose proof (note_free' prev lbrack s' txt prev o Hp (or_introl eq_refl)) as Hnp.
+    assert (Hnp : (note_pos txt prev && wikilinks_enabled)%bool = false).
+    { destruct wikilinks_enabled eqn:Hw; [|apply andb_false_r].
+      rewrite (note_free' prev lbrack s' txt prev o Hp (or_introl (conj eq_refl Hw))).
+      reflexivity. }
     destruct (note_at s') as [lab|] eqn:Na.
     { (* a footnote reference *)
       exact (scan_note ps after len IH Hae s' lab prev n v ws txt o Hl Ha Hs Hpv V Fn Em Hsim
@@ -7431,8 +7443,8 @@ Proof.
     { destruct (starts_with hat s') eqn:Sh; [|reflexivity]. exfalso.
       unfold follow_ok in Hf. do 5 (apply andb_true_iff in Hf as [Hf _]).
       apply andb_true_iff in Hf as [_ Hf]. rewrite Ascii.eqb_refl, Sh in Hf. cbn [andb] in Hf.
-      destruct (starts_with lbrack s'); [discriminate|]. cbn [orb negb] in Hf.
-      destruct (note_ahead s') eqn:Nh; [|discriminate].
+      destruct (wikilinks_enabled && starts_with lbrack s')%bool; [discriminate|].
+      cbn [orb negb] in Hf. destruct (note_ahead s') eqn:Nh; [|discriminate].
       destruct s' as [|c0 r0]; [discriminate|]. cbn [note_ahead] in Nh.
       apply andb_true_iff in Nh as [Nh Hpl].
       destruct (note_plain_go r0 Hpl) as (l & rest & _ & _ & Hgo).
