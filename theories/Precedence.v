@@ -202,27 +202,52 @@ Fixpoint run_of (c : ascii) (s : string) : nat :=
   | EmptyString => 0
   end.
 
-(* What may follow a byte.  A `{` before anything but a row's character
-   is drawn on only as an attribute spec that closes; a `{` after a `]`
-   only as a span's spec that closes; one after a backtick is drawn on only as a raw
-   spec that closes; a `[` before a `^` is drawn on only as a footnote
-   reference whose label closes, and not after a `!`; with wikilinks on,
-   a `[` before a `[` begins a wikilink; an autolink
-   candidate holds no backslash; a `:` either begins a symbol or is
-   text on the spot; and two hyphens or more do not come right before a
-   `}`, which takes the run's last hyphen back for a closer. *)
+(* What may follow a byte: one condition per shape the alphabet leaves
+   out, each `true` for every byte but the one it is about.
+
+   Two hyphens or more do not come right before a `}`, which takes the
+   run's last hyphen back for a closer. *)
+Definition dashes_follow (c : ascii) (rest : string) : bool :=
+  negb (Ascii.eqb c hyphen && starts_with hyphen rest
+        && starts_with rbrace (sdrop (run_of hyphen rest) rest)).
+
+(* A `{` before anything but a row's character is drawn on only as an
+   attribute spec that closes. *)
+Definition brace_follows (c : ascii) (rest : string) : bool :=
+  negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest.
+
+(* A `[` before a `^` is drawn on only as a footnote reference whose
+   label closes, and with wikilinks on a `[` before a `[`, which begins a
+   wikilink, not at all. *)
+Definition bracket_follows (c : ascii) (rest : string) : bool :=
+  negb (Ascii.eqb c lbrack
+        && ((wikilinks_enabled && starts_with lbrack rest)
+            || (starts_with hat rest && negb (note_ahead rest)))).
+
+(* Nor after a `!`. *)
+Definition bang_follows (c : ascii) (rest : string) : bool :=
+  negb (Ascii.eqb c bang && starts_with lbrack rest && starts_with hat (sdrop 1 rest)).
+
+(* A `{` after a `]` is drawn on only as a span's spec that closes. *)
+Definition close_follows (c : ascii) (rest : string) : bool :=
+  negb (Ascii.eqb c rbrack && starts_with lbrace rest && negb (spec_ahead (sdrop 1 rest))).
+
+(* One after a backtick only as a raw spec that closes. *)
+Definition tick_follows (c : ascii) (rest : string) : bool :=
+  negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest)).
+
+(* An autolink candidate holds no backslash. *)
+Definition lt_follows (c : ascii) (rest : string) : bool :=
+  negb (Ascii.eqb c lt && negb (auto_clean rest)).
+
+(* A `:` either begins a symbol or is text on the spot. *)
+Definition colon_follows (c : ascii) (rest : string) : bool :=
+  negb (Ascii.eqb c ":"%char && negb (colon_ok rest)).
+
 Definition follow_ok (c : ascii) (rest : string) : bool :=
-  (negb (Ascii.eqb c hyphen && starts_with hyphen rest
-         && starts_with rbrace (sdrop (run_of hyphen rest) rest))
-   && (negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest)
-   && negb (Ascii.eqb c lbrack
-            && ((wikilinks_enabled && starts_with lbrack rest)
-                || (starts_with hat rest && negb (note_ahead rest))))
-   && negb (Ascii.eqb c bang && starts_with lbrack rest && starts_with hat (sdrop 1 rest))
-   && negb (Ascii.eqb c rbrack && starts_with lbrace rest && negb (spec_ahead (sdrop 1 rest)))
-   && negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest))
-   && negb (Ascii.eqb c lt && negb (auto_clean rest))
-   && negb (Ascii.eqb c ":"%char && negb (colon_ok rest)))%bool.
+  (dashes_follow c rest && brace_follows c rest && bracket_follows c rest
+   && bang_follows c rest && close_follows c rest && tick_follows c rest
+   && lt_follows c rest && colon_follows c rest)%bool.
 
 (* A backslash escapes the byte after it, whatever that byte is but the
    newline, so the escaped byte is not drawn on the alphabet (O2, O3).

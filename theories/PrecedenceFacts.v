@@ -13,6 +13,36 @@ Section WithTable.
 Context {T : dtable}.
 
 (*
+What may follow a byte
+======================
+
+Each condition of `follow_ok` on its own, so that a proof names the one
+it reads and a condition can go without the others moving. *)
+
+Section Follow.
+Variables (c : ascii) (rest : string).
+Hypothesis H : follow_ok c rest = true.
+
+Lemma follow_dashes : dashes_follow c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+Lemma follow_brace : brace_follows c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+Lemma follow_bracket : bracket_follows c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+Lemma follow_bang : bang_follows c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+Lemma follow_close : close_follows c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+Lemma follow_tick : tick_follows c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+Lemma follow_lt : lt_follows c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+Lemma follow_colon : colon_follows c rest = true.
+Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
+
+End Follow.
+
+(*
 Uniqueness
 ==========
 

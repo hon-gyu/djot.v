@@ -4233,7 +4233,8 @@ Local Lemma prev_ok_plain : forall p s,
   Ascii.eqb p bang = false -> Ascii.eqb p hyphen = false ->
   prev_ok (Some p) s = true.
 Proof.
-  intros p s H1 H2 H3 H4 H5 H6 H7 H8. unfold prev_ok, follow_ok.
+  intros p s H1 H2 H3 H4 H5 H6 H7 H8. unfold prev_ok, follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
+    close_follows, tick_follows, lt_follows, colon_follows.
   rewrite H1, H2, H3, H4, H5, H6, H7, H8. reflexivity.
 Qed.
 
@@ -4341,8 +4342,8 @@ Proof.
   destruct (Ascii.eqb p lbrack) eqn:E; [|apply andb_false_r]. exfalso.
   cbn [prev_ok] in H. apply andb_true_iff in H as [H Hh]. rewrite E in Hh.
   destruct Hc as [[-> Hw] | ->]; [|discriminate Hh].
-  unfold follow_ok in H. do 5 (apply andb_true_iff in H as [H _]).
-  apply andb_true_iff in H as [_ H]. rewrite E, Hw in H. discriminate H.
+  apply follow_bracket in H. unfold bracket_follows in H.
+  rewrite E, Hw in H. discriminate H.
 Qed.
 
 (* A `[` right after a `[` is a wikilink's only with wikilinks on. *)
@@ -5936,8 +5937,7 @@ Proof.
     destruct (raw_ahead s); [reflexivity|discriminate].
   - change (is_bslash tick) with false in H. cbn iota in H.
     apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
-    unfold follow_ok in H. apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [H _].
-    apply andb_true_iff in H as [_ H].
+    apply follow_tick in H. unfold tick_follows in H.
     change (is_tick tick) with true in H. rewrite Hb in H.
     destruct (raw_ahead s); [reflexivity|discriminate].
 Qed.
@@ -6043,7 +6043,9 @@ Proof.
   intros [|] s H; cbn [with_esc] in H.
   - cbn [over_alphabet] in H. change (is_bslash bslash) with true in H. cbn iota in H.
     apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
-    unfold follow_ok. change (is_tick tick) with true in H |- *. rewrite H. reflexivity.
+    unfold follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
+      close_follows, tick_follows, lt_follows, colon_follows.
+    change (is_tick tick) with true in H |- *. rewrite H. reflexivity.
   - exact (proj1 (proj2 (over_alphabet_cons tick s eq_refl H))).
 Qed.
 
@@ -6159,10 +6161,8 @@ Proof.
       { apply Stop. replace (p + (S n - p)) with (S n) by lia. exact (get_sdrop ps (S n) d _ Hs1). }
       pose proof (alpha_follow_tick e0 _ Ha) as Hf'.
       assert (Hbr : Ascii.eqb d lbrace = true -> pre <> 0).
-      { intros Edb Hp0. subst pre. unfold follow_ok in Hf'.
-        apply andb_true_iff in Hf' as [Hf' _]. apply andb_true_iff in Hf' as [Hf' _].
-        apply andb_true_iff in Hf' as [_ H4].
-        change (is_tick tick) with true in H4.
+      { intros Edb Hp0. subst pre. pose proof (follow_tick _ _ Hf') as H4.
+        unfold tick_follows in H4. change (is_tick tick) with true in H4.
         cbn [starts_with] in H4. rewrite Edb in H4. cbn [andb] in H4.
         destruct (raw_ahead (String d r)) eqn:Ra; [|discriminate H4].
         unfold raw_ahead in Ra. apply andb_true_iff in Ra as [Eraw Rs].
@@ -6753,7 +6753,7 @@ Proof.
     reflexivity. }
   pose proof Ha as Ha'. apply (over_alphabet_cons lt s' eq_refl) in Ha' as (_ & Hf & Hs').
   assert (Hcl : auto_clean s' = true).
-  { unfold follow_ok in Hf. apply andb_true_iff in Hf as [Hf _]. apply andb_true_iff in Hf as [_ Hf].
+  { apply follow_lt in Hf. unfold lt_follows in Hf.
     rewrite Ascii.eqb_refl in Hf. destruct (auto_clean s'); [reflexivity|discriminate]. }
   destruct (auto_go s') as [src stop] eqn:Eg.
   destruct (auto_go_split _ _ _ Eg) as [Fr (rest & Es' & Hr)].
@@ -6862,7 +6862,7 @@ Proof.
     reflexivity. }
   pose proof Ha as Ha'. apply (over_alphabet_cons ":"%char s' eq_refl) in Ha' as (_ & Hf & Hs').
   assert (Hco : colon_ok s' = true).
-  { unfold follow_ok in Hf. apply andb_true_iff in Hf as [_ Hf]. rewrite Ascii.eqb_refl in Hf.
+  { apply follow_colon in Hf. unfold colon_follows in Hf. rewrite Ascii.eqb_refl in Hf.
     destruct (colon_ok s'); [reflexivity|discriminate]. }
   pose proof Hsim as (v0 & Eo & Ht0 & Ev).
   assert (Fl : flush_text txt o = oview v) by (rewrite Eo, Ev; apply flush_view, Ht0).
@@ -7096,8 +7096,8 @@ Proof.
   destruct (notes_enabled && Ascii.eqb c0 hat)%bool eqn:E0; [|discriminate].
   apply andb_true_iff in E0 as [Hen E0]. apply Ascii.eqb_eq in E0. subst c0.
   assert (Hpl : note_plain r0 = true).
-  { unfold follow_ok in Hf. do 5 (apply andb_true_iff in Hf as [Hf _]).
-    apply andb_true_iff in Hf as [_ Hf]. cbn in Hf. rewrite andb_false_r, Hen in Hf.
+  { apply follow_bracket in Hf. unfold bracket_follows in Hf.
+    cbn in Hf. rewrite andb_false_r, Hen in Hf.
     cbn in Hf. destruct (note_plain r0); [reflexivity|discriminate]. }
   destruct (note_plain_go r0 Hpl) as (l & rest & Er0 & Hla & Hgo).
   rewrite Hgo in Na. injection Na as <-. subst r0.
@@ -7335,14 +7335,14 @@ Proof.
       destruct (Ascii.eqb d hyphen) eqn:E; [|reflexivity]. apply Ascii.eqb_eq in E.
       destruct (Hr d r eq_refl E). }
     assert (Hfh : prev_ok (Some hyphen) rest = true)
-      by (unfold prev_ok, follow_ok; rewrite Hrh; reflexivity).
+      by (unfold prev_ok, follow_ok, dashes_follow; rewrite Hrh; reflexivity).
     destruct (match dstyle_of hyphen with Some _ => starts_with rbrace rest | None => false end)
       eqn:Cl.
     - (* the row's closer: by the alphabet the run is one hyphen *)
       destruct (dstyle_of hyphen) as [kd|] eqn:Ek; [|discriminate Cl].
       assert (j = 0).
-      { destruct j as [|j]; [reflexivity|]. exfalso. unfold follow_ok in Hf.
-        do 7 (apply andb_true_iff in Hf as [Hf _]). rewrite Es' in Hf.
+      { destruct j as [|j]; [reflexivity|]. exfalso.
+        apply follow_dashes in Hf. unfold dashes_follow in Hf. rewrite Es' in Hf.
         cbn [chars append starts_with] in Hf. rewrite !Ascii.eqb_refl in Hf.
         change (String hyphen (chars hyphen j ++ rest)) with (chars hyphen (S j) ++ rest)%string in Hf.
         rewrite (run_of_split hyphen (S j) rest Hr), sdrop_chars, Cl in Hf. discriminate Hf. }
@@ -7409,8 +7409,8 @@ Proof.
       apply Ascii.eqb_eq in Sb. subst d.
       pose proof (over_alphabet_cons lbrack s'' eq_refl Hs') as (_ & Hf2 & Hs'').
       assert (Hh2 : starts_with hat s'' = false).
-      { unfold follow_ok in Hf. do 4 (apply andb_true_iff in Hf as [Hf _]).
-        apply andb_true_iff in Hf as [_ Hf]. cbn in Hf. apply negb_true_iff in Hf. exact Hf. }
+      { apply follow_bang in Hf. unfold bang_follows in Hf.
+        cbn in Hf. apply negb_true_iff in Hf. exact Hf. }
       apply (Nrm (TOpen true) 2 s'' (Some lbrack) "" (bpush true (flush_text txt o)));
         [rewrite Htok; reflexivity|reflexivity|reflexivity|reflexivity
         |exact Hs''|cbn [prev_ok]; rewrite Hf2, Hh2; reflexivity| | | |].
@@ -7441,8 +7441,8 @@ Proof.
                Hnp Na). }
     assert (Hh : starts_with hat s' = false).
     { destruct (starts_with hat s') eqn:Sh; [|reflexivity]. exfalso.
-      unfold follow_ok in Hf. do 5 (apply andb_true_iff in Hf as [Hf _]).
-      apply andb_true_iff in Hf as [_ Hf]. rewrite Ascii.eqb_refl, Sh in Hf. cbn [andb] in Hf.
+      apply follow_bracket in Hf. unfold bracket_follows in Hf.
+      rewrite Ascii.eqb_refl, Sh in Hf. cbn [andb] in Hf.
       destruct (wikilinks_enabled && starts_with lbrack s')%bool; [discriminate|].
       cbn [orb negb] in Hf. destruct (note_ahead s') eqn:Nh; [|discriminate].
       destruct s' as [|c0 r0]; [discriminate|]. cbn [note_ahead] in Nh.
@@ -7641,9 +7641,7 @@ Proof.
       destruct s' as [|c2 r]; [discriminate|]. cbn [starts_with] in S1, S2, S3.
       apply Ascii.eqb_eq in S3. subst c2.
       assert (Hsa : spec_ahead r = true).
-      { unfold follow_ok in Hf. apply andb_true_iff in Hf as [Hf _].
-        apply andb_true_iff in Hf as [Hf _]. apply andb_true_iff in Hf as [Hf _].
-        apply andb_true_iff in Hf as [_ Hf]. rewrite Ascii.eqb_refl in Hf.
+      { apply follow_close in Hf. unfold close_follows in Hf. rewrite Ascii.eqb_refl in Hf.
         cbn [starts_with andb] in Hf. rewrite Ascii.eqb_refl in Hf.
         change (sdrop 1 (String lbrace r)) with r in Hf. cbn [andb] in Hf.
         apply negb_true_iff, negb_false_iff in Hf. exact Hf. }
@@ -7719,8 +7717,8 @@ Proof.
     destruct (starts_row s') eqn:Hrow.
     2: { (* an attribute spec *)
       assert (Hsa : spec_ahead s' = true).
-      { unfold follow_ok in Hf. rewrite Ascii.eqb_refl, Hrow in Hf. cbn in Hf.
-        rewrite !andb_true_r in Hf. exact Hf. }
+      { apply follow_brace in Hf. unfold brace_follows in Hf.
+        rewrite Ascii.eqb_refl, Hrow in Hf. exact Hf. }
       unfold spec_ahead in Hsa. apply andb_true_iff in Hsa as [Hen Hpl].
       destruct (spec_plain_go s' ap_init Hpl) as (b & a & Hgo & Hnb).
       assert (Hat : spec_at s' = Some (b, a)) by (unfold spec_at; rewrite Hen; exact Hgo).
@@ -8149,13 +8147,13 @@ Proof.
     rewrite (IH (String.length a) ltac:(cbn in Em; lia) a eq_refl H Hb), andb_true_r. cbn [andb].
     destruct a as [|d a].
     + pose proof (spec_ahead_blank "" b Hb) as Sb. cbn [append] in Sb, Hf.
-      unfold follow_ok in *. rewrite (blank_not_row b Hb), Sb in Hf.
-      apply andb_true_iff in Hf as [Hf _]. apply andb_true_iff in Hf as [Hf _].
-      apply andb_true_iff in Hf as [Hf _]. apply andb_true_iff in Hf as [Hf _].
-      apply andb_true_iff in Hf as [Hf _]. apply andb_true_iff in Hf as [Hf _].
-      apply andb_true_iff in Hf as [_ Hf].
-      cbn. rewrite Hf, !andb_false_r. reflexivity.
-    + unfold follow_ok, raw_ahead in *.
+      apply follow_brace in Hf. unfold brace_follows in Hf.
+      rewrite (blank_not_row b Hb), Sb, !orb_false_r in Hf.
+      unfold follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
+        close_follows, tick_follows, lt_follows, colon_follows. cbn.
+      rewrite !andb_false_r, orb_false_r, Hf. reflexivity.
+    + unfold follow_ok, dashes_follow, brace_follows, bracket_follows, bang_follows,
+        close_follows, tick_follows, lt_follows, colon_follows, raw_ahead in *.
       rewrite (hyphen_close_blank (String d a) b Hb) in Hf.
       change (sdrop 1 (String d a ++ b)) with (a ++ b)%string in Hf.
       change (sdrop 1 (String d a)) with a.
