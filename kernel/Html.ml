@@ -489,50 +489,36 @@ let render_caption refs = function
 (** val render_block : resolver -> bool -> block -> attr -> helt list **)
 
 let rec render_block refs tight b a =
-  let render_bs_at =
-    let rec go t0 = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, a', x) = n in app (render_block refs t0 x a') (go t0 rest)
-    in go
+  let render_bs_at = fun t0 ->
+    flat_map (fun n -> let Node (_, a', x) = n in render_block refs t0 x a')
   in
   let render_bs = render_bs_at tight in
-  let render_items =
-    let rec goi sp = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, ia, it) = n in
-      (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), ia,
-      (render_bs_at (match sp with
-                     | Tight -> true
-                     | Loose -> false) it))) :: (goi sp rest)
-    in goi
+  let item_tight = fun sp -> match sp with
+                             | Tight -> true
+                             | Loose -> false in
+  let render_items = fun sp ->
+    map (fun it ->
+      let Node (_, ia, it0) = it in
+      HElem ("li", (Stdlib.succ (Stdlib.succ 0)), ia,
+      (render_bs_at (item_tight sp) it0)))
   in
   let render_def_items =
-    let rec god = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (n0, n1) = x in
-      let Node (_, ta, term) = n0 in
-      let Node (_, da, it) = n1 in
+    flat_map (fun it ->
+      let Node (_, _, x) = it in
+      let (y, y0) = x in
+      let Node (_, ta, term) = y in
+      let Node (_, da, it0) = y0 in
       (HElem ("dt", (Stdlib.succ 0), ta,
       (render_inlines refs term))) :: ((HElem ("dd", (Stdlib.succ (Stdlib.succ
-      0)), da, (render_bs it))) :: (god rest))
-    in god
+      0)), da, (render_bs it0))) :: []))
   in
-  let render_task_items =
-    let rec got sp = function
-    | [] -> []
-    | n :: rest ->
-      let Node (_, _, x) = n in
-      let (st, it) = x in
-      (HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
+  let render_task_items = fun sp ->
+    map (fun it ->
+      let Node (_, _, x) = it in
+      let (st, it0) = x in
+      HElem ("li", (Stdlib.succ (Stdlib.succ 0)), [],
       ((checkbox_elt st) :: ((HText
-      nl) :: (render_bs_at (match sp with
-                            | Tight -> true
-                            | Loose -> false) it))))) :: (got sp rest)
-    in got
+      nl) :: (render_bs_at (item_tight sp) it0)))))
   in
   (match b with
    | Para ils ->
