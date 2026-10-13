@@ -94,14 +94,6 @@ Fixpoint auto_go (s : string) : string * option ascii :=
       else let '(src, stop) := auto_go r in (String c src, stop)
   end.
 
-(* Whether a candidate's region holds no backslash: inside it a backslash
-   is a byte. *)
-Fixpoint auto_clean (s : string) : bool :=
-  match s with
-  | EmptyString => true
-  | String c r => if auto_stop c then true else (negb (is_bslash c) && auto_clean r)%bool
-  end.
-
 (* The run of symbol characters a string begins with. *)
 Fixpoint symbol_run (s : string) : nat :=
   match s with
@@ -230,10 +222,6 @@ Definition close_follows (c : ascii) (rest : string) : bool :=
 Definition tick_follows (c : ascii) (rest : string) : bool :=
   negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest)).
 
-(* An autolink candidate holds no backslash. *)
-Definition lt_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c lt && negb (auto_clean rest)).
-
 (* A `:` either begins a symbol or is text on the spot. *)
 Definition colon_follows (c : ascii) (rest : string) : bool :=
   negb (Ascii.eqb c ":"%char && negb (colon_ok rest)).
@@ -241,7 +229,7 @@ Definition colon_follows (c : ascii) (rest : string) : bool :=
 Definition follow_ok (c : ascii) (rest : string) : bool :=
   (brace_follows c rest && bracket_follows c rest
    && bang_follows c rest && close_follows c rest && tick_follows c rest
-   && lt_follows c rest && colon_follows c rest)%bool.
+   && colon_follows c rest)%bool.
 
 (* A backslash escapes the byte after it, whatever that byte is but the
    newline, so the escaped byte is not drawn on the alphabet (O2, O3).
