@@ -95,58 +95,31 @@ Block well-formedness
 =====================
 *)
 
-(* Well-formedness of one block; same hand-inlined-fixpoint shape as
-   wf_inline, one helper per container flavour.  A new block construct
-   gets its case in the final match. *)
-Local Fixpoint wf_block (b : block) : bool :=
-  let wf_bs :=
-    fix go (ns : list (node block)) : bool :=
-      match ns with
-      | [] => true
-      | Node _ _ x :: rest => wf_block x && go rest
-      end in
-  (* Items carry no nonempty obligation: a bare `-` is a valid, empty
-     list item (djot.js emits <li></li>), the same way a bare `>` is a
-     valid empty quote. *)
-  let wf_items :=
-    fix goi (its : list (node (list (node block)))) : bool :=
-      match its with
-      | [] => true
-      | Node _ _ it :: rest => wf_bs it && goi rest
-      end in
-  let wf_task_items :=
-    fix got (its : list (node (task_status * list (node block)))) : bool :=
-      match its with
-      | [] => true
-      (* No nonemptiness: `- [ ]` alone is a task item with no content,
-         which djot.js renders as `<li><input/></li>`.  Same evidence as
-         the bullet item's, one construct over. *)
-      | Node _ _ (_, it) :: rest => wf_bs it && got rest
-      end in
-  let wf_def_items :=
-    fix god (its : list (node (node inlines * node (list (node block))))) : bool :=
-      match its with
-      | [] => true
-      | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
-          wf_inlines term && wf_bs it && god rest
-      end in
+(* What a block asks of itself; the blocks under it are `wf_block`'s.  A
+   new block construct gets its case here. *)
+Local Definition wf_own (b : block) : bool :=
   match b with
   (* A paragraph may be empty for the reason a delimiter node may: its
      line held nothing but a spec with nothing to attach to.  djot.js
      emits `<p></p>` for `{.a}{.b}` and so do we. *)
   | Para ils => wf_inlines ils
-  | Section bs => nonempty bs && wf_bs bs
+  | Section bs => nonempty bs
   (* A block quote may be empty: a bare ">" line is a valid, contentless
      quote (djot.js emits <blockquote></blockquote> for it).  A div may be
      empty for the same reason and on the same evidence: `:::` then `:::`
      renders as `<div>\n</div>` in djot.js. *)
-  | BlockQuote bs | Div _ bs => wf_bs bs
+  | BlockQuote _ | Div _ _ => true
   | Heading level ils => Nat.leb 1 level && wf_inlines ils
   | CodeBlock _ _ => true
-  | OrderedList _ _ items => nonempty items && wf_items items
-  | BulletList _ _ items => nonempty items && wf_items items
-  | TaskList _ items => nonempty items && wf_task_items items
-  | DefinitionList _ items => nonempty items && wf_def_items items
+  (* Items carry no nonempty obligation: a bare `-` is a valid, empty
+     list item (djot.js emits <li></li>), the same way a bare `>` is a
+     valid empty quote.  So is `- [ ]` alone, which djot.js renders as
+     `<li><input/></li>`. *)
+  | OrderedList _ _ items | BulletList _ _ items => nonempty items
+  | TaskList _ items => nonempty items
+  | DefinitionList _ items =>
+      nonempty items
+      && forallb (fun ti => wf_inlines (node_contents (fst (node_contents ti)))) items
   | ThematicBreak => true
   (* What the classifier can hand back, and so what rendering the block
      back onto one line has to survive: a label with no `]` to end it
@@ -155,7 +128,7 @@ Local Fixpoint wf_block (b : block) : bool :=
   | RefDef label dest =>
       no_char "]"%char label && negb (is_footnote_label label) && no_ws dest
   | AttrBlock => true
-  | FootnoteDef label bs => nonempty_str label && wf_bs bs
+  | FootnoteDef label _ => nonempty_str label
   | Table caption rows =>
       wf_inlines (node_contents caption)
       && forallb
@@ -170,37 +143,66 @@ Local Fixpoint wf_block (b : block) : bool :=
      but the reason it is excluded is that it does not render back, which
      is the canonical view's business.  Nonemptiness is the same
      condition one notch weaker, and is left out for the same reason. *)
-  | Ext_keyed label b => wf_inlines label && wf_bs [b]
-  | Ext_callout _ _ title bs => wf_inlines title && wf_bs bs
+  | Ext_keyed label _ => wf_inlines label
+  | Ext_callout _ _ title _ => wf_inlines title
   end.
+
+(* Well-formedness of one block: its own conditions, and every block
+   under it well formed. *)
+Local Fixpoint wf_block (b : block) : bool :=
+  wf_own b
+  && fold_children (fun ok n => ok && match n with Node _ _ x => wf_block x end) b true.
 
 Definition wf_blocks (bs : blocks) : bool :=
   forallb (fun n => wf_block (node_contents n)) bs.
 
+Local Lemma wf_blocks_cons :
+  forall n bs,
+    wf_blocks (n :: bs) = (wf_block (node_contents n) && wf_blocks bs)%bool.
+Proof. reflexivity. Qed.
+
+Local Lemma wf_blocks_app :
+  forall bs1 bs2,
+    wf_blocks (bs1 ++ bs2)%list = (wf_blocks bs1 && wf_blocks bs2)%bool.
+Proof. intros bs1 bs2. unfold wf_blocks. apply forallb_app. Qed.
+
+Local Lemma wf_block_spec :
+  forall b, wf_block b = (wf_own b && wf_blocks (children b))%bool.
+Proof.
+  assert (L : forall l ok,
+            fold_left (fun ok n => ok && match n with Node _ _ x => wf_block x end) l ok
+            = (ok && wf_blocks l)%bool).
+  { induction l as [|[p a x] l IH]; intros ok; cbn [fold_left].
+    - rewrite andb_true_r. reflexivity.
+    - rewrite IH, wf_blocks_cons, andb_assoc. reflexivity. }
+  intros b. destruct b; cbn [wf_block]; rewrite fold_children_spec, L; reflexivity.
+Qed.
+
+(* A list's children are its items' blocks, one item after another. *)
+Local Lemma wf_blocks_flat_map :
+  forall (A : Type) (g : A -> blocks) its,
+    wf_blocks (flat_map g its) = forallb (fun it => wf_blocks (g it)) its.
+Proof.
+  intros A g. induction its as [|x its IH]; [reflexivity|].
+  cbn [flat_map forallb]. rewrite wf_blocks_app, IH. reflexivity.
+Qed.
+
 Local Lemma wf_block_footnote :
   forall label bs,
     wf_block (FootnoteDef label bs) = (nonempty_str label && wf_blocks bs)%bool.
-Proof.
-  intros label bs. cbn [wf_block]. f_equal.
-  induction bs as [|[p a b] rest IH]; [reflexivity|].
-  cbn [wf_blocks forallb node_contents]. rewrite IH. reflexivity.
-Qed.
+Proof. intros. apply wf_block_spec. Qed.
 
 Local Lemma wf_block_keyed :
   forall label b,
     wf_block (Ext_keyed label b)
     = (wf_inlines label && wf_blocks [b])%bool.
-Proof. intros label [p a x]. reflexivity. Qed.
+Proof. intros. apply wf_block_spec. Qed.
 
 Local Lemma wf_block_callout :
   forall kind fold title bs,
     wf_block (Ext_callout kind fold title bs)
     = (wf_inlines title && wf_blocks bs)%bool.
-Proof.
-  intros kind fold title bs. cbn [wf_block]. f_equal.
-  induction bs as [|[p a b] rest IH]; [reflexivity|].
-  cbn [wf_blocks forallb node_contents]. rewrite IH. reflexivity.
-Qed.
+Proof. intros. apply wf_block_spec. Qed.
 
 (* Well-formedness reads payloads, never attributes, so hanging block
    attributes on a node is invisible to it. *)
@@ -227,35 +229,15 @@ Local Lemma wf_inlines_cons :
      && no_adjacent_str (n :: ns))%bool.
 Proof. reflexivity. Qed.
 
-Local Lemma wf_blocks_cons :
-  forall n bs,
-    wf_blocks (n :: bs) = (wf_block (node_contents n) && wf_blocks bs)%bool.
-Proof. reflexivity. Qed.
-
-(* wf_block's hand-inlined block-list fixpoint is wf_blocks.  Stated for
-   the one container that carries no side condition, so the equation is
-   an identity rather than an implication. *)
+(* The containers with no condition of their own. *)
 Local Lemma wf_block_quote :
   forall bs, wf_block (BlockQuote bs) = wf_blocks bs.
-Proof.
-  induction bs as [|n bs IH]; [reflexivity|].
-  destruct n as [p a x].
-  change (wf_block (BlockQuote (Node p a x :: bs)))
-    with (wf_block x && wf_block (BlockQuote bs))%bool.
-  rewrite IH. reflexivity.
-Qed.
+Proof. intros. apply wf_block_spec. Qed.
 
 (* Divs share BlockQuote's clause, so they share its lemma's shape. *)
 Local Lemma wf_block_div :
   forall name bs, wf_block (Div name bs) = wf_blocks bs.
-Proof.
-  intros name.
-  induction bs as [|n bs IH]; [reflexivity|].
-  destruct n as [p a x].
-  change (wf_block (Div name (Node p a x :: bs)))
-    with (wf_block x && wf_block (Div name bs))%bool.
-  rewrite IH. reflexivity.
-Qed.
+Proof. intros. apply wf_block_spec. Qed.
 
 (* A div's node carries a class attribute when it has one; `wf_block`
    reads only the payload, so the wrapper is irrelevant to it. *)
@@ -276,23 +258,8 @@ Local Lemma wf_block_bullet :
     wf_block (BulletList bc sp items)
     = (nonempty items && forallb (fun it => wf_blocks (node_contents it)) items)%bool.
 Proof.
-  intros bc sp items.
-  assert (H : forall its,
-             (fix goi (l : list (node (list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ it :: rest => (wf_block (BlockQuote it) && goi rest)%bool
-                end) its = forallb (fun it => wf_blocks (node_contents it)) its).
-  { induction its as [|[p a it] rest IH]; [reflexivity|].
-    cbn [forallb node_contents]. rewrite wf_block_quote, IH. reflexivity. }
-  change (wf_block (BulletList bc sp items))
-    with (nonempty items
-          && (fix goi (l : list (node (list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ it :: rest => (wf_block (BlockQuote it) && goi rest)%bool
-                end) items)%bool.
-  rewrite H. reflexivity.
+  intros. rewrite wf_block_spec. cbn [wf_own Ast.children]. rewrite wf_blocks_flat_map.
+  reflexivity.
 Qed.
 
 (* The ordered flavour asks for exactly the same thing, which is what
@@ -303,23 +270,8 @@ Local Lemma wf_block_olist :
     wf_block (OrderedList oa sp items)
     = (nonempty items && forallb (fun it => wf_blocks (node_contents it)) items)%bool.
 Proof.
-  intros oa sp items.
-  assert (H : forall its,
-             (fix goi (l : list (node (list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ it :: rest => (wf_block (BlockQuote it) && goi rest)%bool
-                end) its = forallb (fun it => wf_blocks (node_contents it)) its).
-  { induction its as [|[p a it] rest IH]; [reflexivity|].
-    cbn [forallb node_contents]. rewrite wf_block_quote, IH. reflexivity. }
-  change (wf_block (OrderedList oa sp items))
-    with (nonempty items
-          && (fix goi (l : list (node (list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ it :: rest => (wf_block (BlockQuote it) && goi rest)%bool
-                end) items)%bool.
-  rewrite H. reflexivity.
+  intros. rewrite wf_block_spec. cbn [wf_own Ast.children]. rewrite wf_blocks_flat_map.
+  reflexivity.
 Qed.
 
 (* What `wf_block` asks of one definition item: a term is inlines and
@@ -333,27 +285,10 @@ Local Lemma wf_block_deflist :
     wf_block (DefinitionList sp items)
     = (nonempty items && forallb wf_def_entry items)%bool.
 Proof.
-  intros sp items.
-  assert (H : forall its,
-             (fix god (l : list (node (node inlines * node (list (node block))))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
-                    (wf_inlines term && wf_block (BlockQuote it) && god rest)%bool
-                end) its
-             = forallb wf_def_entry its).
-  { induction its as [|[p a [[tp ta term] [dp da it]]] rest IH]; [reflexivity|].
-    cbn [forallb wf_def_entry fst snd node_contents]. rewrite wf_block_quote, IH.
-    reflexivity. }
-  change (wf_block (DefinitionList sp items))
-    with (nonempty items
-          && (fix god (l : list (node (node inlines * node (list (node block))))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ (Node _ _ term, Node _ _ it) :: rest =>
-                    (wf_inlines term && wf_block (BlockQuote it) && god rest)%bool
-                end) items)%bool.
-  rewrite H. reflexivity.
+  intros sp items. rewrite wf_block_spec. cbn [wf_own Ast.children].
+  rewrite wf_blocks_flat_map, <- andb_assoc. f_equal. unfold wf_def_entry.
+  induction items as [|ti rest IH]; [reflexivity|]. cbn [forallb]. rewrite <- IH.
+  destruct (wf_inlines _), (wf_blocks _), (forallb _ rest), (forallb _ rest); reflexivity.
 Qed.
 
 (* Splitting the term off an item keeps it well-formed: the term's
@@ -369,7 +304,8 @@ Proof.
   rewrite wf_blocks_cons in H. apply andb_true_iff in H as [Hx Hrest].
   cbn [def_split] in E. destruct x; try discriminate E.
   - injection E as <- <-.
-    cbn [node_contents wf_block] in Hx. rewrite Hx, Hrest. reflexivity.
+    cbn [node_contents wf_block wf_own fold_children] in Hx.
+    rewrite andb_true_r in Hx. rewrite Hx, Hrest. reflexivity.
   - destruct (def_split rest) as [[ils' more]|] eqn:Es; [|discriminate E].
     injection E as <- <-.
     pose proof (IH ils' more Hrest eq_refl) as Hi.
@@ -414,23 +350,8 @@ Local Lemma wf_block_tasklist :
     = (nonempty items
        && forallb (fun ti => wf_blocks (snd (node_contents ti))) items)%bool.
 Proof.
-  intros sp items.
-  assert (H : forall its,
-             (fix got (l : list (node (task_status * list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ (_, it) :: rest => (wf_block (BlockQuote it) && got rest)%bool
-                end) its = forallb (fun ti => wf_blocks (snd (node_contents ti))) its).
-  { induction its as [|[p a [st it]] rest IH]; [reflexivity|].
-    cbn [forallb snd node_contents]. rewrite wf_block_quote, IH. reflexivity. }
-  change (wf_block (TaskList sp items))
-    with (nonempty items
-          && (fix got (l : list (node (task_status * list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ (_, it) :: rest => (wf_block (BlockQuote it) && got rest)%bool
-                end) items)%bool.
-  rewrite H. reflexivity.
+  intros. rewrite wf_block_spec. cbn [wf_own Ast.children]. rewrite wf_blocks_flat_map.
+  reflexivity.
 Qed.
 
 Local Lemma nonempty_task_items :
@@ -503,11 +424,6 @@ Local Lemma nonempty_app_r :
   forall (A : Type) (l1 l2 : list A),
     nonempty l2 = true -> nonempty (l1 ++ l2)%list = true.
 Proof. intros A [|x l1] l2 H; [exact H|reflexivity]. Qed.
-
-Local Lemma wf_blocks_app :
-  forall bs1 bs2,
-    wf_blocks (bs1 ++ bs2)%list = (wf_blocks bs1 && wf_blocks bs2)%bool.
-Proof. intros bs1 bs2. unfold wf_blocks. apply forallb_app. Qed.
 
 Local Lemma wf_blocks_rev :
   forall bs, wf_blocks (rev bs) = wf_blocks bs.
@@ -2627,7 +2543,7 @@ Local Lemma flush_para_wf :
     wf_blocks (mk (Para (para_inlines cur)) :: k) = true.
 Proof.
   intros cur k Hk.
-  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block wf_own fold_children].
   rewrite para_inlines_wf, Hk. reflexivity.
 Qed.
 
@@ -2641,7 +2557,7 @@ Local Lemma flush_para_off_wf :
     wf_blocks (mk (Para (para_inlines_off n cur)) :: k) = true.
 Proof.
   intros n cur k Hk.
-  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block wf_own fold_children].
   rewrite para_inlines_off_wf, Hk. reflexivity.
 Qed.
 
@@ -2788,9 +2704,9 @@ Local Lemma table_block_wf :
 Proof.
   intros rows c. unfold table_block.
   cbn [pos_records semantic_pos].
-  rewrite wf_blocks_cons. cbn [node_contents mk wf_block].
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block wf_own fold_children].
   rewrite rows_mk_wf, table_fold_wf by reflexivity.
-  rewrite andb_true_r, andb_true_r.
+  rewrite !andb_true_r.
   apply caption_of_wf.
 Qed.
 
@@ -2801,7 +2717,7 @@ Local Lemma heading_block_wf :
     Nat.leb 1 lvl = true -> wf_blocks [heading_block lvl cur] = true.
 Proof.
   intros lvl cur Hl. unfold heading_block.
-  rewrite wf_blocks_cons. cbn [node_contents mk wf_block]. sem_para.
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block wf_own fold_children]. sem_para.
   rewrite Hl, para_inlines_wf.
   reflexivity.
 Qed.
@@ -2811,7 +2727,7 @@ Local Lemma heading_block_off_wf :
     Nat.leb 1 lvl = true -> wf_blocks [heading_block_off k lvl cur] = true.
 Proof.
   intros k lvl cur Hl. unfold heading_block_off.
-  rewrite wf_blocks_cons. cbn [node_contents mk wf_block]. sem_para.
+  rewrite wf_blocks_cons. cbn [node_contents mk wf_block wf_own fold_children]. sem_para.
   rewrite Hl, para_inlines_off_wf.
   reflexivity.
 Qed.
@@ -2859,7 +2775,7 @@ Proof.
     cbn [finish]; nopos. apply flush_para_off_wf. reflexivity.
   - (* a reference definition: the state's invariant is the block's *)
     cbn [state_wf] in H. cbn [finish]; nopos.
-    rewrite wf_blocks_cons. cbn [ref_block node_contents mk wf_block].
+    rewrite wf_blocks_cons. cbn [ref_block node_contents mk wf_block wf_own fold_children].
     rewrite H. reflexivity.
   - cbn [state_wf] in H. apply andb_true_iff in H as [Hboth Hinner].
     apply andb_true_iff in Hboth as [Hlbl Hdone].
@@ -3438,7 +3354,7 @@ Proof.
     + destruct (IH off l (PPara []) eq_refl) as [Hb Hs].
       destruct (step_fuel n off l (PPara [])) as [bs st'].
       cbn [fst snd] in Hb, Hs |- *; nopos. split; [|exact Hs].
-      rewrite wf_blocks_cons. cbn [ref_block node_contents mk wf_block].
+      rewrite wf_blocks_cons. cbn [ref_block node_contents mk wf_block wf_own fold_children].
       rewrite H, Hb. reflexivity.
   - (* an open footnote definition: body lines preserve the accumulated
        blocks; closing emits one well-formed metadata block *)
@@ -3559,61 +3475,36 @@ Completeness
 Definition wf_complete : Prop :=
   forall bs, wf_blocks bs = true -> exists s, parse_blocks s = bs.
 
-(* The block constructs Parser.v has a rule for.  One is left without:
-   `Section` is the document pass's, not the line fold's.  Recursive, so
-   a quote whose contents are unreachable is itself unreachable. *)
-Local Fixpoint supported (b : block) : bool :=
-  let sup_bs :=
-    fix go (ns : list (node block)) : bool :=
-      match ns with
-      | [] => true
-      | Node _ _ x :: rest => supported x && go rest
-      end in
-  let sup_items :=
-    fix goi (its : list (node (list (node block)))) : bool :=
-      match its with
-      | [] => true
-      | Node _ _ it :: rest => sup_bs it && goi rest
-      end in
-  match b with
-  | Para _ | ThematicBreak | CodeBlock _ _ | RawBlock _ _ | Heading _ _
-  | RefDef _ _ | AttrBlock => true
-  (* A table's cells and caption hold inlines, so it recurses into
-     nothing. *)
-  | Table _ _ => true
-  | FootnoteDef _ bs => sup_bs bs
-  | BlockQuote bs | Div _ bs | Ext_callout _ _ _ bs => sup_bs bs
-  (* A label holds inlines, so only the block is recursed into. *)
-  | Ext_keyed _ b => sup_bs [b]
-  | BulletList _ _ items => sup_items items
-  | OrderedList _ _ items => sup_items items
-  (* A term holds inlines, so only the definition is recursed into. *)
-  | DefinitionList _ items =>
-      (fix god (its : list (node (node inlines * node (list (node block))))) : bool :=
-         match its with
-         | [] => true
-         | Node _ _ (_, Node _ _ it) :: rest => sup_bs it && god rest
-         end) items
-  (* A status is a leaf, so a task item recurses like a definition's. *)
-  | TaskList _ items =>
-      (fix got (its : list (node (task_status * list (node block)))) : bool :=
-         match its with
-         | [] => true
-         | Node _ _ (_, it) :: rest => sup_bs it && got rest
-         end) items
-  | _ => false
-  end.
+(* The block constructs Parser.v has a rule for: all but `Section`, which
+   is the document pass's, not the line fold's.  Recursive, so a quote
+   whose contents are unreachable is itself unreachable. *)
+Local Definition supported (b : block) : bool :=
+  match b with Section _ => false | _ => true end && Ids.no_sections (children b).
 
 Local Definition supported_blocks (bs : blocks) : bool :=
   forallb (fun n => supported (node_contents n)) bs.
 
+Local Lemma supported_blocks_no_sections :
+  forall bs, supported_blocks bs = Ids.no_sections bs.
+Proof.
+  induction bs as [|n bs IH]; [reflexivity|].
+  change (supported_blocks (n :: bs))
+    with (supported (node_contents n) && supported_blocks bs)%bool.
+  rewrite Ids.no_sections_cons, IH. reflexivity.
+Qed.
+
+Local Lemma supported_blocks_flat_map :
+  forall (A : Type) (g : A -> blocks) its,
+    Ids.no_sections (flat_map g its) = forallb (fun it => supported_blocks (g it)) its.
+Proof.
+  intros A g. induction its as [|x its IH]; [reflexivity|].
+  cbn [flat_map forallb]. rewrite <- IH, <- !supported_blocks_no_sections.
+  unfold supported_blocks. apply forallb_app.
+Qed.
+
 Local Lemma supported_footnote :
   forall label bs, supported (FootnoteDef label bs) = supported_blocks bs.
-Proof.
-  intros label bs. cbn [supported].
-  induction bs as [|[p a b] rest IH]; [reflexivity|].
-  cbn [supported_blocks forallb node_contents]. rewrite IH. reflexivity.
-Qed.
+Proof. intros. symmetry. apply supported_blocks_no_sections. Qed.
 
 Local Lemma supported_blocks_cons :
   forall n bs,
@@ -3633,17 +3524,14 @@ Proof. intros bs. unfold supported_blocks. apply forallb_rev. Qed.
 
 Local Lemma supported_keyed :
   forall label b, supported (Ext_keyed label b) = supported (node_contents b).
-Proof. intros label [q a x]. cbn [supported]. apply andb_true_r. Qed.
+Proof.
+  intros. unfold supported at 1. cbn [Ast.children andb].
+  rewrite <- supported_blocks_no_sections. apply andb_true_r.
+Qed.
 
 Local Lemma supported_quote :
   forall bs, supported (BlockQuote bs) = supported_blocks bs.
-Proof.
-  induction bs as [|n bs IH]; [reflexivity|].
-  destruct n as [p a x].
-  change (supported (BlockQuote (Node p a x :: bs)))
-    with (supported x && supported (BlockQuote bs))%bool.
-  rewrite IH. reflexivity.
-Qed.
+Proof. intros. symmetry. apply supported_blocks_no_sections. Qed.
 
 Local Lemma supported_quote_block :
   forall header bs,
@@ -3657,14 +3545,7 @@ Qed.
 
 Local Lemma supported_div :
   forall name bs, supported (Div name bs) = supported_blocks bs.
-Proof.
-  intros name.
-  induction bs as [|n bs IH]; [reflexivity|].
-  destruct n as [p a x].
-  change (supported (Div name (Node p a x :: bs)))
-    with (supported x && supported (Div name bs))%bool.
-  rewrite IH. reflexivity.
-Qed.
+Proof. intros. symmetry. apply supported_blocks_no_sections. Qed.
 
 Local Lemma div_block_supported :
   forall cls bs,
@@ -3680,65 +3561,19 @@ Local Lemma supported_bullet :
   forall bc sp items,
     supported (BulletList bc sp items)
     = forallb (fun it => supported_blocks (node_contents it)) items.
-Proof.
-  intros bc sp items.
-  assert (H : forall its,
-             (fix goi (l : list (node (list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ it :: rest => (supported (BlockQuote it) && goi rest)%bool
-                end) its = forallb (fun it => supported_blocks (node_contents it)) its).
-  { induction its as [|[ip ia it] rest IH]; [reflexivity|].
-    cbn [forallb node_contents]. rewrite supported_quote, IH. reflexivity. }
-  change (supported (BulletList bc sp items))
-    with ((fix goi (l : list (node (list (node block)))) : bool :=
-             match l with
-             | [] => true
-             | Node _ _ it :: rest => (supported (BlockQuote it) && goi rest)%bool
-             end) items).
-  apply H.
-Qed.
+Proof. intros. apply supported_blocks_flat_map. Qed.
 
 Local Lemma supported_olist :
   forall oa sp items,
     supported (OrderedList oa sp items)
     = forallb (fun it => supported_blocks (node_contents it)) items.
-Proof.
-  intros oa sp items.
-  assert (H : forall its,
-             (fix goi (l : list (node (list (node block)))) : bool :=
-                match l with
-                | [] => true
-                | Node _ _ it :: rest => (supported (BlockQuote it) && goi rest)%bool
-                end) its = forallb (fun it => supported_blocks (node_contents it)) its).
-  { induction its as [|[ip ia it] rest IH]; [reflexivity|].
-    cbn [forallb node_contents]. rewrite supported_quote, IH. reflexivity. }
-  change (supported (OrderedList oa sp items))
-    with ((fix goi (l : list (node (list (node block)))) : bool :=
-             match l with
-             | [] => true
-             | Node _ _ it :: rest => (supported (BlockQuote it) && goi rest)%bool
-             end) items).
-  apply H.
-Qed.
+Proof. intros. apply supported_blocks_flat_map. Qed.
 
 Local Lemma supported_deflist :
   forall sp items,
     supported (DefinitionList sp items)
     = forallb (fun ti => supported_blocks (node_contents (snd (node_contents ti)))) items.
-Proof.
-  intros sp items.
-  assert (Hb : forall bs,
-             (fix go (ns : list (node block)) : bool :=
-                match ns with
-                | [] => true
-                | Node _ _ x :: rest => (supported x && go rest)%bool
-                end) bs = supported_blocks bs).
-  { induction bs as [|[p a b] rest IH]; [reflexivity|].
-    cbn [supported_blocks forallb node_contents]. rewrite IH. reflexivity. }
-  cbn [supported]. induction items as [|[ip ia [term [dp da it]]] rest IH]; [reflexivity|].
-  cbn [forallb snd node_contents]. rewrite IH, Hb. reflexivity.
-Qed.
+Proof. intros. apply supported_blocks_flat_map. Qed.
 
 (* Unlike `wf_list_block`, this one stays an equation: the blocks the
    split removes are a paragraph, which `supported` answers `true` for,
@@ -3778,19 +3613,7 @@ Local Lemma supported_tasklist :
   forall sp items,
     supported (TaskList sp items)
     = forallb (fun ti => supported_blocks (snd (node_contents ti))) items.
-Proof.
-  intros sp items.
-  assert (Hb : forall bs,
-             (fix go (ns : list (node block)) : bool :=
-                match ns with
-                | [] => true
-                | Node _ _ x :: rest => (supported x && go rest)%bool
-                end) bs = supported_blocks bs).
-  { induction bs as [|[p a b] rest IH]; [reflexivity|].
-    cbn [supported_blocks forallb node_contents]. rewrite IH. reflexivity. }
-  cbn [supported]. induction items as [|[ip ia [st it]] rest IH]; [reflexivity|].
-  cbn [forallb snd node_contents]. rewrite IH, Hb. reflexivity.
-Qed.
+Proof. intros. apply supported_blocks_flat_map. Qed.
 
 (* Pairing statuses onto items is invisible to `supported`. *)
 Local Lemma supported_task_items :
@@ -4413,56 +4236,12 @@ Proof.
   rewrite Hs in Hsup. discriminate.
 Qed.
 
-(* `supported` reaches every child. *)
-Local Lemma supported_children :
-  forall b, supported b = true -> supported_blocks (children b) = true.
-Proof.
-  assert (F : forall (A : Type) (g : A -> blocks) its,
-            forallb (fun it => supported_blocks (g it)) its = true ->
-            supported_blocks (flat_map g its) = true).
-  { intros A g. induction its as [|x its IH]; intros H; [reflexivity|].
-    cbn [forallb] in H. apply andb_true_iff in H as [Hx Hr].
-    cbn [flat_map]. rewrite supported_blocks_app, Hx, (IH Hr). reflexivity. }
-  intros b H. destruct b; cbn [Ast.children]; try reflexivity; try discriminate.
-  - rewrite supported_quote in H. exact H.
-  - rewrite supported_div in H. exact H.
-  - rewrite supported_olist in H. apply F, H.
-  - rewrite supported_bullet in H. apply F, H.
-  - rewrite supported_tasklist in H.
-    exact (F _ (fun it => snd (node_contents it)) _ H).
-  - rewrite supported_deflist in H.
-    exact (F _ (fun it => node_contents (snd (node_contents it))) _ H).
-  - rewrite supported_footnote in H. exact H.
-  - rewrite supported_keyed in H. unfold supported_blocks. cbn [forallb].
-    rewrite H. reflexivity.
-  - change (supported (BlockQuote body) = true) in H.
-    rewrite supported_quote in H. exact H.
-Qed.
-
 (** The line fold builds no section, at any depth. *)
 Theorem parse_blocks_no_sections :
   forall s, Ids.no_sections (parse_blocks s) = true.
 Proof.
-  assert (LL : forall l : blocks,
-            Forall (fun n => supported (node_contents n) = true ->
-                             Ids.no_sections [n] = true) l ->
-            supported_blocks l = true -> Ids.no_sections l = true).
-  { induction 1 as [|n l Hn _ IH]; intros Hs; [reflexivity|].
-    rewrite supported_blocks_cons in Hs. apply andb_true_iff in Hs as [H1 H2].
-    specialize (Hn H1). rewrite Ids.no_sections_cons in Hn |- *.
-    rewrite andb_true_r in Hn. rewrite Hn. exact (IH H2). }
-  assert (N : forall b, supported b = true ->
-                forall p a, Ids.no_sections [Node p a b] = true).
-  { intros b. induction b as [b IH] using block_children_ind. intros Hb p a.
-    rewrite Ids.no_sections_cons. cbn [node_contents].
-    rewrite (LL (children b)).
-    - destruct b; try reflexivity; discriminate Hb.
-    - apply Forall_forall. intros [q c x] Hn Hx. rewrite Forall_forall in IH.
-      exact (IH _ Hn Hx q c).
-    - apply supported_children, Hb. }
-  intros s. apply LL.
-  - apply Forall_forall. intros [p a b] _ Hb. apply N, Hb.
-  - apply (parse_lines_supported (split_lines s) (PPara []) eq_refl).
+  intros s. rewrite <- supported_blocks_no_sections.
+  apply (parse_lines_supported (split_lines s) (PPara []) eq_refl).
 Qed.
 
 (** The identifiers a document's headings were given automatically are
@@ -4494,17 +4273,33 @@ Two obligations, one per half of the pass:
 
 Local Lemma wf_block_section :
   forall bs, wf_block (Section bs) = (nonempty bs && wf_blocks bs)%bool.
-Proof.
-  intros bs.
-  change (wf_block (Section bs))
-    with (nonempty bs && wf_block (BlockQuote bs))%bool.
-  rewrite wf_block_quote. reflexivity.
-Qed.
+Proof. intros. apply wf_block_spec. Qed.
 
 (*
 Identifiers
 -----------
 *)
+
+(* A rebuild changes only the blocks under a block, so not what the
+   block asks of itself. *)
+Local Lemma wf_own_map_acc_children :
+  forall (S : Type) (f : node block -> S -> S * node block) b st,
+    wf_own (snd (map_acc_children f b st)) = wf_own b.
+Proof.
+  intros S f.
+  assert (N : forall (A : Type) (k : A -> S -> S * A) (its : list A) s,
+            nonempty (snd (map_acc k its s)) = nonempty its).
+  { intros A k [|x its] s; [reflexivity|]. rewrite map_acc_cons. reflexivity. }
+  intros b st. destruct b; cbn [map_acc_children]; try reflexivity.
+  all: match goal with |- wf_own (snd (let (_, _) := ?e in (_, ?c _))) = _ =>
+         transitivity (wf_own (c (snd e))); [destruct e; reflexivity|] end;
+       cbn [wf_own]; rewrite ?N; try reflexivity.
+  (* A definition item's term is not a child. *)
+  f_equal. revert st. induction items as [|[p a [t [q b x]]] rest IH]; intros st; [reflexivity|].
+  rewrite map_acc_cons. cbn [forallb snd]. rewrite IH. f_equal.
+  unfold map_acc_node, map_acc_snd. cbn [fst snd].
+  destruct (map_acc f x st). reflexivity.
+Qed.
 
 (* A rebuild that keeps each child well formed keeps the block so. *)
 Local Lemma wf_block_map_acc_children :
@@ -4515,61 +4310,14 @@ Local Lemma wf_block_map_acc_children :
     wf_block b = true ->
     wf_block (snd (map_acc_children f b st)) = true.
 Proof.
-  intros S f b st H Hb.
-  assert (F : forall (A : Type) (k : A -> S -> S * A) (Q : A -> bool) (its : list A),
-            (forall x s, In x its -> Q x = true -> Q (snd (k x s)) = true) ->
-            forall s, forallb Q its = true ->
-                      forallb Q (snd (map_acc k its s)) = true).
-  { intros A k Q. induction its as [|x its IH]; intros Hk s Hq; [reflexivity|].
-    cbn [forallb] in Hq. apply andb_true_iff in Hq as [H1 H2].
-    rewrite map_acc_cons. cbn [snd forallb].
-    rewrite Hk by (try left; auto).
-    apply IH; [|exact H2]. intros y s' Hy. apply Hk. right. exact Hy. }
-  assert (N : forall (A : Type) (k : A -> S -> S * A) (its : list A) s,
-            nonempty (snd (map_acc k its s)) = nonempty its).
-  { intros A k [|x its] s; [reflexivity|]. rewrite map_acc_cons. reflexivity. }
-  assert (W : forall (l : blocks) s,
-            (forall n, In n l -> In n (children b)) ->
-            wf_blocks l = true -> wf_blocks (snd (map_acc f l s)) = true).
-  { intros l s Hl Hw.
-    apply (F _ f (fun n => wf_block (node_contents n))); [|exact Hw].
-    intros x s' Hx. apply H, Hl, Hx. }
-  (* An item's blocks, rebuilt, are well formed. *)
-  Local Ltac item_wf W Hx Hq :=
-    match goal with |- context [map_acc ?f ?x ?s] =>
-      let E := fresh "E" in
-      destruct (map_acc f x s) as [s1 x1] eqn:E; cbn [fst snd node_contents] in *;
-      change x1 with (snd (s1, x1)); rewrite <- E
-    end;
-    apply W; [|exact Hq];
-    intros n Hn; apply in_flat_map; eexists; split; [exact Hx|exact Hn].
-  destruct b; cbn [map_acc_children Ast.children] in *; try exact Hb.
-  all: match goal with |- context [let (_, _) := ?e in _] =>
-         let E := fresh "E" in
-         destruct e as [s1 l1] eqn:E; cbn [snd];
-         change l1 with (snd (s1, l1)); rewrite <- E; clear E s1 l1
-       end.
-  all: rewrite ?wf_block_section, ?wf_block_quote, ?wf_block_div, ?wf_block_olist,
-         ?wf_block_bullet, ?wf_block_tasklist, ?wf_block_deflist,
-         ?wf_block_footnote, ?wf_block_keyed, ?wf_block_callout in Hb |- *.
-  all: rewrite ?N;
-    try (apply andb_true_iff in Hb as [Hb1 Hb]; rewrite Hb1; cbn [andb]).
-  all: try (apply W; [intros; assumption|exact Hb]).
-  1-4: apply F; [|exact Hb].
-  - intros [q c x] s Hx Hq. unfold map_acc_node. item_wf W Hx Hq.
-  - intros [q c x] s Hx Hq. unfold map_acc_node. item_wf W Hx Hq.
-  - intros [q c [t x]] s Hx Hq. unfold map_acc_node, map_acc_snd. cbn [fst snd].
-    item_wf W Hx Hq.
-  - intros [q c [t [r d x]]] s Hx Hq.
-    unfold map_acc_node, map_acc_snd, wf_def_entry in *.
-    cbn [fst snd node_contents] in *.
-    apply andb_true_iff in Hq as [Ht Hq].
-    destruct (map_acc f x s) as [s1 x1] eqn:E. cbn [fst snd node_contents].
-    rewrite Ht. change x1 with (snd (s1, x1)). rewrite <- E.
-    apply W; [|exact Hq].
-    intros n Hn. apply in_flat_map. eexists. split; [exact Hx|exact Hn].
-  - rewrite wf_blocks_cons in Hb |- *. apply andb_true_iff in Hb as [Hx _].
-    rewrite H by (try left; auto). reflexivity.
+  intros S f b st H Hb. rewrite wf_block_spec in Hb |- *.
+  apply andb_true_iff in Hb as [Ho Hc].
+  rewrite wf_own_map_acc_children, map_acc_children_snd, Ho. cbn [andb].
+  revert st Hc H. generalize (children b) as l.
+  induction l as [|n l IH]; intros st Hc H; [reflexivity|].
+  rewrite wf_blocks_cons in Hc. apply andb_true_iff in Hc as [H1 H2].
+  rewrite map_acc_cons. cbn [snd]. rewrite wf_blocks_cons, H by (try left; auto).
+  apply IH; [exact H2|]. intros m Hm. apply H. right. exact Hm.
 Qed.
 
 Local Lemma assign_ids_wf :
@@ -4767,27 +4515,7 @@ Qed.
 Local Lemma wf_block_children : forall b,
   wf_block b = true -> wf_blocks (children b) = true.
 Proof.
-  assert (F : forall (A : Type) (g : A -> blocks) its,
-            forallb (fun it => wf_blocks (g it)) its = true ->
-            wf_blocks (flat_map g its) = true).
-  { intros A g. induction its as [|x its IH]; intros H; [reflexivity|].
-    cbn [forallb] in H. apply andb_true_iff in H as [Hx Hr].
-    cbn [flat_map]. rewrite wf_blocks_app, Hx, (IH Hr). reflexivity. }
-  intros b H. destruct b; cbn [Ast.children]; try reflexivity.
-  - rewrite wf_block_section in H. apply andb_true_iff in H as [_ H]. exact H.
-  - rewrite wf_block_quote in H. exact H.
-  - rewrite wf_block_div in H. exact H.
-  - rewrite wf_block_olist in H. apply andb_true_iff in H as [_ H]. apply F, H.
-  - rewrite wf_block_bullet in H. apply andb_true_iff in H as [_ H]. apply F, H.
-  - rewrite wf_block_tasklist in H. apply andb_true_iff in H as [_ H].
-    exact (F _ (fun it => snd (node_contents it)) _ H).
-  - rewrite wf_block_deflist in H. apply andb_true_iff in H as [_ H].
-    apply (F _ (fun it => node_contents (snd (node_contents it)))).
-    rewrite forallb_forall in *. intros x Hx. specialize (H x Hx).
-    unfold wf_def_entry in H. apply andb_true_iff in H as [_ H]. exact H.
-  - rewrite wf_block_footnote in H. apply andb_true_iff in H as [_ H]. exact H.
-  - rewrite wf_block_keyed in H. apply andb_true_iff in H as [_ H]. exact H.
-  - rewrite wf_block_callout in H. apply andb_true_iff in H as [_ H]. exact H.
+  intros b H. rewrite wf_block_spec in H. apply andb_true_iff in H as [_ H]. exact H.
 Qed.
 
 (* The pass enters only well-formed bodies, so every body it records is

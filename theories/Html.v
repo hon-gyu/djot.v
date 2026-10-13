@@ -569,56 +569,36 @@ Local Fixpoint render_block (tight : bool) (b : block) (a : attr) {struct b}
   : list helt :=
   (* Takes the flag as an argument so that one list recursion serves both
      the containers, which pass it through, and the items, which set it. *)
-  let render_bs_at :=
-    fix go (t : bool) (ns : list (node block)) : list helt :=
-      match ns with
-      | [] => []
-      | Node _ a' x :: rest => (render_block t x a' ++ go t rest)%list
-      end in
+  let render_bs_at (t : bool) :=
+    flat_map (fun n => match n with Node _ a' x => render_block t x a' end) in
   let render_bs := render_bs_at tight in
-  let render_items :=
-    fix goi (sp : list_spacing) (its : list (node (list (node block)))) {struct its}
-      : list helt :=
-      match its with
-      | [] => []
-      | Node _ ia it :: rest =>
-          (HElem "li" 2 ia
-             (render_bs_at (match sp with Tight => true | Loose => false end) it)
-           :: goi sp rest)%list
-      end in
+  let item_tight sp := match sp with Tight => true | Loose => false end in
+  let render_items sp :=
+    map (fun it => match it with
+                   | Node _ ia it => HElem "li" 2 ia (render_bs_at (item_tight sp) it)
+                   end) in
   (* A `dd` is rendered at the incoming tightness, not at the list's:
      djot.js's definition list carries no tightness flag, so a definition
      inside a tight bullet item renders bare, and `sp` is read by nothing
      here.  The roundtrip reads it, since it records the blank lines the
      source had. *)
   let render_def_items :=
-    fix god (its : list (node (node inlines * node (list (node block))))) {struct its}
-      : list helt :=
-      match its with
-      | [] => []
-      | Node _ _ (Node _ ta term, Node _ da it) :: rest =>
-          (HElem "dt" 1 ta (render_inlines term)
-           :: HElem "dd" 2 da (render_bs it)
-           :: god rest)%list
-      end in
+    flat_map (fun it => match it with
+                        | Node _ _ (Node _ ta term, Node _ da it) =>
+                            [HElem "dt" 1 ta (render_inlines term);
+                             HElem "dd" 2 da (render_bs it)]
+                        end) in
   (* A task item's checkbox, ahead of its content and outside whatever
      the tightness does to that content.  The `<ul>` carries
      `class="task-list"` before the node's own attributes, the order
      `ol_attrs` already establishes.  djot.js writes a task item's `<li>`
      without its attributes. *)
-  let render_task_items :=
-    fix got (sp : list_spacing)
-      (its : list (node (task_status * list (node block)))) {struct its}
-      : list helt :=
-      match its with
-      | [] => []
-      | Node _ _ (st, it) :: rest =>
-          (HElem "li" 2 []
-             (checkbox_elt st :: HText nl
-              :: render_bs_at
-                   (match sp with Tight => true | Loose => false end) it)%list
-           :: got sp rest)%list
-      end in
+  let render_task_items sp :=
+    map (fun it => match it with
+                   | Node _ _ (st, it) =>
+                       HElem "li" 2 []
+                         (checkbox_elt st :: HText nl :: render_bs_at (item_tight sp) it)
+                   end) in
   match b with
   (* A tight paragraph loses its tag, keeping the newline the tag
      carried.  Its attributes go with the tag, as in djot.js. *)
@@ -1487,143 +1467,68 @@ Proof.
   rewrite (render_note_items_reference_shape _ 1 r r' Hr). reflexivity.
 Qed.
 
-(* The local block renderer uses this recursion at each container. *)
-Local Definition render_bs_at (refs : resolver) (tight : bool) (bs : blocks)
-  : list helt :=
-  (fix go (t : bool) (ns : blocks) : list helt :=
-     match ns with
-     | [] => []
-     | Node _ a b :: rest => (render_block refs t b a ++ go t rest)%list
-     end) tight bs.
-
-Local Lemma render_bs_at_flat_map : forall refs tight bs,
-  render_bs_at refs tight bs =
-  flat_map (fun n => match n with Node _ a b => render_block refs tight b a end) bs.
-Proof.
-  intros refs tight bs. induction bs as [|[p a b] rest IH]; [reflexivity|].
-  cbn [render_bs_at flat_map]. rewrite <- IH. reflexivity.
-Qed.
-
 Theorem render_blocks_reference_shape :
   forall bs refs refs',
     map erase_helt_attrs (render_blocks refs bs) =
     map erase_helt_attrs (render_blocks refs' bs).
 Proof.
-  pose (Q := fun (bs : blocks) => forall tight refs refs',
-    map erase_helt_attrs
-      (flat_map (fun n => match n with Node _ a b => render_block refs tight b a end) bs) =
-    map erase_helt_attrs
-      (flat_map (fun n => match n with Node _ a b => render_block refs' tight b a end) bs)).
-  assert (Hb : forall b tight a refs refs',
+  assert (FB : forall (l : blocks) refs refs',
+    (forall n, In n l -> forall t a,
+       map erase_helt_attrs (render_block refs t (node_contents n) a) =
+       map erase_helt_attrs (render_block refs' t (node_contents n) a)) ->
+    forall t,
+      map erase_helt_attrs (flat_map (fun n => match n with Node _ a b => render_block refs t b a end) l) =
+      map erase_helt_attrs (flat_map (fun n => match n with Node _ a b => render_block refs' t b a end) l)).
+  { intros l refs refs' H t. induction l as [|[p a b] l IH]; [reflexivity|].
+    cbn [flat_map]. rewrite !map_app. f_equal.
+    - apply (H (Node p a b) (or_introl eq_refl)).
+    - apply IH. intros n Hn. apply H. right. exact Hn. }
+  (* An item's blocks are among its list's children. *)
+  assert (I : forall (A : Type) (g : A -> blocks) its it,
+            In it its -> forall n, In n (g it) -> In n (flat_map g its))
+    by (intros; apply in_flat_map; eauto).
+  assert (Hb : forall b refs refs' tight a,
     map erase_helt_attrs (render_block refs tight b a) =
     map erase_helt_attrs (render_block refs' tight b a)).
-  { intros b. induction b using block_ind2 with
-      (Q := Q) (R := Forall (fun n => Q (node_contents n)))
-      (D := Forall (fun ti => Q (node_contents (snd (node_contents ti)))))
-      (K := Forall (fun ti => Q (snd (node_contents ti))));
-      intros; try reflexivity.
-    - destruct tight; cbn [render_block map erase_helt_attrs];
-        [rewrite !map_app|];
-        rewrite (render_inlines_reference_shape ils refs refs'); reflexivity.
-    - cbn [render_block].
-      repeat match goal with
-             | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
-             end.
-      cbn [map erase_helt_attrs]. f_equal. f_equal.
-      change (map erase_helt_attrs (render_bs_at refs tight bs) =
-              map erase_helt_attrs (render_bs_at refs' tight bs)).
-      rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
-    - cbn [render_block map erase_helt_attrs].
-      rewrite (render_inlines_reference_shape ils refs refs'). reflexivity.
-    - cbn [render_block].
-      repeat match goal with
-             | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
-             end.
-      cbn [map erase_helt_attrs]. f_equal. f_equal.
-      change (map erase_helt_attrs (render_bs_at refs tight bs) =
-              map erase_helt_attrs (render_bs_at refs' tight bs)).
-      rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
-    - cbn [render_block].
-      repeat match goal with
-             | |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x)
-             end.
-      cbn [map erase_helt_attrs]. f_equal. f_equal.
-      change (map erase_helt_attrs (render_bs_at refs tight bs) =
-              map erase_helt_attrs (render_bs_at refs' tight bs)).
-      rewrite !render_bs_at_flat_map. exact (IHb tight refs refs').
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|[ip ia it] rest Hit Hrest IH]; [reflexivity|].
-      cbn [map erase_helt_attrs]. f_equal.
-      + f_equal.
-        change (map erase_helt_attrs
-                  (render_bs_at refs (match sp with Tight => true | Loose => false end) it) =
-                map erase_helt_attrs
-                  (render_bs_at refs' (match sp with Tight => true | Loose => false end) it)).
-        rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
-      + exact IH.
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|[ip ia it] rest Hit Hrest IH]; [reflexivity|].
-      cbn [map erase_helt_attrs]. f_equal.
-      + f_equal.
-        change (map erase_helt_attrs
-                  (render_bs_at refs (match sp with Tight => true | Loose => false end) it) =
-                map erase_helt_attrs
-                  (render_bs_at refs' (match sp with Tight => true | Loose => false end) it)).
-        rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
-      + exact IH.
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|[ip ia [st it]] rest Hit Hrest IH]; [reflexivity|].
-      cbn [map erase_helt_attrs]. f_equal. f_equal. f_equal. f_equal.
-      change (map erase_helt_attrs
-                (render_bs_at refs (match sp with Tight => true | Loose => false end) it) =
-              map erase_helt_attrs
-                (render_bs_at refs' (match sp with Tight => true | Loose => false end) it)).
-      rewrite !render_bs_at_flat_map. exact (Hit _ refs refs').
-      exact IH.
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      induction IHb as [|[ip ia [[tp ta term] [dp da it]]] rest Hit Hrest IH]; [reflexivity|].
-      cbn [map erase_helt_attrs].
-      rewrite (render_inlines_reference_shape term refs refs').
-      f_equal. f_equal. f_equal.
-      change (map erase_helt_attrs (render_bs_at refs tight it) =
-              map erase_helt_attrs (render_bs_at refs' tight it)).
-      rewrite !render_bs_at_flat_map. exact (Hit tight refs refs').
-      exact IH.
-    - cbn [render_block map erase_helt_attrs]. f_equal. f_equal.
-      rewrite !map_app. f_equal.
-      + destruct caption as [cp ca [|i ils]]; cbn [render_caption map erase_helt_attrs];
-          [|rewrite (render_inlines_reference_shape (i :: ils) refs refs')]; reflexivity.
-      + induction rows as [|[rp ra row] rest IH]; [reflexivity|].
-        cbn [map]. f_equal.
-        * cbn [render_row erase_helt_attrs]. f_equal.
-          induction row as [|[cp' ca' [ct al ils]] row IHrow]; [reflexivity|].
-          cbn [map render_cell erase_helt_attrs].
-          rewrite (render_inlines_reference_shape ils refs refs').
-          f_equal. exact IHrow.
-        * exact IH.
-    - cbn [render_block map erase_helt_attrs].
-      rewrite (render_inlines_reference_shape label refs refs').
-      destruct b as [p a' x]. cbn [flat_map map] in IHb |- *.
-      rewrite !app_nil_r in *. f_equal. f_equal. f_equal. f_equal. f_equal.
-      specialize (IHb tight refs refs').
-      cbn [flat_map map] in IHb. rewrite !app_nil_r in IHb. exact IHb.
-    - pose proof (render_inlines_reference_shape title refs refs') as Htitle.
-      pose proof (IHb tight refs refs') as Hbody.
-      rewrite <- !render_bs_at_flat_map in Hbody.
-      unfold render_bs_at in Hbody.
-      destruct fold as [[|]|]; destruct title; cbn [render_block];
-        cbn [map erase_helt_attrs]; rewrite ?map_app;
-        cbn [map erase_helt_attrs];
-        rewrite ?Htitle; setoid_rewrite Hbody; reflexivity.
-    - unfold Q. intros. reflexivity.
-    - unfold Q in *. intros tight refs refs'. cbn [flat_map].
-      rewrite !map_app. f_equal; [apply IHb|apply IHb0].
-    - constructor.
-    - constructor; assumption.
-    - constructor.
-    - constructor; assumption.
-    - constructor.
-    - constructor; assumption. }
+  { intros b. induction b as [b IH] using block_children_ind. intros refs refs' tight a.
+    rewrite Forall_forall in IH.
+    assert (C : forall l, (forall n, In n l -> In n (children b)) -> forall t,
+      map erase_helt_attrs (flat_map (fun n => match n with Node _ a b => render_block refs t b a end) l) =
+      map erase_helt_attrs (flat_map (fun n => match n with Node _ a b => render_block refs' t b a end) l)).
+    { intros l Hl t. apply FB. intros n Hn. apply IH, Hl, Hn. }
+    destruct b; cbn [render_block Ast.children] in C |- *; try reflexivity;
+      repeat match goal with |- context [named_elem ?d ?n ?x] => destruct (named_elem d n x) end;
+      try (destruct tight; cbn [map erase_helt_attrs]; rewrite ?map_app;
+           cbn [map erase_helt_attrs];
+           rewrite (render_inlines_reference_shape _ refs refs'); reflexivity);
+      try (match goal with x : option callout_fold |- _ => destruct x as [[|]|] end;
+           destruct title);
+      cbn [map erase_helt_attrs]; rewrite ?map_app; cbn [map erase_helt_attrs];
+      rewrite ?(render_inlines_reference_shape _ refs refs');
+      try (rewrite (C _ (fun n H => H)); reflexivity).
+    (* ordered and bullet items *)
+    1-2: do 2 f_equal; rewrite !map_map; apply map_ext_in; intros [ip ia it] Hit;
+      cbn [erase_helt_attrs]; f_equal; apply C; intros n Hn; exact (I _ _ _ _ Hit n Hn).
+    (* task items *)
+    1: do 2 f_equal; rewrite !map_map; apply map_ext_in; intros x Hit; destruct x as [ip ia [st it]];
+      cbn [erase_helt_attrs map]; do 3 f_equal; apply C; intros n Hn;
+      exact (I _ (fun it => snd (node_contents it)) _ _ Hit n Hn).
+    (* definition items *)
+    1: do 2 f_equal; rewrite !flat_map_concat_map, !concat_map, !map_map; f_equal;
+      apply map_ext_in; intros x Hit; destruct x as [ip ia [[tp ta term] [dp da it]]];
+      cbn [map erase_helt_attrs]; rewrite (render_inlines_reference_shape term refs refs');
+      do 3 f_equal; apply C; intros n Hn;
+      exact (I _ (fun it => node_contents (snd (node_contents it))) _ _ Hit n Hn).
+    (* table *)
+    all: clear IH C; do 2 f_equal; f_equal.
+    all: [> destruct caption as [cp ca [|i ils]]; cbn [render_caption map erase_helt_attrs];
+           [|rewrite (render_inlines_reference_shape (i :: ils) refs refs')]; reflexivity
+         | induction rows as [|[rp ra row] rest IHr]; [reflexivity|]; cbn [map]; f_equal;
+           [cbn [render_row erase_helt_attrs]; f_equal;
+            induction row as [|[cp' ca' [ct al ils]] row IHrow]; [reflexivity|];
+            cbn [map render_cell erase_helt_attrs];
+            rewrite (render_inlines_reference_shape ils refs refs'); f_equal; exact IHrow
+           | exact IHr] ..]. }
   intros bs refs refs'. induction bs as [|[p a b] rest IH]; [reflexivity|].
   cbn [render_blocks render_node flat_map]. rewrite !map_app.
   f_equal; [apply Hb|exact IH].
