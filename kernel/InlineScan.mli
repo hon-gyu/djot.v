@@ -224,7 +224,7 @@ type 'buf iscan_g =
 | IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
 | IAuto of 'buf * 'buf * ostate
 | ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
-| IRaw of 'buf * string * ostate
+| IRaw of 'buf * string * 'buf iscan_g * ostate
 | IPercent of 'buf * char option * ostate
 
 val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool
@@ -285,11 +285,13 @@ val isymbol_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   'a1 -> 'a1 -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
-val iraw_lit : string -> string
+val iraw_open :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> ostate ->
+  'a1 iscan_g
 
-val iraw_step_at :
-  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
-  char -> 'a1 -> string -> ostate -> 'a1 iscan_g
+val iraw_step :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 -> string -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
 val bnote_lit :
   coq_PosPolicy -> coq_InlineCursor -> bool -> bool -> string -> ostate ->
