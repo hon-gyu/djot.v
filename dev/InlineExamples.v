@@ -1091,8 +1091,9 @@ Example raw_non_candidate_is_an_attribute :
   = [Node NoPos [("class", "c")] (Verbatim "x")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A candidate that fails puts back what it read and dispatches the byte
-   that failed it, so a construct inside the region still parses. *)
+(* A candidate that fails reads as if its `{` began no raw spec: the
+   region is read as usual, so a construct inside it still parses, and
+   the `{=` is the highlight opener it is anywhere else. *)
 Example raw_failed_spec_resumes_the_scan :
   parse_inline_line "`x`{=a`b`}"
   = [mk (Verbatim "x"); mk (Str "{=a"); mk (Verbatim "b"); mk (Str "}")].
@@ -1104,6 +1105,16 @@ Example raw_unclosed_is_text :
   parse_inline_line "`x`{=htm" = [mk (Verbatim "x"); mk (Str "{=htm")] /\
   parse_inline_line "`x`{" = [mk (Verbatim "x"); mk (Str "{")].
 Proof. vm_compute. split; reflexivity. Qed.
+
+Example raw_failed_spec_is_a_highlight :
+  parse_inline_line "`x`{=html and more=}"
+  = [mk (Verbatim "x"); mk (Highlight [mk (Str "html and more")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example raw_failed_spec_holds_emphasis :
+  parse_inline_line "`x`{=_a_ b"
+  = [mk (Verbatim "x"); mk (Str "{="); mk (Emph [mk (Str "a")]); mk (Str " b")].
+Proof. vm_compute. reflexivity. Qed.
 
 (* The exclusion the construct costs the canonical view: a verbatim may
    not be followed by the row spelled `=`, because that source is raw.

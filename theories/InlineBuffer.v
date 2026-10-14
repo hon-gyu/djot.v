@@ -222,9 +222,12 @@ Proof. intros. unfold isymbol_step. crush. Qed.
 
 Hint Rewrite ibrace_step_at_map : map_text.
 
-Lemma iraw_step_at_map : forall attrs c spec v o,
-  map_text (iraw_step_at attrs c spec v o) = iraw_step_at attrs c (tval spec) v o.
-Proof. intros. unfold iraw_step_at. crush. Qed.
+Lemma iraw_step_map : forall c spec v o sh,
+  map_text (iraw_step c spec v o sh) = iraw_step c (tval spec) v o (map_text sh).
+Proof. intros. unfold iraw_step. crush. Qed.
+
+Lemma iraw_open_map : forall v o, map_text (iraw_open v o) = iraw_open v o.
+Proof. intros. unfold iraw_open. crush. Qed.
 
 Lemma iwiki_close_map : forall image region open o,
   map_text (iwiki_close image region open o) = iwiki_close image (tval region) open o.
@@ -285,7 +288,7 @@ Lemma ipercent_step_map : forall c t prev o,
 Proof. intros. unfold ipercent_step. crush; laws; reflexivity. Qed.
 
 Hint Rewrite ispan_feed_map inote_step_map iauto_step_map isymbol_step_map
-  iraw_step_at_map iwiki_step_map ibang_step_map idollar_step_map
+  iraw_step_map iraw_open_map iwiki_step_map ibang_step_map idollar_step_map
   iperiod_step_map idash_step_map ipercent_step_map : map_text.
 
 Theorem istep_at_map : forall attrs c st,
@@ -324,7 +327,7 @@ Proof.
   - (* IDest *) destruct esc; rewrite <- ?IHst; crush.
   - crush.
   - (* ISymbol *) rewrite <- IHst. crush.
-  - crush.
+  - (* IRaw *) rewrite <- IHst. crush.
   - (* IPercent *) crush.
 Qed.
 
@@ -394,6 +397,7 @@ Proof.
   - rewrite ispan_feed_map, IHst. reflexivity.
   - rewrite iattr_feed_map, IHst. reflexivity.
   - rewrite IHst. crush.
+  - apply IHst.
   - apply IHst.
 Qed.
 

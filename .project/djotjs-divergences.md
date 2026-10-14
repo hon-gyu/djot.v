@@ -2686,3 +2686,21 @@ lines with attributes off.  `{a=}=` is unchanged (the entry of
 Pinned by `attr_failed_spec_dash`, `attr_failed_spec_symbol`,
 `attr_failed_spec_inner_spec` and `span_failed_spec_bracket_closes` in
 `dev/InlineExamples.v`.
+
+## 2026-10-14 -- OURS: a failed raw spec is read as if its `{` began none
+
+The entry above, for the spec after a verbatim.
+
+| Input | djot.js | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `` `x`{=html and more=} `` | the verbatim, then `{=html and more=}` as text | the same | the verbatim, then a highlight over `html and more` |
+| `` `x`{=_a_ b `` | the verbatim, then `{=_a_ b` as text | the same | the verbatim, `{=`, an emphasised `a`, ` b` |
+| `` `x`{=html `` | the verbatim, then `{=html` | the same | the same |
+
+A raw spec that failed put its region back as text (`iraw_lit`).
+`IRaw` now carries the ordinary reading from the `{` on, the verbatim
+emitted, as `ISymbol` does, and a spec that fails selects it: the `{=`
+is the highlight opener it is anywhere else.
+
+Pinned by `raw_failed_spec_is_a_highlight` and
+`raw_failed_spec_holds_emphasis` in `dev/InlineExamples.v`.

@@ -417,9 +417,10 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
       ends_at W (String ":" alias) cur /\
       oinv W o (nonempty_str txt) (sleft (S (String.length alias)) cur) /\
       no_char nl_char alias = true /\ st_inv W cur sh
-  | IRaw spec _ o =>
+  | IRaw spec _ sh o =>
       ends_at W (String lbrace spec) cur /\
-      held W o false (sleft (String.length (String lbrace spec)) cur)
+      held W o false (sleft (String.length (String lbrace spec)) cur) /\
+      st_inv W cur sh
   | IPercent txt _ o =>
       held W o (nonempty_str txt) cur /\ byte_at W (sleft 1 cur) = Some percent
   end.
@@ -2014,38 +2015,24 @@ Proof.
       eapply spot_lt_trans; [exact Hlt0|exact nx_lt].
 Qed.
 
-Lemma iraw_ok : forall allow spec txt o,
+Lemma iraw_ok : forall spec txt o sh,
   ends_at W (String lbrace spec) cur ->
   held W o false (sleft (String.length (String lbrace spec)) cur) ->
-  st_inv W next (iraw_step_at allow c spec txt o).
+  st_inv W next sh ->
+  st_inv W next (iraw_step c spec txt o sh).
 Proof.
-  intros allow spec txt o He Ho.
+  intros spec txt o sh He Ho Hsh.
   pose proof (held_oinv _ _ _ _ Ho) as Ht0.
   assert (Ht : oinv W o true cur) by (eapply oinv_mono; [apply spot_le_sleft|exact Ht0]).
-  assert (Hv : forall x, oinv W (oemit (imk (text_start o) x (Verbatim txt)) o) true
-                           (sleft (String.length (String lbrace spec)) cur))
-    by (intros x; apply oemit_ok; [apply dn_imk_leaf; reflexivity|exact Ht0]).
-  assert (Hv' : forall x, oinv W (oemit (imk (text_start o) x (Verbatim txt)) o) true cur)
-    by (intros x; eapply oinv_mono; [apply spot_le_sleft|apply Hv]).
-  assert (Hp : prev_ok W (InlineScan.blit_prev (String lbrace spec)) cur)
-    by (apply prev_blit; [exact He|discriminate]).
-  unfold iraw_step_at. tred.
-  destruct (Ascii.eqb c rbrace && raw_spec_ok spec)%bool eqn:E.
-  - apply andb_true_iff in E as [E _].
-    destruct raw_inline_enabled.
-    + cbn [st_inv orb]. split; [|split; [apply eqb_rewrite, E|discriminate]].
-      apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
-      eapply oinv_strict; [exact nx_lt|exact Ht].
-    + apply ilead_held; [apply Hv'|exact Hp].
+  unfold iraw_step. tred.
+  destruct (raw_inline_enabled && Ascii.eqb c rbrace && raw_spec_ok spec)%bool eqn:E.
+  - apply andb_true_iff in E as [E _]. apply andb_true_iff in E as [_ E].
+    cbn [st_inv orb]. split; [|split; [apply eqb_rewrite, E|discriminate]].
+    apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
+    eapply oinv_strict; [exact nx_lt|exact Ht].
   - destruct (if nonempty_str spec then (Ascii.eqb c rbrace || raw_stop c)%bool
-              else negb (Ascii.eqb c eqchar)).
-    + destruct (nonempty_str spec) eqn:Ens.
-      * apply ilead_held; [apply Hv'|exact Hp].
-      * destruct spec as [|x sp]; [|discriminate].
-        apply (ibrace_ok W CU cur c rest); try assumption.
-        -- cbn [nonempty_str]. apply oinv_any. apply Hv.
-        -- destruct He as [r Hr]. cbn [String.length one] in Hr. unfold byte_at. rewrite Hr. reflexivity.
-    + cbn [st_inv]. split.
+              else negb (Ascii.eqb c eqchar)); [exact Hsh|].
+    cbn [st_inv]. split; [|split; [|exact Hsh]].
       * change (String lbrace (spec ++ one c)) with ((String lbrace spec) ++ one c)%string.
         eapply ends_at_snoc; [exact He|exact Hcur].
       * replace (sleft (String.length (String lbrace (spec ++ one c))) next)
@@ -2131,11 +2118,15 @@ Proof.
     + destruct (Nat.eqb run n) eqn:Er.
       * apply Nat.eqb_eq in Er.
         assert (Hraw : Ascii.eqb c lbrace = true ->
-                       st_inv W next (IRaw EmptyString (trim_verb txt) o)).
-        { intros Eb. apply Ascii.eqb_eq in Eb.
-          cbn [st_inv]. tred. split.
+                       st_inv W next (iraw_open (trim_verb txt) o)).
+        { intros Eb. apply Ascii.eqb_eq in Eb. unfold iraw_open.
+          cbn [st_inv]. tred. split; [|split].
           - rewrite <- Eb. exact (ends_here _ _ _ _ Hcur).
-          - cbn [String.length]. rewrite nx_back. exact Ho. }
+          - cbn [String.length]. rewrite nx_back. exact Ho.
+          - cbn [nonempty_str]. rewrite nx_back. split.
+            + apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
+              exact (held_oinv _ _ _ _ Ho).
+            + rewrite <- Eb. exact (byte_at_sfx _ _ _ _ Hcur). }
         assert (Hlead : forall x, dkind x = None -> children x = [] ->
                   st_inv W next (ilead c EmptyString (Some tick)
                     (oemit (imk (text_start o) cur x) o))).
@@ -2240,7 +2231,8 @@ Proof.
   - (* IAuto *) destruct H as (Ho & He). cbn [istep_at]. apply iauto_ok; assumption.
   - (* ISymbol *) destruct H as (He & Ho & Hnl & Hsh). cbn [istep_at].
     apply isymbol_ok; [exact He|exact Ho|exact Hnl|apply IHst, Hsh].
-  - (* IRaw *) destruct H as (He & Ho). cbn [istep_at]. apply iraw_ok; assumption.
+  - (* IRaw *) destruct H as (He & Ho & Hsh). cbn [istep_at].
+    apply iraw_ok; [exact He|exact Ho|apply IHst, Hsh].
   - (* IPercent *) destruct H as (Ho & Hb). cbn [istep_at]. apply ipercent_ok; assumption.
 Qed.
 
@@ -2312,7 +2304,7 @@ Definition settled (st : iscan) : Prop :=
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
   | ISpan _ _ _ _ _ _ _
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ | ISymbol _ _ _ _
-  | IPercent _ _ _ => False
+  | IRaw _ _ _ _ | IPercent _ _ _ => False
   | _ => True
   end.
 
@@ -2398,10 +2390,6 @@ Proof.
     pose proof (bwiki_lit_ok W esc rb image region o next (brk_held _ _ _ H)) as Hw.
     destruct (bwiki_lit esc rb image region o) as [t o']. apply brk_text, brk_soft, Hw.
   - (* IAuto *) destruct H as (Ho & He). apply brk_text, brk_soft, (brk_held _ _ _ Ho).
-  - (* IRaw *) destruct H as (He & Ho).
-    apply brk_text, brk_soft, oemit_ok; [apply dn_imk_leaf; reflexivity|].
-    apply oinv_any. eapply oinv_mono; [|exact (held_oinv _ _ _ _ Ho)].
-    eapply spot_le_trans; [apply spot_le_sleft|apply spot_lt_le, Hlt].
 Qed.
 
 Lemma ibreak_at_ok : forall st allow,
@@ -2444,6 +2432,7 @@ Proof.
   - (* IDest *) destruct H as (Hk & Ho & Hsh). cbn [st_inv].
     split; [exact Hk|split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh]].
   - (* ISymbol *) destruct H as (_ & _ & _ & Hsh). apply IHst, Hsh.
+  - (* IRaw *) destruct H as (_ & _ & Hsh). apply IHst, Hsh.
 Qed.
 
 End Break.
@@ -2499,9 +2488,6 @@ Proof.
   - pose proof (bwiki_lit_ok W esc rb image region o _ (held_far _ _ _ _ H)) as Hb.
     destruct (bwiki_lit esc rb image region o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
   - destruct H as (Ho & He). eapply held_any_of, flush_text_at_touched; exact (held_far _ _ _ _ Ho).
-  - destruct H as (He & Ho). eapply held_any_of, flush_text_at_touched, oemit_ok;
-      [apply dn_imk_leaf; reflexivity|].
-    exact (held_far _ _ _ _ Ho).
 Qed.
 
 Lemma ifinish_ostate_ok : forall W (CU : InlineCursor) cur st,
@@ -2527,6 +2513,7 @@ Proof.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & Hsh). apply IHst, Hsh.
+  - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
 Qed.
 
 Lemma oflatten_ok : forall W pend stk bottom,

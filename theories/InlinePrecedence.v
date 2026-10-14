@@ -5008,15 +5008,16 @@ Proof.
 Qed.
 
 Local Lemma iscan_raw_fmt : forall f spec t o, fmt_ok f = true -> spec <> EmptyString ->
-  forall j, iscan_str (substring 0 j f) (IRaw spec t o) = IRaw (spec ++ substring 0 j f) t o.
+  forall j sh, iscan_str (substring 0 j f) (IRaw spec t sh o)
+               = IRaw (spec ++ substring 0 j f) t (iscan_str (substring 0 j f) sh) o.
 Proof.
-  induction f as [|c f IH]; intros spec t o Ok Hs j.
+  induction f as [|c f IH]; intros spec t o Ok Hs j sh.
   - destruct j; cbn; rewrite append_empty_r; reflexivity.
   - destruct j as [|j]; [cbn; rewrite append_empty_r; reflexivity|].
     cbn [fmt_ok] in Ok. apply andb_true_iff in Ok as [Ok Okf]. apply andb_true_iff in Ok as [Eb Es].
     apply negb_true_iff in Eb, Es.
-    cbn [substring iscan_str]. unfold istep. cbn [istep_at]. unfold iraw_step_at.
-    rewrite Eb. cbn [andb].
+    cbn [substring iscan_str]. unfold istep at 1. cbn [istep_at]. unfold iraw_step.
+    rewrite Eb, andb_false_r. cbn [andb].
     replace (tnonempty spec) with true by (destruct spec; [contradiction|reflexivity]).
     apply orb_false_iff in Es as [Es _]. rewrite Es. cbn [orb]. tred.
     rewrite (IH (spec ++ one c)%string t o Okf) by (destruct spec; discriminate).
@@ -5028,33 +5029,38 @@ Qed.
 Local Lemma iscan_raw_spec : forall m b o f, fmt_ok f = true -> f <> EmptyString ->
   raw_inline_enabled = true ->
   (forall j, 0 < j <= S (S (String.length f)) ->
-     exists spec, iscan_str (substring 0 j (String lbrace (String eqchar f))) (IVerb m m b VVerb o)
-                  = IRaw spec (trim_verb b) o /\ (spec = EmptyString -> j = 1))
+     exists spec sh,
+       iscan_str (substring 0 j (String lbrace (String eqchar f))) (IVerb m m b VVerb o)
+       = IRaw spec (trim_verb b) sh o /\ (spec = EmptyString -> j = 1))
   /\ iscan_str (String lbrace (String eqchar f) ++ one rbrace) (IVerb m m b VVerb o)
      = IText false "" (Some rbrace) (oemit (mk (RawInline f (trim_verb b))) o).
 Proof.
   intros m b o f Ok Hf Hr.
-  assert (S1 : istep lbrace (IVerb m m b VVerb o) = IRaw "" (trim_verb b) o).
+  set (sh0 := IBrace "" (Some tick)
+                 (oemit (imk (text_start o) cursor_start (Verbatim (trim_verb b))) o)).
+  assert (S1 : istep lbrace (IVerb m m b VVerb o) = IRaw "" (trim_verb b) sh0 o).
   { unfold istep. cbn [istep_at]. change (is_tick lbrace) with false. rewrite Nat.eqb_refl.
     reflexivity. }
-  assert (S2 : istep eqchar (IRaw "" (trim_verb b) o) = IRaw (one eqchar) (trim_verb b) o)
-    by reflexivity.
+  assert (S2 : forall sh, istep eqchar (IRaw "" (trim_verb b) sh o)
+                          = IRaw (one eqchar) (trim_verb b) (istep eqchar sh) o).
+  { intros sh. unfold istep at 1. cbn [istep_at]. unfold iraw_step.
+    change (Ascii.eqb eqchar rbrace) with false. rewrite andb_false_r. reflexivity. }
   split.
   - intros [|[|j]] Hj; [lia| |].
-    + exists "". cbn [substring iscan_str]. rewrite S1. split; reflexivity.
+    + exists "", sh0. cbn [substring iscan_str]. rewrite S1. split; reflexivity.
     + cbn [substring iscan_str]. rewrite S1, S2.
-      rewrite iscan_raw_fmt by (exact Ok || discriminate). eexists.
+      rewrite iscan_raw_fmt by (exact Ok || discriminate). do 2 eexists.
       split; [reflexivity|intros E; discriminate E].
   - cbn [append iscan_str]. rewrite S1, S2.
     pose proof (iscan_raw_fmt f (one eqchar) (trim_verb b) o Ok ltac:(discriminate) (String.length f))
       as E.
     rewrite <- (Nat.sub_0_r (String.length f)), substring_rest in E. cbn [sdrop] in E.
     rewrite iscan_str_app, E.
-    change (one rbrace) with (String rbrace ""). cbn [iscan_str]. unfold istep. cbn [istep_at].
-    unfold iraw_step_at. change (Ascii.eqb rbrace rbrace) with true.
+    change (one rbrace) with (String rbrace ""). cbn [iscan_str]. unfold istep at 1. cbn [istep_at].
+    unfold iraw_step. change (Ascii.eqb rbrace rbrace) with true.
     replace (raw_spec_ok (tval (one eqchar ++ f))) with true
       by (destruct f; [contradiction|reflexivity]).
-    cbn [andb]. rewrite Hr. reflexivity.
+    rewrite Hr. reflexivity.
 Qed.
 
 Local Lemma tok_at_verb : forall ps p d m body cl r l,
@@ -5164,7 +5170,7 @@ Definition verb_state (X : iscan) (next : option ascii) : Prop :=
   | IDollar _ _ _ _ => next = Some tick \/ next = Some dollar
   | IOpen _ _ _ => True
   | IVerb m r _ _ _ => r = m -> next = Some tick \/ next = Some lbrace
-  | IRaw spec _ _ => exists c, next = Some c /\ c <> nl_char /\ (spec = EmptyString -> c = eqchar)
+  | IRaw spec _ _ _ => exists c, next = Some c /\ c <> nl_char /\ (spec = EmptyString -> c = eqchar)
   | _ => False
   end.
 
@@ -5341,7 +5347,7 @@ Proof.
       * rewrite substring_nil. cbn [iscan_str verb_state]. intros _. right. reflexivity.
       * rewrite substring_app_l by (rewrite Lf; lia).
         destruct (proj1 (iscan_raw_spec m0 b o' f Ok Hf Eraw) (S j) ltac:(lia))
-          as (spec & Esp' & He).
+          as (spec & sh & Esp' & He).
         rewrite Esp'. cbn [verb_state].
         destruct j as [|j].
         -- exists eqchar. split; [reflexivity|]. split; [discriminate|intros _; reflexivity].
@@ -6062,33 +6068,37 @@ Proof.
   repeat match goal with q : _ * _ |- _ => destruct q end; discriminate E.
 Qed.
 
+(* Only a backtick completes a closing run: any other byte leaves a
+   verbatim, its own or a shadow's, with no backticks pending. *)
+Local Lemma step_nontick_run : forall a c X n r t vk o,
+  is_tick c = false -> istep_at a c X = IVerb n r t vk o -> r = 0.
+Proof.
+  intros a c X. revert a. induction X; intros a n0 r0 t0 vk0 o0 Ec E; cbn [istep_at] in E;
+    unfold ibrace_step_at, iattr_feed, ispan_feed, ibang_step, idollar_step, iperiod_step,
+      idash_step, inote_step, iwiki_step, iwiki_close, iauto_step, isymbol_step, iraw_step,
+      ipercent_step, iattr_mark, iraw_open, idelim_resolve, idelim_done in E;
+    rewrite ?Ec in E;
+    repeat match goal with
+    | H : context [if ?b then _ else _] |- _ => destruct b
+    | H : context [match ?x with Some _ => _ | None => _ end] |- _ => destruct x
+    | H : context [let '(_, _) := ?x in _] |- _ => destruct x
+    | H : context [match ?x with VVerb => _ | _ => _ end] |- _ => destruct x as [|[]|?|]
+    | H : context [match ?x with O => _ | S _ => _ end] |- _ => destruct x
+    | H : context [match ?x with EmptyString => _ | String _ _ => _ end] |- _ => destruct x
+    end;
+    try discriminate E;
+    try (exfalso; exact (ilead_not_verb _ _ _ _ _ _ _ _ _ E));
+    try (injection E; intros; lia);
+    try (eapply IHX; [exact Ec|exact E]).
+Qed.
+
 (* A verbatim's closing run ends in a backtick. *)
 Local Lemma verb_last_tick : forall X c m t vk o,
-  verb_state X (Some c) -> istep c X = IVerb m m t vk o -> m <> 0 -> c = tick.
+  istep c X = IVerb m m t vk o -> m <> 0 -> c = tick.
 Proof.
-  intros X c m t vk o H E Hm. destruct (is_tick c) eqn:Ec.
-  { unfold is_tick in Ec. apply Ascii.eqb_eq in Ec. exact Ec. }
-  exfalso. destruct X; cbn [verb_state] in H; try contradiction.
-  all: try (destruct H as [Ht|Ht]; injection Ht as ->; [discriminate Ec|];
-            unfold istep in E; cbn [istep_at] in E; unfold idollar_step in E;
-            rewrite Ascii.eqb_refl in E; destruct two; discriminate E).
-  - unfold istep in E; cbn [istep_at] in E; rewrite Ec in E. injection E as _ E. lia.
-  - unfold istep in E; cbn [istep_at] in E; rewrite Ec in E.
-    destruct (Nat.eqb run n) eqn:Er.
-    + apply Nat.eqb_eq in Er. destruct (H Er) as [Ht|Ht]; injection Ht as ->; [discriminate Ec|].
-      repeat match goal with
-      | H : context [if ?b then _ else _] |- _ => destruct b
-      | H : context [match ?x with _ => _ end] |- _ => destruct x
-      end; try discriminate E; exact (ilead_not_verb _ _ _ _ _ _ _ _ _ E).
-    + injection E as _ E. lia.
-  - destruct H as (c' & Hc & _ & He). injection Hc as <-.
-    destruct spec as [|s0 spec].
-    + rewrite (He eq_refl) in E. discriminate E.
-    + unfold istep in E; cbn [istep_at] in E; unfold iraw_step_at in E.
-      cbn [tnonempty] in E. change (nonempty_str (String s0 spec)) with true in E.
-      repeat match goal with
-      | H : context [if ?b then _ else _] |- _ => destruct b
-      end; try discriminate E; exact (ilead_not_verb _ _ _ _ _ _ _ _ _ E).
+  intros X c m t vk o E Hm. destruct (is_tick c) eqn:Ec.
+  - unfold is_tick in Ec. apply Ascii.eqb_eq in Ec. exact Ec.
+  - exfalso. exact (Hm (step_nontick_run _ _ _ _ _ _ _ _ Ec E)).
 Qed.
 
 (* After a closing run, a byte that does not continue it settles the
@@ -6180,7 +6190,7 @@ Proof.
     - right. right. exact VP. }
   unfold linked in L. rewrite Em in L.
   destruct L as (-> & Hne & p & pre & m & body & cl & rw & txt0 & prev0 & o0 & Hp & Ht & -> & Hsim
-                 & -> & Hvs).
+                 & -> & _).
   destruct (verb_tok_scan ps p pre m body cl rw (S e - p) txt0 prev0 o0 Ht) as (T1 & T2 & Traw & T3).
   pose proof (tok_at_len ps p _ _ Ht) as [_ Hle].
   pose proof (tok_verb_width ps p pre m body cl rw _ Ht) as Hm.
@@ -6190,7 +6200,6 @@ Proof.
   { replace (S n - p) with (S (n - p)) by lia.
     rewrite (substring_snoc ps p (n - p) c) by (replace (p + (n - p)) with n by lia; exact Hg).
     rewrite iscan_str_app. reflexivity. }
-  rewrite Hg in Hvs.
   destruct (Nat.eqb n e) eqn:Ene.
   2: { (* inside *)
     apply Nat.eqb_neq in Ene.
@@ -6239,7 +6248,7 @@ Proof.
       split; [reflexivity|]. split; [exact EmN|]. split; [reflexivity|].
       split; [intros s0; apply verb_node_nonstr|]. left. exists pre, m, body. split; reflexivity.
     + (* before a byte of the line that does not continue the verbatim *)
-      assert (Ect : c = tick) by exact (verb_last_tick _ c _ _ _ _ Hvs Step Hm).
+      assert (Ect : c = tick) by exact (verb_last_tick _ c _ _ _ _ Step Hm).
       subst c.
       assert (Hd : is_tick d = false).
       { apply Stop. replace (p + (S n - p)) with (S n) by lia. exact (get_sdrop ps (S n) d _ Hs1). }
@@ -8541,7 +8550,7 @@ Proof.
       exact (verb_nl_not_text _ _ _ _ Hvs Ec). }
     destruct cl.
     { exfalso. destruct (T2 eq_refl eq_refl) as [Ec _]. rewrite <- Step in Ec.
-      pose proof (verb_last_tick _ _ _ _ _ _ Hvs Ec Hm) as E. discriminate E. }
+      pose proof (verb_last_tick _ _ _ _ _ _ Ec Hm) as E. discriminate E. }
     destruct (T3 eq_refl) as (_ & Elen & Efin).
     destruct Hsim as (v0 & Eo & Ht0 & Ev).
     set (vN := pv_setmode PMNormal v) in *.

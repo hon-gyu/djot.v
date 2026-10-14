@@ -741,7 +741,7 @@ type 'buf iscan_g =
 | IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
 | IAuto of 'buf * 'buf * ostate
 | ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
-| IRaw of 'buf * string * ostate
+| IRaw of 'buf * string * 'buf iscan_g * ostate
 | IPercent of 'buf * char option * ostate
 
 (** val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool **)
@@ -1087,57 +1087,31 @@ let isymbol_step t x h h0 c alias txt o sh' =
                    (flush_text_to_at h h0 start (x.tval txt) o)))
             else sh'
 
-(** val iraw_lit : string -> string **)
+(** val iraw_open :
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> ostate
+    -> 'a1 iscan_g **)
 
-let iraw_lit spec =
-  (* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
+let iraw_open x h h0 txt o =
+  IRaw (x.tnil, txt, (IBrace (x.tnil, (Some tick),
+    (oemit (imk h (text_start h0 o) h0.cursor_start (Verbatim txt)) o))), o)
 
-    (lbrace, spec)
+(** val iraw_step :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+    'a1 -> string -> ostate -> 'a1 iscan_g -> 'a1 iscan_g **)
 
-(** val iraw_step_at :
-    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
-    char -> 'a1 -> string -> ostate -> 'a1 iscan_g **)
-
-let iraw_step_at t x h h0 attrs_enabled c spec txt o =
-  if (&&) ((=) c rbrace) (raw_spec_ok (x.tval spec))
-  then if raw_inline_enabled t
-       then IText (false, x.tnil, (Some rbrace),
-              (oemit
-                (imk h (text_start h0 o) h0.cursor_stop (RawInline
-                  ((raw_format (x.tval spec)), txt)))
-                o))
-       else ilead t x h h0 c (x.tof (iraw_lit (x.tval spec)))
-              (blit_prev (iraw_lit (x.tval spec)))
-              (oemit
-                (imk h (text_start h0 o)
-                  (spot_before h0.cursor_start
-                    ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                    (lbrace, (x.tval spec))))
-                  (Verbatim txt))
-                o)
+let iraw_step t x h h0 c spec txt o sh' =
+  if (&&) ((&&) (raw_inline_enabled t) ((=) c rbrace))
+       (raw_spec_ok (x.tval spec))
+  then IText (false, x.tnil, (Some rbrace),
+         (oemit
+           (imk h (text_start h0 o) h0.cursor_stop (RawInline
+             ((raw_format (x.tval spec)), txt)))
+           o))
   else if if x.tnonempty spec
           then (||) ((=) c rbrace) (raw_stop c)
           else negb ((=) c eqchar)
-       then let closed =
-              oemit
-                (imk h (text_start h0 o)
-                  (spot_before h0.cursor_start
-                    ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-                    (lbrace, (x.tval spec))))
-                  (Verbatim txt))
-                o
-            in
-            if x.tnonempty spec
-            then ilead t x h h0 c (x.tof (iraw_lit (x.tval spec)))
-                   (blit_prev (iraw_lit (x.tval spec))) closed
-            else ibrace_step_at t x h h0 attrs_enabled c x.tnil (Some tick)
-                   closed
-       else IRaw ((x.tpush spec (one c)), txt, o)
+       then sh'
+       else IRaw ((x.tpush spec (one c)), txt, sh', o)
 
 (** val bnote_lit :
     coq_PosPolicy -> coq_InlineCursor -> bool -> bool -> string -> ostate ->
@@ -1475,7 +1449,7 @@ let rec istep_at t x h h0 attrs_enabled c = function
                (match style with
                 | DisplayMath ->
                   if (&&) ((=) c lbrace) (vkind_verb vk)
-                  then IRaw (x.tnil, (trim_verb (x.tval txt)), o)
+                  then iraw_open x h h0 (trim_verb (x.tval txt)) o
                   else ilead t x h h0 c x.tnil (Some tick)
                          (oemit
                            (imk h (text_start h0 o) h0.cursor_start
@@ -1508,7 +1482,7 @@ let rec istep_at t x h h0 attrs_enabled c = function
                         (trim_verb (x.tval txt)))))
                       (flush_text_to_at h h0 start prefix o')))
                else if (=) c lbrace
-                    then IRaw (x.tnil, (trim_verb (x.tval txt)), o)
+                    then iraw_open x h h0 (trim_verb (x.tval txt)) o
                     else ilead t x h h0 c x.tnil (Some tick)
                            (oemit
                              (imk h (text_start h0 o) h0.cursor_start
@@ -1516,7 +1490,7 @@ let rec istep_at t x h h0 attrs_enabled c = function
                              o)
              | _ ->
                if (&&) ((=) c lbrace) (vkind_verb vk)
-               then IRaw (x.tnil, (trim_verb (x.tval txt)), o)
+               then iraw_open x h h0 (trim_verb (x.tval txt)) o
                else ilead t x h h0 c x.tnil (Some tick)
                       (oemit
                         (imk h (text_start h0 o) h0.cursor_start
@@ -1707,7 +1681,8 @@ let rec istep_at t x h h0 attrs_enabled c = function
 | IAuto (src, txt, o) -> iauto_step t x h h0 c src txt o
 | ISymbol (alias, txt, sh, o) ->
   isymbol_step t x h h0 c alias txt o (istep_at t x h h0 attrs_enabled c sh)
-| IRaw (spec, txt, o) -> iraw_step_at t x h h0 attrs_enabled c spec txt o
+| IRaw (spec, txt, sh, o) ->
+  iraw_step t x h h0 c spec txt o (istep_at t x h h0 attrs_enabled c sh)
 | IPercent (txt, prev, o) -> ipercent_step t x h h0 c txt prev o
 
 (** val istep :
@@ -1765,16 +1740,7 @@ let ifinish_ostate_flat x h h0 = function
 | IAuto (src, txt, o) ->
   flush_text_at h h0 (x.tval (auto_lit x (x.tval src) txt)) o
 | ISymbol (_, _, _, o) -> o
-| IRaw (spec, txt, o) ->
-  let spec_start =
-    spot_before h0.cursor_start
-      ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-      (lbrace, (x.tval spec)))
-  in
-  flush_text_at h h0 (iraw_lit (x.tval spec))
-    (oemit (imk h (text_start h0 o) spec_start (Verbatim txt)) o)
+| IRaw (_, _, _, o) -> o
 | IPercent (_, _, o) -> o
 
 (** val ifinish_ostate :
@@ -1810,6 +1776,7 @@ let rec ifinish_ostate t x h h0 st = match st with
 | IAttr (_, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IDest (_, _, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | ISymbol (_, _, sh, _) -> ifinish_ostate t x h h0 sh
+| IRaw (_, _, sh, _) -> ifinish_ostate t x h h0 sh
 | _ -> ifinish_ostate_flat x h h0 (iresolve t x h h0 st)
 
 (** val ifinish_rev :
@@ -1872,19 +1839,7 @@ let rec ibreak_flat x h h0 st = match st with
       (oemit (imk_here h h0 SoftBreak)
         (flush_text_at h h0 (x.tval (auto_lit x (x.tval src) txt)) o))))
 | ISymbol (_, _, sh, _) -> ibreak_flat x h h0 sh
-| IRaw (spec, txt, o) ->
-  let spec_start =
-    spot_before h0.cursor_start
-      ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-      (lbrace, (x.tval spec)))
-  in
-  IText (false, x.tnil, None,
-  (oword_reset
-    (oemit (imk_here h h0 SoftBreak)
-      (flush_text_at h h0 (iraw_lit (x.tval spec))
-        (oemit (imk h (text_start h0 o) spec_start (Verbatim txt)) o)))))
+| IRaw (_, _, sh, _) -> ibreak_flat x h h0 sh
 | _ -> st
 
 (** val ibreak_at :
@@ -1945,6 +1900,7 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
     (x.tpush dst ((^) (if esc then one bslash else "") nl)),
     (ibreak_at t x h h0 attrs_enabled sh), o)
 | ISymbol (_, _, sh, _) -> ibreak_at t x h h0 attrs_enabled sh
+| IRaw (_, _, sh, _) -> ibreak_at t x h h0 attrs_enabled sh
 | _ -> ibreak_flat x h h0 (iresolve t x h h0 st)
 
 (** val ibreak :
@@ -1961,7 +1917,6 @@ let iclosed_at = function
 | IVerb (n, run, _, _, o) -> (&&) (( = ) run n) (null o.os_stk)
 | IWiki (_, _, _, _, _, o) -> null o.os_stk
 | IAuto (_, _, o) -> null o.os_stk
-| IRaw (_, _, o) -> null o.os_stk
 | _ -> false
 
 (** val iresolve_next :
@@ -2020,7 +1975,7 @@ let rec map_text x = function
 | IAuto (src, t, o) -> IAuto ((x.tval src), (x.tval t), o)
 | ISymbol (alias, t, sh, o) ->
   ISymbol ((x.tval alias), (x.tval t), (map_text x sh), o)
-| IRaw (spec, v, o) -> IRaw ((x.tval spec), v, o)
+| IRaw (spec, v, sh, o) -> IRaw ((x.tval spec), v, (map_text x sh), o)
 | IPercent (t, prev, o) -> IPercent ((x.tval t), prev, o)
 
 (** val lift : 'a1 coq_TextOps -> string iscan_g -> 'a1 iscan_g **)
@@ -2057,7 +2012,7 @@ let rec lift x = function
 | IAuto (src, t, o) -> IAuto ((x.tof src), (x.tof t), o)
 | ISymbol (alias, t, sh, o) ->
   ISymbol ((x.tof alias), (x.tof t), (lift x sh), o)
-| IRaw (spec, v, o) -> IRaw ((x.tof spec), v, o)
+| IRaw (spec, v, sh, o) -> IRaw ((x.tof spec), v, (lift x sh), o)
 | IPercent (t, prev, o) -> IPercent ((x.tof t), prev, o)
 
 (** val ddecode_from : bool -> string -> string **)

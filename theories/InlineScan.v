@@ -1392,8 +1392,10 @@ Inductive iscan_g : Type :=
   (* a verbatim span that closed onto a `{`, holding its content and the
      spec source read since.  The node is not emitted yet: whether it is
      `Verbatim` or `RawInline` is what the spec decides.  Only a verbatim
-     reaches here, never math. *)
-  | IRaw (spec : Buf) (txt : string) (o : ostate)
+     reaches here, never math.  `sh` is the ordinary reading of the same
+     bytes, the verbatim emitted and the `{` read as any other `{`; a
+     spec that fails selects it. *)
+  | IRaw (spec : Buf) (txt : string) (sh : iscan_g) (o : ostate)
   (* a `%` whose role the next byte decides: a backtick run makes it a
      hole's prefix, and anything else makes it text.  `IDollar`'s shape,
      for `IDollar`'s reason. *)
@@ -1678,42 +1680,29 @@ Definition isymbol_step `{PosPolicy} `{InlineCursor}
          (tag_push (tval alias) start (flush_text_to_at start (tval txt) o))
   else sh'.
 
+(* A verbatim closed onto a `{`: a raw spec, with the ordinary reading
+   beside it from the `{` on. *)
+Definition iraw_open `{PosPolicy} `{InlineCursor}
+  (txt : string) (o : ostate) : iscan :=
+  IRaw tnil txt
+    (IBrace tnil (Some tick)
+       (oemit (imk (text_start o) cursor_start (Verbatim txt)) o)) o.
+
 (* One byte of a raw-format spec.  The `}` decides it; the pattern's
-   excluded bytes end it; anything else is spec.
-
-   A failed spec is put back with the verbatim it followed, and there the
-   two cases differ.  With nothing read yet the `{` had no `=` after it,
-   so it takes the ordinary attribute path.  With an `=` read the region
-   cannot parse as attributes, so it is text. *)
-Local Definition iraw_lit (spec : string) : string :=
-  (String lbrace spec)%string.
-
-Definition iraw_step_at `{PosPolicy} `{InlineCursor}
-  (attrs_enabled : bool) (c : ascii) (spec : Buf) (txt : string)
-  (o : ostate) : iscan :=
-  if (Ascii.eqb c rbrace && raw_spec_ok (tval spec))%bool
-  then if raw_inline_enabled
-       then IText false tnil (Some rbrace)
-              (oemit (imk (text_start o) cursor_stop
-                        (RawInline (raw_format (tval spec)) txt)) o)
-       else ilead c (tof (iraw_lit (tval spec))) (blit_prev (iraw_lit (tval spec)))
-              (oemit (imk (text_start o)
-                         (spot_before cursor_start (String lbrace (tval spec)))
-                         (Verbatim txt)) o)
+   excluded bytes end it; anything else is spec.  `sh'` has already
+   consumed the byte as ordinary inline input, and a spec that fails
+   selects it, as `isymbol_step` does. *)
+Definition iraw_step `{PosPolicy} `{InlineCursor}
+  (c : ascii) (spec : Buf) (txt : string)
+  (o : ostate) (sh' : iscan) : iscan :=
+  if (raw_inline_enabled && Ascii.eqb c rbrace && raw_spec_ok (tval spec))%bool
+  then IText false tnil (Some rbrace)
+         (oemit (imk (text_start o) cursor_stop
+                   (RawInline (raw_format (tval spec)) txt)) o)
   else if (if tnonempty spec then (Ascii.eqb c rbrace || raw_stop c)%bool
            else negb (Ascii.eqb c eqchar))
-  then let closed :=
-         oemit (imk (text_start o)
-                  (spot_before cursor_start (String lbrace (tval spec)))
-                  (Verbatim txt)) o in
-       if tnonempty spec
-       then ilead c (tof (iraw_lit (tval spec))) (blit_prev (iraw_lit (tval spec))) closed
-       else ibrace_step_at attrs_enabled c tnil (Some tick) closed
-  else IRaw (tpush spec (one c)) txt o.
-
-Local Definition iraw_step `{PosPolicy} `{InlineCursor}
-  (c : ascii) (spec : Buf) (txt : string) (o : ostate) : iscan :=
-  iraw_step_at inline_attrs_enabled c spec txt o.
+  then sh'
+  else IRaw (tpush spec (one c)) txt sh' o.
 
 (* A label that never closed is its own source: the bracket it took back,
    the marker, and what it had eaten.  `opop_str` reabsorbs the `Str`
@@ -2094,7 +2083,7 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
                                   (Math InlineMath (trim_verb (tval txt))))
                          (flush_text_to_at start prefix o'))
                 else if Ascii.eqb c lbrace
-                     then IRaw tnil (trim_verb (tval txt)) o
+                     then iraw_open (trim_verb (tval txt)) o
                      else ilead c tnil (Some tick)
                             (oemit (imk (text_start o) cursor_start
                                       (Verbatim (trim_verb (tval txt)))) o)
@@ -2108,7 +2097,7 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
                                   (Math InlineMath (trim_verb (tval txt)))) o)
             | _ =>
                 if (Ascii.eqb c lbrace && vkind_verb vk)%bool
-                then IRaw tnil (trim_verb (tval txt)) o
+                then iraw_open (trim_verb (tval txt)) o
                 else ilead c tnil (Some tick)
                        (oemit (imk (text_start o) cursor_start
                                  (vnode vk (trim_verb (tval txt)))) o)
@@ -2147,7 +2136,8 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
   | ISymbol alias txt sh o =>
       isymbol_step c alias txt o
         (istep_at attrs_enabled c sh)
-  | IRaw spec txt o => iraw_step_at attrs_enabled c spec txt o
+  | IRaw spec txt sh o =>
+      iraw_step c spec txt o (istep_at attrs_enabled c sh)
   | IReference kids image open true label o =>
       IReference kids image open false (tpush label (one bslash ++ one c)) o
   | IReference kids image open false label o =>
@@ -2221,12 +2211,8 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
      contain a break, so the `>` it wanted can never arrive *)
   | IAuto src txt o => flush_text_at (tval (auto_lit (tval src) txt)) o
   | ISymbol _ _ _ o => o
-  (* a spec the line ended inside never closed: the verbatim stands and
-     the spec source is text after it *)
-  | IRaw spec txt o =>
-      let spec_start := spot_before cursor_start (String lbrace (tval spec)) in
-      flush_text_at (iraw_lit (tval spec))
-        (oemit (imk (text_start o) spec_start (Verbatim txt)) o)
+  (* unreachable: `ifinish_ostate` takes a raw spec's shadow first *)
+  | IRaw _ _ _ o => o
   | IReference kids image _ esc label o =>
       let '(txt, o') := bref_lit kids image
                           (tval label ++ (if esc then one bslash else EmptyString)) o in
@@ -2270,6 +2256,7 @@ Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   | ISpan _ _ _ _ _ sh _ => ifinish_ostate sh
   | IDest _ _ _ _ _ _ sh _ => ifinish_ostate sh
   | ISymbol _ _ sh _ => ifinish_ostate sh
+  | IRaw _ _ sh _ => ifinish_ostate sh
   | _ => ifinish_ostate_flat (iresolve st)
   end.
 
@@ -2339,15 +2326,8 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
           (oemit (imk_here SoftBreak)
             (flush_text_at (tval (auto_lit (tval src) txt)) o)))
   | ISymbol _ _ sh _ => ibreak_flat sh
-  (* nor does a raw spec: the pattern excludes whitespace, so a break
-     ends the candidate exactly as `ifinish` does *)
-  | IRaw spec txt o =>
-      let spec_start := spot_before cursor_start (String lbrace (tval spec)) in
-      IText false tnil None
-        (oword_reset
-          (oemit (imk_here SoftBreak)
-             (flush_text_at (iraw_lit (tval spec))
-               (oemit (imk (text_start o) spec_start (Verbatim txt)) o))))
+  (* nor does a raw spec: the pattern excludes whitespace *)
+  | IRaw _ _ sh _ => ibreak_flat sh
   (* A span's spec crosses the break too, and the newline is whitespace to
      the machine: `[s]{.a` / `.b}` is one span whose classes merge.  It is
      fed rather than accumulated because the machine is what decides
@@ -2422,6 +2402,7 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
         (tpush dst ((if esc then one bslash else EmptyString) ++ nl))
         (ibreak_at attrs_enabled sh) o
   | ISymbol _ _ sh _ => ibreak_at attrs_enabled sh
+  | IRaw _ _ sh _ => ibreak_at attrs_enabled sh
   | _ => ibreak_flat (iresolve st)
   end.
 
@@ -2455,9 +2436,9 @@ Definition iclosed_at (st : iscan) : bool :=
   (* an autolink candidate owes the next line nothing: the region may not
      hold a break, so the candidate dies at the boundary and what it ate
      is text on this line *)
-  | IAuto _ _ o | IRaw _ _ o
+  | IAuto _ _ o
   | IWiki _ _ _ _ _ o => null (os_stk o)
-  | ISymbol _ _ _ _ => false
+  | ISymbol _ _ _ _ | IRaw _ _ _ _ => false
   end.
 
 Definition iscan_closed `{PosPolicy} `{InlineCursor} (st : iscan) : bool :=
@@ -2509,7 +2490,7 @@ Definition is_compound (st : iscan) : bool :=
              | None => false end))%bool
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _ => true
   | IAttr _ _ _ _ _ _ | ISpan _ _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
-  | ISymbol _ _ _ _ => true
+  | ISymbol _ _ _ _ | IRaw _ _ _ _ => true
   | _ => false
   end.
 
@@ -2573,7 +2554,7 @@ Fixpoint map_text (st : iscan_g (Buf:=Buf)) : iscan :=
       IDest kids image open esc depth (tval dst) (map_text sh) o
   | IAuto src t o => IAuto (tval src) (tval t) o
   | ISymbol alias t sh o => ISymbol (tval alias) (tval t) (map_text sh) o
-  | IRaw spec v o => IRaw (tval spec) v o
+  | IRaw spec v sh o => IRaw (tval spec) v (map_text sh) o
   | IPercent t prev o => IPercent (tval t) prev o
   end.
 
@@ -2604,7 +2585,7 @@ Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
       IDest kids image open esc depth (tof dst) (lift sh) o
   | IAuto src t o => IAuto (tof src) (tof t) o
   | ISymbol alias t sh o => ISymbol (tof alias) (tof t) (lift sh) o
-  | IRaw spec v o => IRaw (tof spec) v o
+  | IRaw spec v sh o => IRaw (tof spec) v (lift sh) o
   | IPercent t prev o => IPercent (tof t) prev o
   end.
 
@@ -2823,10 +2804,6 @@ Proof.
   - destruct aob as [out [|f stk] word]; [|discriminate].
     unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
     destruct (nonempty_str (auto_lit asrc atxt)); reflexivity.
-  (* the same, with the verbatim the spec did not claim underneath *)
-  - destruct rob as [out [|f stk] word]; [|discriminate].
-    unfold flush_text_at, oemit; cbn [os_stk os_out oflatten oapp].
-    destruct (nonempty_str (iraw_lit rspec)); reflexivity.
 Qed.
 
 Fixpoint iscan_str (s : string) (st : iscan) : iscan :=

@@ -201,7 +201,7 @@ Local Fixpoint iout_app (base : oitems) (st : iscan) : iscan :=
   | IAuto src txt o => IAuto src txt (oout_app base o)
   | ISymbol alias txt sh o =>
       ISymbol alias txt (iout_app base sh) (oout_app base o)
-  | IRaw spec txt o => IRaw spec txt (oout_app base o)
+  | IRaw spec txt sh o => IRaw spec txt (iout_app base sh) (oout_app base o)
   | IPercent txt prev o => IPercent txt prev (oout_app base o)
   end.
 
@@ -560,11 +560,19 @@ Local Lemma iresolve_app :
     base_ok base = true ->
     iresolve (iout_app base st) = iout_app base (iresolve st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rsh rob|pct pcp pco] Hb;
     try reflexivity.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity|].
     destruct mrk; [apply idelim_open_marked_out_app | apply idelim_resolve_app].
+Qed.
+
+Local Lemma iraw_open_app :
+  forall txt o base,
+    iraw_open txt (oout_app base o) = iout_app base (iraw_open txt o).
+Proof.
+  intros txt o base. unfold iraw_open. cbn [iout_app].
+  rewrite ?imk_semantic, oemit_app. reflexivity.
 Qed.
 
 Local Lemma idelim_marked_out_app :
@@ -580,7 +588,7 @@ Local Lemma istep_at_out_app :
     = iout_app base (istep_at attrs_enabled c st).
 Proof.
   intros attrs_enabled c base st. revert attrs_enabled c base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh IHssh sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh IHssh sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob|rspec rtxt rsh IHrsh rob|pct pcp pco];
     intros attrs_enabled c base Hb; cbn [iout_app istep_at]; tred.
   - destruct (is_ws c); reflexivity.
   - apply ilead_app.
@@ -608,7 +616,7 @@ Proof.
   - destruct (is_tick c); [reflexivity|].
     destruct (Nat.eqb run n); [|reflexivity].
     destruct vk as [|sty|prefix|]; cbn [vkind_verb vnode].
-    + destruct (Ascii.eqb c lbrace); [reflexivity|].
+    + destruct (Ascii.eqb c lbrace); [apply iraw_open_app|].
       rewrite ?imk_semantic, oemit_app. apply ilead_app.
     + destruct sty.
       * rewrite andb_false_r, ?imk_semantic, oemit_app.
@@ -620,7 +628,7 @@ Proof.
       * rewrite (opop_str_app o base Hb).
         destruct (opop_str o) as [pre o']; cbn [fst snd iout_app].
         rewrite flush_text_app, oemit_app. reflexivity.
-      * destruct (Ascii.eqb c lbrace); [reflexivity|].
+      * destruct (Ascii.eqb c lbrace); [apply iraw_open_app|].
         rewrite ?imk_semantic, oemit_app. apply ilead_app.
     + rewrite andb_false_r, ?imk_semantic, oemit_app. apply ilead_app.
   - (* a pending `$` either grows, opens a math span, or is text *)
@@ -717,22 +725,11 @@ Proof.
                 && tag_may_follow stxt)%bool;
         [|reflexivity].
       cbn [iout_app]. rewrite flush_text_app, tag_push_app. reflexivity.
-  - unfold iraw_step_at. tred. rewrite ?imk_semantic.
-    destruct (Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
-    + destruct raw_inline_enabled.
-      * cbn [iout_app]. rewrite oemit_app. reflexivity.
-      * rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
-    + destruct rspec as [|x rspec']; cbn [tnonempty nonempty_str].
-      * destruct (negb (Ascii.eqb c eqchar)); [|reflexivity].
-        rewrite (oemit_app (mk (Verbatim rtxt)) rob base).
-        unfold ibrace_step_at; destruct (dstyle_of c);
-          [apply idelim_marked_out_app|].
-        destruct attrs_enabled;
-          [rewrite ilead_app; apply iattr_feed_app, Hb|].
-        rewrite battr_lit_app. destruct (battr_lit EmptyString "") as [t o'].
-        apply ilead_app.
-      * destruct (Ascii.eqb c rbrace || raw_stop c)%bool; [|reflexivity].
-        rewrite (oemit_app (mk (Verbatim rtxt)) rob base). apply ilead_app.
+  - unfold iraw_step. tred. rewrite IHrsh by exact Hb.
+    destruct (raw_inline_enabled && Ascii.eqb c rbrace && raw_spec_ok rspec)%bool.
+    + cbn [iout_app]. rewrite ?imk_semantic, oemit_app. reflexivity.
+    + destruct (if nonempty_str rspec then (Ascii.eqb c rbrace || raw_stop c)%bool
+                else negb (Ascii.eqb c eqchar)); reflexivity.
   - (* a pending `%` either opens a hole or is text *)
     unfold ipercent_step. destruct (is_tick c);
       [cbn [iout_app]; rewrite flush_text_app; reflexivity|apply ilead_app].
@@ -760,7 +757,7 @@ Local Lemma ibreak_flat_app :
     base_ok base = true ->
     ibreak_flat (iout_app base st) = iout_app base (ibreak_flat st).
 Proof.
-  intros base st. induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh IHssh sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob|pct pcp pco]; intro Hb;
+  intros base st. induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh IHssh sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rsh IHrsh rob|pct pcp pco]; intro Hb;
     cbn [iout_app ibreak_flat]; try reflexivity.
   all: try (try unfold iesc_hard;
             rewrite flush_text_app, oemit_app; reflexivity).
@@ -773,7 +770,7 @@ Proof.
     destruct (bwiki_lit wesc wrb wimg wreg wob) as [t o'].
     cbn [iout_app]. rewrite flush_text_app, oemit_app. reflexivity.
   - apply IHsob, Hb.
-  - rewrite oemit_app, flush_text_app, oemit_app. reflexivity.
+  - apply IHrsh, Hb.
 Qed.
 
 Local Lemma ibreak_flat_state_app :
@@ -796,7 +793,7 @@ Local Lemma ibreak_at_out_app :
     = iout_app base (ibreak_at attrs_enabled st).
 Proof.
   intros attrs_enabled base st. revert attrs_enabled base.
-  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh IHssh sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob|pct pcp pco];
+  induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh IHssh sob|ap asrc atxt aprev ash IHash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh IHsh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rsh IHrsh rob|pct pcp pco];
     intros attrs_enabled base Hb;
     try (rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
          rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
@@ -824,6 +821,7 @@ Proof.
     apply iattr_feed_app, Hb.
   - cbn [ibreak_at iout_app]. rewrite IHsh by exact Hb. reflexivity.
   - cbn [ibreak_at iout_app]. rewrite IHsob by exact Hb. reflexivity.
+  - cbn [ibreak_at iout_app]. rewrite IHrsh by exact Hb. reflexivity.
 Qed.
 
 Local Lemma ibreak_out_app :
@@ -996,7 +994,7 @@ Local Lemma ifinish_ostate_flat_app :
     ifinish_ostate_flat (iout_app base st)
     = oout_app base (ifinish_ostate_flat st).
 Proof.
-  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco] Hb;
+  intros base [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rsh rob|pct pcp pco] Hb;
     cbn [iout_app ifinish_ostate_flat]. tred.
   1,3: unfold iesc_hard; rewrite flush_text_app, oemit_app; reflexivity.
   1: rewrite flush_text_app; reflexivity.
@@ -1018,7 +1016,6 @@ Proof.
     destruct (bwiki_lit wesc wrb wimg (tval wreg) wob) as [t o']; cbn [fst snd].
     rewrite flush_text_app. reflexivity.
   - rewrite flush_text_app. reflexivity.
-  - rewrite oemit_app, flush_text_app. reflexivity.
 Qed.
 
 Local Lemma ifinish_ostate_flat_state_app :
@@ -1803,14 +1800,14 @@ Proof.
   cbn [after_verb_next] in Hnext.
   destruct (Ascii.eqb c lbrace) eqn:Hb; [|reflexivity].
   (* the raw mode and the brace it stands in for agree from the next byte
-     on: the mode's own failure path is `ibrace_step`, which is that
-     byte's ordinary dispatch *)
+     on: a spec that fails takes the mode's shadow, which is the brace *)
   destruct s as [|d s]; [discriminate|].
   cbn [iscan_str istep istep_at].
   apply Ascii.eqb_eq in Hb; subst c.
-  cbn [vkind_verb andb].
-  unfold istep at 1; cbn [istep_at]; unfold iraw_step_at.
-  rewrite Hnext, andb_false_r. unfold ilead; cbn. reflexivity.
+  cbn [vkind_verb andb iscan_str].
+  unfold istep at 1; cbn [istep_at]; unfold iraw_open. cbn [istep_at].
+  unfold iraw_step. tred.
+  rewrite andb_false_r, Hnext, ?imk_semantic. unfold ilead; cbn. reflexivity.
 Qed.
 
 Local Lemma escape_str_starts_nontick :
@@ -2553,9 +2550,11 @@ Local Lemma iscan_raw_format :
     (no_ws fmt && no_char lbrace fmt && no_char rbrace fmt
      && no_char tick fmt)%bool = true ->
     nonempty_str acc = true ->
-    iscan_str fmt (IRaw acc txt o) = IRaw (acc ++ fmt)%string txt o.
+    forall sh,
+    iscan_str fmt (IRaw acc txt sh o)
+    = IRaw (acc ++ fmt)%string txt (iscan_str fmt sh) o.
 Proof.
-  induction fmt as [|c fmt IH]; intros acc txt o Hf Hacc.
+  induction fmt as [|c fmt IH]; intros acc txt o Hf Hacc sh.
   - rewrite append_empty_r. reflexivity.
   - apply andb_true_iff in Hf as [Hf Htk].
     apply andb_true_iff in Hf as [Hf Hrb].
@@ -2567,8 +2566,8 @@ Proof.
     apply andb_true_iff in Htk as [Htkc Htk].
     apply negb_true_iff in Hwsc. apply negb_true_iff in Hlbc.
     apply negb_true_iff in Hrbc. apply negb_true_iff in Htkc.
-    cbn [iscan_str istep istep_at]. unfold iraw_step_at. tred.
-    rewrite Hrbc. cbn [andb].
+    cbn [iscan_str istep istep_at]. unfold iraw_step. tred.
+    rewrite Hrbc, andb_false_r. cbn [andb].
     destruct acc as [|x acc']; [discriminate|]. cbn [tnonempty nonempty_str].
     unfold raw_stop. rewrite Hlbc.
     replace (is_ws c) with false
@@ -2642,8 +2641,8 @@ Proof.
   tred.
   rewrite trim_verb_pad by exact Hvok.
   (* ...the `=` makes it a candidate, the format accumulates... *)
-  unfold istep_at at 1. unfold iraw_step_at. tred.
-  change (Ascii.eqb "="%char rbrace) with false. cbn [andb].
+  unfold iraw_open. unfold istep_at at 1. unfold iraw_step. tred.
+  change (Ascii.eqb "="%char rbrace) with false. rewrite andb_false_r. cbn [andb].
   change (negb (Ascii.eqb "="%char eqchar)) with false.
   cbn [nonempty_str].
   rewrite append_assoc, iscan_str_app.
@@ -2651,11 +2650,11 @@ Proof.
   rewrite (iscan_raw_format fmt (one eqchar) v (flush_text txt o))
     by (first [rewrite Hws, Hlb, Hrb, Htk; reflexivity | reflexivity]).
   (* ...and the `}` decides the node. *)
-  cbn [one iscan_str istep istep_at append]. unfold iraw_step_at. tred.
+  cbn [one iscan_str istep istep_at append]. unfold iraw_step. tred.
   change (Ascii.eqb rbrace rbrace) with true.
   unfold raw_spec_ok. cbn [append].
-  rewrite Ascii.eqb_refl, Hfne. cbn [andb].
-  rewrite Hraw. unfold raw_format. reflexivity.
+  rewrite Ascii.eqb_refl, Hfne, Hraw. cbn [andb].
+  unfold raw_format. reflexivity.
 Qed.
 
 Local Lemma ref_close_app :
@@ -4104,7 +4103,7 @@ Lemma iresolve_resolved :
     | _ => True
     end.
 Proof.
-  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|wesc wrb wimg wreg wob|kids img esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rob|pct pcp pco];
+  intros [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh mo|mct mcs mcx mcl mcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img sopen sp ssrc ssh sob|ap asrc atxt aprev ash aob|kids img label ob|nesc nimg nlab nob|wesc wrb wimg wreg wob|kids img esc depth dst sh ob|asrc atxt aob|salias stxt sob|rspec rtxt rsh rob|pct pcp pco];
     cbn [iresolve]; try exact I.
   - destruct (Nat.ltb (S seen) (dwidth k)); [exact I|].
     destruct mrk; [exact I|].
