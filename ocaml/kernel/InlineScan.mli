@@ -219,7 +219,7 @@ type 'buf iscan_g =
 | ISpan of inlines * bool * span * aparser * 'buf * 'buf iscan_g * ostate
 | IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
 | IReference of inlines * bool * span * bool * 'buf * ostate
-| INote of bool * bool * 'buf * span * ostate
+| INote of bool * bool * 'buf * span * 'buf iscan_g * ostate
 | IWiki of bool * bool * bool * 'buf * span * ostate
 | IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
 | IAuto of 'buf * 'buf * ostate
@@ -228,6 +228,10 @@ type 'buf iscan_g =
 | IPercent of 'buf * char option * ostate
 
 val note_pos : 'a1 coq_TextOps -> 'a1 -> char option -> bool
+
+val itable :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+  'a1 -> char option -> ostate -> 'a1 iscan_g
 
 val ilead :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -275,7 +279,7 @@ val ispan_feed :
 
 val inote_step :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool
-  -> 'a1 -> span -> ostate -> 'a1 iscan_g
+  -> 'a1 -> span -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
 val iauto_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -292,10 +296,6 @@ val iraw_open :
 val iraw_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   'a1 -> string -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
-
-val bnote_lit :
-  coq_PosPolicy -> coq_InlineCursor -> bool -> bool -> string -> ostate ->
-  string * ostate
 
 val wiki_split : string -> string * string option
 

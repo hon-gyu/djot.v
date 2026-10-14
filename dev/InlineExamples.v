@@ -830,6 +830,12 @@ Example note_label_crosses_break :
   para_inlines ["[^a"; "b]"] = [mk (FootnoteReference "a b")].
 Proof. vm_compute. reflexivity. Qed.
 
+(* One that never closes is read as usual, across the break too. *)
+Example note_unclosed_across_break :
+  para_inlines ["[^a"; "_b_"]
+  = [mk (Str "[^a"); mk SoftBreak; mk (Emph [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
 Example note_empty_label : parse_inline_line "[^]" = [mk (FootnoteReference "")].
 Proof. vm_compute. reflexivity. Qed.
 
@@ -872,9 +878,21 @@ Example note_escaped_close :
   parse_inline_line "[^a\]b]" = [mk (FootnoteReference "a\]b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Unclosed, the whole region is its own source. *)
+(* Unclosed, a label reads as if its `[^` began none: the `[` opens a
+   bracket, the `^` is the superscript row, and the rest is read as
+   usual. *)
 Example note_unclosed_is_text :
   parse_inline_line "[^a" = [mk (Str "[^a")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example note_unclosed_keeps_emphasis :
+  parse_inline_line "[^a _b_"
+  = [mk (Str "[^a "); mk (Emph [mk (Str "b")])].
+Proof. vm_compute. reflexivity. Qed.
+
+Example note_unclosed_hat_is_superscript :
+  parse_inline_line "[^a^ b"
+  = [mk (Str "["); mk (Superscript [mk (Str "a")]); mk (Str " b")].
 Proof. vm_compute. reflexivity. Qed.
 
 Example note_unclosed_after_bang_is_text :

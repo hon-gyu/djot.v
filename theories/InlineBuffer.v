@@ -137,7 +137,7 @@ Proof. intros t prev. unfold note_pos. tred. laws. reflexivity. Qed.
 Lemma ilead_map : forall c t prev o,
   map_text (ilead c t prev o) = ilead c (tval t) prev o.
 Proof.
-  intros c t prev o. unfold ilead. tred. rewrite note_pos_map.
+  intros c t prev o. unfold ilead, itable. tred. rewrite note_pos_map.
   repeat match goal with
   | |- context [if ?b then _ else _] => destruct b
   | |- context [match ?x with Some _ => _ | None => _ end] => destruct x as [[[[? ?] ?] ?]|]
@@ -208,8 +208,9 @@ Lemma ispan_feed_map : forall c kids image open p src sh o,
   = ispan_feed c kids image open p (tval src) (map_text sh) o.
 Proof. intros. unfold ispan_feed. crush. Qed.
 
-Lemma inote_step_map : forall c esc image label open o,
-  map_text (inote_step c esc image label open o) = inote_step c esc image (tval label) open o.
+Lemma inote_step_map : forall c esc image label open o sh,
+  map_text (inote_step c esc image label open o sh)
+  = inote_step c esc image (tval label) open o (map_text sh).
 Proof. intros. unfold inote_step. crush. Qed.
 
 Lemma iauto_step_map : forall c src t o,
@@ -322,7 +323,7 @@ Proof.
   - (* ISpan *) rewrite <- !IHst. crush.
   - (* IAttr *) rewrite <- !IHst. crush.
   - crush.
-  - crush.
+  - (* INote *) rewrite <- IHst. crush.
   - crush.
   - (* IDest *) destruct esc; rewrite <- ?IHst; crush.
   - crush.
@@ -396,6 +397,7 @@ Proof.
       |apply IHst].
   - rewrite ispan_feed_map, IHst. reflexivity.
   - rewrite iattr_feed_map, IHst. reflexivity.
+  - rewrite IHst. crush.
   - rewrite IHst. crush.
   - apply IHst.
   - apply IHst.

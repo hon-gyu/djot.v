@@ -2704,3 +2704,27 @@ is the highlight opener it is anywhere else.
 
 Pinned by `raw_failed_spec_is_a_highlight` and
 `raw_failed_spec_holds_emphasis` in `dev/InlineExamples.v`.
+
+## 2026-10-14 -- AGREES now: a footnote label that never closes
+
+The two entries above, for `[^`.
+
+| Input | djot.js | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `[^a _b_` | `[^a `, an emphasised `b` | `[^a _b_`, all text | as djot.js |
+| `[^a^ b` | `[`, a superscript `a`, ` b` | `[^a^ b`, all text | as djot.js |
+| `[^a` / `b]` | a reference to `a b` | the same | the same |
+
+A label that never closed put the rest of the paragraph back as text
+(`bnote_lit`). `INote` now carries the ordinary reading from the `^`
+on, with the bracket open and the `^` read as the table says
+(`itable`), and a label that never closes selects it.
+
+A label still crosses a line break, as `footnotes.test:97` and `:118`
+expect; the reference is silent. Decided by the maintainer
+(2026-10-14). The inline specification reads a label within its line,
+so a label over a break stays outside its alphabet.
+
+Pinned by `note_unclosed_keeps_emphasis`,
+`note_unclosed_hat_is_superscript` and `note_unclosed_across_break` in
+`dev/InlineExamples.v`.

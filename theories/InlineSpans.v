@@ -406,7 +406,7 @@ Fixpoint st_inv (W : list window) (cur : spot) (st : iscan) : Prop :=
   | IAttr p _ txt _ sh o =>
       held W o (nonempty_str txt) cur /\ ap_done p = false /\ st_inv W cur sh
   | IReference kids _ _ _ _ o => Forall (dn_node W) kids /\ held W o false cur
-  | INote _ _ _ _ o => held W o false cur
+  | INote _ _ _ _ sh o => held W o false cur /\ st_inv W cur sh
   | IWiki _ _ _ _ _ o => held W o false cur
   | IDest kids _ _ _ _ _ sh o =>
       Forall (dn_node W) kids /\ held W o false cur /\ st_inv W cur sh
@@ -1100,13 +1100,6 @@ Proof.
   destruct (bclosed_lit kids image o) as [t o1]. exact H1.
 Qed.
 
-Lemma bnote_lit_ok : forall W (CU : InlineCursor) esc image label o h,
-  oinv W o true h -> oinv W (snd (bnote_lit esc image label o)) true h.
-Proof.
-  intros W CU esc image label o h Ho. unfold bnote_lit.
-  pose proof (opop_str_ok W o h Ho) as H1. destruct (opop_str o) as [pre o1]. exact H1.
-Qed.
-
 Lemma bwiki_lit_ok : forall W esc rb image region o h,
   oinv W o true h -> oinv W (snd (bwiki_lit esc rb image region o)) true h.
 Proof.
@@ -1193,6 +1186,32 @@ Proof.
   exact (frame_push_ok W (FKBracket image) false (SrcSpan start cursor_stop) o I Ho Hlt).
 Qed.
 
+Lemma itable_ok : forall W (CU : InlineCursor) cur c rest txt prev o,
+  cursor_start = cur -> cursor_stop = sright 1 cur ->
+  sfx W cur = Some (String c rest) ->
+  oinv W o (nonempty_str txt) cur -> prev_ok W prev cur ->
+  st_inv W (sright 1 cur) (itable c txt prev o).
+Proof.
+  intros W CU cur c rest txt prev o Hs Hn Hcur Ho Hp.
+  pose proof (oinv_next _ _ _ _ Hcur _ _ Ho) as Hon.
+  pose proof (held_next _ _ _ _ Hcur _ _ Ho) as Hheld.
+  pose proof (prev_here _ _ _ _ Hcur) as Hph.
+  pose proof (byte_back _ _ _ _ Hcur) as Hb.
+  pose proof (cur_back _ _ _ _ Hcur) as Hback.
+  unfold itable.
+  destruct (dstyle_of c) as [k|] eqn:Ek.
+  - apply dstyle_of_char in Ek. cbn [st_inv].
+    assert (Hr : delim_run k 0 false = one c) by (unfold delim_run; rewrite Ek; reflexivity).
+    rewrite Hr. cbn [String.length one]. rewrite Hback.
+    split; [pose proof (dwidth_nonzero k); lia|].
+    split; [exact (ends_here _ _ _ _ Hcur)|split; [exact Ho|intros _; exact Hp]].
+  - destruct (holes_enabled && Ascii.eqb c percent)%bool eqn:Ep.
+    + apply andb_true_iff in Ep as [_ Ep]. apply Ascii.eqb_eq in Ep; subst c.
+      cbn [st_inv]. split; [exact Hheld|exact Hb].
+    + cbn [st_inv]. split; [|split; [exact Hph|discriminate]].
+      apply remember_word_start_ok, oinv_any, Hon.
+Qed.
+
 Lemma ilead_ok : forall W (CU : InlineCursor) cur c rest txt prev o,
   cursor_start = cur -> cursor_stop = sright 1 cur ->
   sfx W cur = Some (String c rest) ->
@@ -1267,20 +1286,11 @@ Proof.
             then bunpush o else None) as [[[image open] o']|] eqn:Ew.
   { destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool; [|discriminate].
     destruct (bunpush_ok W o cur image open o' (oinv_false _ _ _ _ Ho) Ew) as (A & B & C).
-    cbn [st_inv]. eapply held_intro; [|exact A].
+    cbn [st_inv]. split; [|apply (itable_ok W CU cur c rest); assumption].
+    eapply held_intro; [|exact A].
     eapply spot_lt_trans; [exact B|].
     eapply spot_le_lt_trans; [exact C|apply (cur_next _ _ _ _ Hcur)]. }
-  destruct (dstyle_of c) as [k|] eqn:Ek.
-  - apply dstyle_of_char in Ek. cbn [st_inv].
-    assert (Hr : delim_run k 0 false = one c) by (unfold delim_run; rewrite Ek; reflexivity).
-    rewrite Hr. cbn [String.length one]. rewrite Hback.
-    split; [pose proof (dwidth_nonzero k); lia|].
-    split; [exact (ends_here _ _ _ _ Hcur)|split; [exact Ho|intros _; exact Hp]].
-  - destruct (holes_enabled && Ascii.eqb c percent)%bool eqn:Ep.
-    + apply andb_true_iff in Ep as [_ Ep]. apply Ascii.eqb_eq in Ep; subst c.
-      cbn [st_inv]. split; [exact Hheld|exact Hb].
-    + cbn [st_inv]. split; [|split; [exact Hph|discriminate]].
-      apply remember_word_start_ok, oinv_any, Hon.
+  apply (itable_ok W CU cur c rest); assumption.
 Qed.
 
 (*
@@ -1643,7 +1653,7 @@ Proof.
   assert (Hk : dstyle_of nl_char = None).
   { destruct (dstyle_of nl_char) as [k|] eqn:E; [|reflexivity].
     apply dstyle_of_char in E. pose proof (dchar_not_nl k) as H. rewrite E in H. discriminate. }
-  unfold ilead. cbn -[dstyle_of remember_word_start note_pos bunpush oinv prev_ok byte_at].
+  unfold ilead, itable. cbn -[dstyle_of remember_word_start note_pos bunpush oinv prev_ok byte_at].
   rewrite Hk. change (Ascii.eqb nl_char percent) with false. rewrite andb_false_r.
   cbn [st_inv]. tred. cbn [orb].
   split; [|split; [unfold prev_ok; rewrite Hb; right; reflexivity|discriminate]].
@@ -1925,14 +1935,15 @@ Qed.
 Lemma eqb_rewrite : forall x, Ascii.eqb c x = true -> prev_ok W (Some x) next.
 Proof. intros x E. apply Ascii.eqb_eq in E. rewrite <- E. exact nx_prev. Qed.
 
-Lemma inote_ok : forall esc image label open o,
-  held W o false cur -> st_inv W next (inote_step c esc image label open o).
+Lemma inote_ok : forall esc image label open o sh,
+  held W o false cur -> st_inv W next sh ->
+  st_inv W next (inote_step c esc image label open o sh).
 Proof.
-  intros esc image label open o Ho. pose proof (held_oinv _ _ _ _ Ho) as Ht.
+  intros esc image label open o sh Ho Hsh. pose proof (held_oinv _ _ _ _ Ho) as Ht.
   pose proof (held_step _ _ false false _ _ Ho nx_lt) as Hh.
   unfold inote_step.
-  destruct esc; [exact Hh|]. destruct (is_bslash c); [exact Hh|].
-  destruct (Ascii.eqb c rbrack) eqn:E; [|exact Hh].
+  destruct esc; [split; assumption|]. destruct (is_bslash c); [split; assumption|].
+  destruct (Ascii.eqb c rbrack) eqn:E; [|split; assumption].
   cbn [st_inv orb]. split; [|split; [apply eqb_rewrite, E|discriminate]].
   apply oinv_any, oemit_ok; [apply dn_imk_leaf; reflexivity|].
   apply ospan_bang_ok. eapply oinv_strict; [exact nx_lt|exact Ht].
@@ -2213,7 +2224,8 @@ Proof.
     cbn [st_inv orb]. split; [|split; [apply eqb_rewrite, E|discriminate]].
     apply oinv_any, oemit_ok; [apply dn_bnode, Hk|].
     eapply oinv_strict; [exact nx_lt|exact (held_oinv _ _ _ _ Ho)].
-  - (* INote *) cbn [istep_at]. apply inote_ok, H.
+  - (* INote *) destruct H as (Ho & Hsh). cbn [istep_at].
+    apply inote_ok; [exact Ho|apply IHst, Hsh].
   - (* IWiki *) cbn [istep_at]. apply iwiki_ok, H.
   - (* IDest *) destruct H as (Hk & Ho & Hsh).
     assert (Hd : forall esc' depth' dst',
@@ -2304,7 +2316,7 @@ Definition settled (st : iscan) : Prop :=
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _
   | ISpan _ _ _ _ _ _ _
   | IAttr _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _ | ISymbol _ _ _ _
-  | IRaw _ _ _ _ | IPercent _ _ _ => False
+  | IRaw _ _ _ _ | INote _ _ _ _ _ _ | IPercent _ _ _ => False
   | _ => True
   end.
 
@@ -2385,7 +2397,6 @@ Proof.
     + cbn [st_inv]. split; [eapply held_step; [exact Ho|exact Hlt]|split; [exact Hn1|lia]].
   - (* IReference *) destruct H as (Hk & Ho). cbn [st_inv].
     split; [exact Hk|eapply held_step; [exact Ho|exact Hlt]].
-  - (* INote *) cbn [st_inv]. eapply held_step; [exact H|exact Hlt].
   - (* IWiki *)
     pose proof (bwiki_lit_ok W esc rb image region o next (brk_held _ _ _ H)) as Hw.
     destruct (bwiki_lit esc rb image region o) as [t o']. apply brk_text, brk_soft, Hw.
@@ -2429,6 +2440,8 @@ Proof.
   - (* IAttr *) destruct H as (Ho & Hd & Hsh).
     eapply iattr_feed_ok; [apply spot_lt_le, Hlt|discriminate|exact Ho|exact Hd|].
     apply IHst, Hsh.
+  - (* INote *) destruct H as (Ho & Hsh). cbn [st_inv].
+    split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh].
   - (* IDest *) destruct H as (Hk & Ho & Hsh). cbn [st_inv].
     split; [exact Hk|split; [eapply held_step; [exact Ho|exact Hlt]|apply IHst, Hsh]].
   - (* ISymbol *) destruct H as (_ & _ & _ & Hsh). apply IHst, Hsh.
@@ -2483,8 +2496,6 @@ Proof.
     set (lab := (label ++ (if esc then one bslash else EmptyString))%string).
     pose proof (bref_lit_ok W CU kids image lab o _ Hk (held_far _ _ _ _ Ho)) as Hb.
     destruct (bref_lit kids image lab o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
-  - pose proof (bnote_lit_ok W CU esc image label o _ (held_far _ _ _ _ H)) as Hb.
-    destruct (bnote_lit esc image label o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
   - pose proof (bwiki_lit_ok W esc rb image region o _ (held_far _ _ _ _ H)) as Hb.
     destruct (bwiki_lit esc rb image region o) as [t o']. eapply held_any_of, flush_text_at_touched, Hb.
   - destruct H as (Ho & He). eapply held_any_of, flush_text_at_touched; exact (held_far _ _ _ _ Ho).
@@ -2511,6 +2522,7 @@ Proof.
         [apply Hclose; reflexivity|apply IHst, Hsh].
   - destruct H as (_ & _ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
+  - destruct H as (_ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & Hsh). apply IHst, Hsh.
   - destruct H as (_ & _ & Hsh). apply IHst, Hsh.

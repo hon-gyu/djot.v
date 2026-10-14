@@ -736,7 +736,7 @@ type 'buf iscan_g =
 | ISpan of inlines * bool * span * aparser * 'buf * 'buf iscan_g * ostate
 | IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
 | IReference of inlines * bool * span * bool * 'buf * ostate
-| INote of bool * bool * 'buf * span * ostate
+| INote of bool * bool * 'buf * span * 'buf iscan_g * ostate
 | IWiki of bool * bool * bool * 'buf * span * ostate
 | IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
 | IAuto of 'buf * 'buf * ostate
@@ -751,6 +751,19 @@ let note_pos x txt prev =
     (match prev with
      | Some p -> (=) p lbrack
      | None -> false)
+
+(** val itable :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
+    'a1 -> char option -> ostate -> 'a1 iscan_g **)
+
+let itable t x h h0 c txt prev o =
+  match dstyle_of t c with
+  | Some k -> IDelim (k, 0, txt, prev, false, o)
+  | None ->
+    if (&&) (holes_enabled t) ((=) c percent)
+    then IPercent (txt, prev, o)
+    else IText (false, (x.tpush txt (one c)), (Some c),
+           (remember_word_start h h0 c o))
 
 (** val ilead :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -854,31 +867,13 @@ let ilead t x h h0 c txt prev o =
                                                             in
                                                             INote (false,
                                                             image, x.tnil,
-                                                            open0, o')
+                                                            open0,
+                                                            (itable t x h h0 c
+                                                              txt prev o),
+                                                            o')
                                                           | None ->
-                                                            (match dstyle_of t
-                                                                    c with
-                                                             | Some k ->
-                                                               IDelim (k, 0,
-                                                                 txt, prev,
-                                                                 false, o)
-                                                             | None ->
-                                                               if (&&)
-                                                                    (holes_enabled
-                                                                    t)
-                                                                    ((=) c
-                                                                    percent)
-                                                               then IPercent
-                                                                    (txt,
-                                                                    prev, o)
-                                                               else IText
-                                                                    (false,
-                                                                    (x.tpush
-                                                                    txt
-                                                                    (one c)),
-                                                                    (Some c),
-                                                                    (remember_word_start
-                                                                    h h0 c o))))
+                                                            itable t x h h0 c
+                                                              txt prev o)
 
 (** val idest_open :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
@@ -1018,21 +1013,21 @@ let ispan_feed x h h0 c kids image open0 p src sh o =
 
 (** val inote_step :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
-    bool -> 'a1 -> span -> ostate -> 'a1 iscan_g **)
+    bool -> 'a1 -> span -> ostate -> 'a1 iscan_g -> 'a1 iscan_g **)
 
-let inote_step x h h0 c esc image label open0 o =
+let inote_step x h h0 c esc image label open0 o sh' =
   if esc
   then INote (false, image, (x.tpush label ((^) (one bslash) (one c))), open0,
-         o)
+         sh', o)
   else if is_bslash c
-       then INote (true, image, label, open0, o)
+       then INote (true, image, label, open0, sh', o)
        else if (=) c rbrack
             then IText (false, x.tnil, (Some rbrack),
                    (oemit
                      (imk h open0.span_start h0.cursor_stop (FootnoteReference
                        (normalize_label (x.tval label))))
                      (ospan_bang h h0 image o)))
-            else INote (false, image, (x.tpush label (one c)), open0, o)
+            else INote (false, image, (x.tpush label (one c)), open0, sh', o)
 
 (** val iauto_step :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -1112,17 +1107,6 @@ let iraw_step t x h h0 c spec txt o sh' =
           else negb ((=) c eqchar)
        then sh'
        else IRaw ((x.tpush spec (one c)), txt, sh', o)
-
-(** val bnote_lit :
-    coq_PosPolicy -> coq_InlineCursor -> bool -> bool -> string -> ostate ->
-    string * ostate **)
-
-let bnote_lit _ _ esc image label o =
-  let (pre, o1) = opop_str o in
-  (((^) pre
-     ((^) (bracket_open image)
-       ((^) (one hat) ((^) label (if esc then one bslash else ""))))),
-  o1)
 
 (** val wiki_split : string -> string * string option **)
 
@@ -1641,8 +1625,9 @@ let rec istep_at t x h h0 attrs_enabled c = function
                    o))
             else IReference (kids, image, open0, false,
                    (x.tpush label (one c)), o)
-| INote (esc, image, label, open0, o) ->
+| INote (esc, image, label, open0, sh, o) ->
   inote_step x h h0 c esc image label open0 o
+    (istep_at t x h h0 attrs_enabled c sh)
 | IWiki (esc, rb, image, region, open0, o) ->
   iwiki_step x h h0 c esc rb image region open0 o
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->
@@ -1730,9 +1715,7 @@ let ifinish_ostate_flat x h h0 = function
       ((^) (x.tval label) (if esc then one bslash else "")) o
   in
   flush_text_at h h0 (x.tval txt) o'
-| INote (esc, image, label, _, o) ->
-  let (txt, o') = bnote_lit h h0 esc image (x.tval label) o in
-  flush_text_at h h0 txt o'
+| INote (_, _, _, _, _, o) -> o
 | IWiki (esc, rb, image, region, _, o) ->
   let (txt, o') = bwiki_lit esc rb image (x.tval region) o in
   flush_text_at h h0 txt o'
@@ -1774,6 +1757,7 @@ let rec ifinish_ostate t x h h0 st = match st with
        else ifinish_ostate t x h h0 sh
 | ISpan (_, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IAttr (_, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
+| INote (_, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IDest (_, _, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
 | ISymbol (_, _, sh, _) -> ifinish_ostate t x h h0 sh
 | IRaw (_, _, sh, _) -> ifinish_ostate t x h h0 sh
@@ -1826,9 +1810,9 @@ let rec ibreak_flat x h h0 st = match st with
 | IReference (kids, image, open0, esc, label, o) ->
   IReference (kids, image, open0, false,
     (x.tpush label ((^) (if esc then one bslash else "") nl)), o)
-| INote (esc, image, label, open0, o) ->
+| INote (esc, image, label, open0, sh, o) ->
   INote (false, image,
-    (x.tpush label ((^) (if esc then one bslash else "") nl)), open0, o)
+    (x.tpush label ((^) (if esc then one bslash else "") nl)), open0, sh, o)
 | IWiki (esc, rb, image, region, _, o) ->
   let (txt, o') = bwiki_lit esc rb image (x.tval region) o in
   IText (false, x.tnil, None,
@@ -1895,6 +1879,10 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
 | IAttr (p, src, txt, prev, sh, o) ->
   iattr_feed x h h0 nl_char p src txt prev
     (ibreak_at t x h h0 attrs_enabled sh) o
+| INote (esc, image, label, open0, sh, o) ->
+  INote (false, image,
+    (x.tpush label ((^) (if esc then one bslash else "") nl)), open0,
+    (ibreak_at t x h h0 attrs_enabled sh), o)
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->
   IDest (kids, image, open0, false, depth,
     (x.tpush dst ((^) (if esc then one bslash else "") nl)),
@@ -1966,8 +1954,8 @@ let rec map_text x = function
   IAttr (p, (x.tval src), (x.tval t), prev, (map_text x sh), o)
 | IReference (kids, image, open0, esc, label, o) ->
   IReference (kids, image, open0, esc, (x.tval label), o)
-| INote (esc, image, label, open0, o) ->
-  INote (esc, image, (x.tval label), open0, o)
+| INote (esc, image, label, open0, sh, o) ->
+  INote (esc, image, (x.tval label), open0, (map_text x sh), o)
 | IWiki (esc, rb, image, region, open0, o) ->
   IWiki (esc, rb, image, (x.tval region), open0, o)
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->
@@ -2003,8 +1991,8 @@ let rec lift x = function
   IAttr (p, (x.tof src), (x.tof t), prev, (lift x sh), o)
 | IReference (kids, image, open0, esc, label, o) ->
   IReference (kids, image, open0, esc, (x.tof label), o)
-| INote (esc, image, label, open0, o) ->
-  INote (esc, image, (x.tof label), open0, o)
+| INote (esc, image, label, open0, sh, o) ->
+  INote (esc, image, (x.tof label), open0, (lift x sh), o)
 | IWiki (esc, rb, image, region, open0, o) ->
   IWiki (esc, rb, image, (x.tof region), open0, o)
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->

@@ -219,8 +219,8 @@ Fixpoint of_iscan (st : iscan) : iscan :=
       IAttr p src txt prev (of_iscan sh) (of_ostate o)
   | IReference kids image _ esc label o =>
       IReference (Erase.of_inlines kids) image null_span esc label (of_ostate o)
-  | INote esc image label _ o =>
-      INote esc image label null_span (of_ostate o)
+  | INote esc image label _ sh o =>
+      INote esc image label null_span (of_iscan sh) (of_ostate o)
   | IWiki esc rb image region _ o =>
       IWiki esc rb image region null_span (of_ostate o)
   | IDest kids image _ esc depth dst sh o =>
@@ -719,18 +719,6 @@ Proof.
   destruct (@bclosed_lit _ _ P C kids image o) as [txt o']; reflexivity.
 Qed.
 
-Local Lemma of_bnote_lit : forall `{P : PosPolicy} `{C : InlineCursor}
-  esc image label o,
-  @bnote_lit semantic_pos semantic_inline_cursor esc image label
-    (of_ostate o)
-  = (fst (@bnote_lit P C esc image label o),
-     of_ostate (snd (@bnote_lit P C esc image label o))).
-Proof.
-  intros P C esc image label o. unfold bnote_lit.
-  rewrite of_opop_str.
-  destruct (opop_str o) as [pre o1]; reflexivity.
-Qed.
-
 Local Lemma of_ospan_bang : forall `{P : PosPolicy} `{C : InlineCursor} image o,
   of_ostate (@ospan_bang P C image o) =
   @ospan_bang semantic_pos semantic_inline_cursor image (of_ostate o).
@@ -738,6 +726,16 @@ Proof.
   intros P C image o. unfold ospan_bang. destruct image; [|reflexivity].
   rewrite of_opop_str. destruct (opop_str o) as [pre o1]; cbn [fst snd].
   apply of_flush_text_at.
+Qed.
+
+Local Lemma of_itable : forall `{P : PosPolicy} `{C : InlineCursor} c txt prev o,
+  of_iscan (@itable T _ _ P C c txt prev o) =
+  @itable T _ _ semantic_pos semantic_inline_cursor c txt prev (of_ostate o).
+Proof.
+  intros P C c txt prev o. unfold itable.
+  destruct (dstyle_of c); cbn [of_iscan]; [reflexivity|].
+  destruct (holes_enabled && Ascii.eqb c percent)%bool; cbn [of_iscan];
+    rewrite ?of_remember_word_start; reflexivity.
 Qed.
 
 Local Lemma of_ilead : forall `{P : PosPolicy} `{C : InlineCursor} c txt prev o,
@@ -769,10 +767,8 @@ Proof.
     cbn [of_iscan]. rewrite of_oemit, of_imk, span_node. reflexivity. }
   destruct (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool;
     [rewrite of_bunpush; destruct (bunpush o) as [[[image open] o']|];
-      [reflexivity|]|].
-  all: destruct (dstyle_of c); cbn [of_iscan]; [reflexivity|].
-  all: destruct (holes_enabled && Ascii.eqb c percent)%bool; cbn [of_iscan];
-    rewrite ?of_remember_word_start; reflexivity.
+      [cbn [of_iscan]; rewrite of_itable; reflexivity|]|].
+  all: apply of_itable.
 Qed.
 
 Local Lemma of_idest_open : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -976,12 +972,12 @@ Proof.
 Qed.
 
 Local Lemma of_inote_step : forall `{P : PosPolicy} `{C : InlineCursor}
-  c esc image label open o,
-  of_iscan (@inote_step _ _ P C c esc image label open o) =
+  c esc image label open o sh,
+  of_iscan (@inote_step _ _ P C c esc image label open o sh) =
   @inote_step _ _ semantic_pos semantic_inline_cursor c esc image label null_span
-    (of_ostate o).
+    (of_ostate o) (of_iscan sh).
 Proof.
-  intros P C c esc image label open o. unfold inote_step.
+  intros P C c esc image label open o sh. unfold inote_step.
   destruct esc; [reflexivity|].
   destruct (is_bslash c); [reflexivity|].
   destruct (Ascii.eqb c rbrack); [|reflexivity].
@@ -1115,7 +1111,7 @@ Proof.
     | mt me ms mx ml msh IHmsh mo | mct mcs mcx mcl mcsh IHmcsh mco
     | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src sh IHsh o | ap src txt prev sh IHsh o
-    | kids image open label o | esc image label open o
+    | kids image open label o | esc image label open sh IHsh o
     | esc rb image region open o
     | kids image open esc depth dst sh IHsh o | src txt o
     | alias txt sh IHsh o | spec txt sh IHsh o
@@ -1225,7 +1221,8 @@ Proof.
     destruct (Ascii.eqb c rbrack); [|reflexivity].
     cbn [of_iscan]. rewrite of_oemit, of_imk, of_bnode.
     destruct o; [rewrite of_reference_inlines_text|]; reflexivity.
-  - (* INote *) apply of_inote_step.
+  - (* INote *)
+    cbn [istep_at]. rewrite of_inote_step, IHsh. reflexivity.
   - (* IWiki *) apply of_iwiki_step.
   - (* IDest *)
     rewrite iscan_dest. destruct esc; cbn [istep_at].
@@ -1262,7 +1259,7 @@ Proof.
     | mt me ms mx ml msh mo | mct mcs mcx mcl mcsh mco
     | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src sh o | ap src txt prev sh o
-    | kids image open label o | esc image label open o
+    | kids image open label o | esc image label open sh o
     | esc rb image region open o
     | kids image open esc depth dst sh o | src txt o
     | alias txt sh o | spec txt sh o
@@ -1280,9 +1277,6 @@ Proof.
     destruct (@bref_lit _ _ P C kids image
                 (tval o ++ (if label then one bslash else EmptyString))%string o0)
       as [t o']; cbn [fst snd].
-    apply of_flush_text_at.
-  - rewrite of_bnote_lit.
-    destruct (@bnote_lit P C esc image (tval label) o) as [t o']; cbn [fst snd].
     apply of_flush_text_at.
   - rewrite of_bwiki_lit.
     destruct (bwiki_lit esc rb image (tval region) o) as [t o']; cbn [fst snd].
@@ -1307,6 +1301,7 @@ Proof.
     rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
   - rewrite iscan_span. cbn [ifinish_ostate]. assumption.
   - rewrite iscan_attr. cbn [ifinish_ostate]. assumption.
+  - cbn [of_iscan ifinish_ostate]. assumption.
   - rewrite iscan_dest. cbn [ifinish_ostate]. assumption.
   - cbn [of_iscan ifinish_ostate]. assumption.
   - cbn [of_iscan ifinish_ostate]. assumption.
@@ -1364,7 +1359,7 @@ Proof.
     | mt me ms mx ml msh IHmsh mo | mct mcs mcx mcl mcsh IHmcsh mco
     | two txt prev o | n txt prev o | txt prev o
     | txt o | kids image open ap src sh o | ap src txt prev sh o
-    | kids image open label o | esc image label open o
+    | kids image open label o | esc image label open sh IHsh o
     | esc rb image region open o
     | kids image open esc depth dst sh IHdest o | src txt o
     | alias txt sh IHsh o | spec txt sh IHsh o
@@ -1420,6 +1415,7 @@ Proof.
     rewrite of_ispan_feed, IHst. reflexivity.
   - rewrite iscan_attr. cbn [ibreak_at].
     rewrite of_iattr_feed, IHst. reflexivity.
+  - cbn [ibreak_at of_iscan]. rewrite IHst. reflexivity.
   - rewrite iscan_dest. cbn [ibreak_at].
     rewrite iscan_dest, IHst. reflexivity.
   - cbn [ibreak_at]. apply IHst.

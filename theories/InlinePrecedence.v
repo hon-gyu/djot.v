@@ -3079,7 +3079,7 @@ Proof.
   intros c txt prev o Ha Hlb Hlk Hrk Htk Hdl Hlt' Hco Hbg0 Hpd0 Hhy Hd Hn.
   unfold no_note in Hn. apply negb_true_iff in Hn.
   destruct (Ascii.eqb c rbrace) eqn:Erb.
-  { apply Ascii.eqb_eq in Erb. subst c. unfold ilead.
+  { apply Ascii.eqb_eq in Erb. subst c. unfold ilead, itable.
     change (is_bslash rbrace) with false. change (is_tick rbrace) with false.
     change (Ascii.eqb rbrace dollar) with false.
     change (Ascii.eqb rbrace period) with false.
@@ -3104,7 +3104,7 @@ Proof.
   assert (Hcolon : Ascii.eqb c ":"%char = false).
   { unfold dreserved in Hres.
     repeat (apply orb_false_iff in Hres as [Hres ?]). assumption. }
-  unfold ilead.
+  unfold ilead, itable.
   rewrite Hbs, Htk, Hdol, Hpd, Hhy, Hlb, Hbg, Hlt, Hcolon, Hlk, Hrk, Hn.
   cbn [andb]. rewrite Hd, Hpct. reflexivity.
 Qed.
@@ -3135,7 +3135,7 @@ Proof.
   intros k txt prev o Hen Hhy Hn. unfold no_note in Hn. apply negb_true_iff in Hn.
   destruct (dreserved_false (dchar k) (dchar_free k))
     as [Hb [Ht [Hlb [Hrb [Hlk [Hrk [Hbg [Hdol [Hpd Hlt]]]]]]]]].
-  unfold ilead.
+  unfold ilead, itable.
   rewrite Hb, Ht, Hdol, Hpd, Hhy, Hlb, Hlt, Hlk, Hrk, Hbg, Hn.
   assert (Hcolon : Ascii.eqb (dchar k) ":"%char = false).
   { destruct (Ascii.eqb (dchar k) ":"%char) eqn:E; [|reflexivity].
@@ -3642,7 +3642,7 @@ Qed.
 Local Lemma ilead_rbrack_closed : forall txt prev o,
   tag_close (flush_text txt o) = None -> ilead rbrack txt prev o = IClosed txt o.
 Proof.
-  intros txt prev o Ht. unfold ilead. cbn [is_bslash is_tick Ascii.eqb Ascii.ascii_dec].
+  intros txt prev o Ht. unfold ilead, itable. cbn [is_bslash is_tick Ascii.eqb Ascii.ascii_dec].
   change (@flush_text_at semantic_pos semantic_inline_cursor (@tval string _ txt) o)
     with (flush_text txt o).
   rewrite Ht. destruct tags_enabled; reflexivity.
@@ -4433,7 +4433,7 @@ Qed.
 Local Lemma ilead_lbrack : forall txt prev o,
   (note_pos txt prev && wikilinks_enabled)%bool = false ->
   ilead lbrack txt prev o = IText false "" (Some lbrack) (bpush false (flush_text txt o)).
-Proof. intros txt prev o H. unfold ilead. cbn. rewrite H. reflexivity. Qed.
+Proof. intros txt prev o H. unfold ilead, itable. cbn. rewrite H. reflexivity. Qed.
 
 (*
 Tidy contents
@@ -4813,7 +4813,7 @@ Proof.
   { induction k as [|k IH]; intros j o'; [cbn; f_equal; lia|].
     cbn [ticks iscan_str]. unfold istep. cbn [istep_at]. change (is_tick tick) with true. cbn iota.
     rewrite IH. f_equal. lia. }
-  cbn [ticks iscan_str]. unfold istep. cbn [istep_at]. unfold ilead.
+  cbn [ticks iscan_str]. unfold istep. cbn [istep_at]. unfold ilead, itable.
   change (is_bslash tick) with false. change (is_tick tick) with true. cbn iota.
   rewrite G. reflexivity.
 Qed.
@@ -4955,10 +4955,10 @@ Local Lemma iscan_dollars : forall k txt prev o, 0 < k ->
     end.
 Proof.
   intros [|[|k]] txt prev o Hk; [lia| |].
-  - cbn [chars iscan_str]. unfold istep. cbn [istep_at]. unfold ilead.
+  - cbn [chars iscan_str]. unfold istep. cbn [istep_at]. unfold ilead, itable.
     change (is_bslash dollar) with false. change (is_tick dollar) with false.
     rewrite Ascii.eqb_refl. reflexivity.
-  - cbn [chars iscan_str]. unfold istep at 2. cbn [istep_at]. unfold ilead.
+  - cbn [chars iscan_str]. unfold istep at 2. cbn [istep_at]. unfold ilead, itable.
     change (is_bslash dollar) with false. change (is_tick dollar) with false.
     rewrite Ascii.eqb_refl. unfold istep. cbn [istep_at]. unfold idollar_step.
     rewrite Ascii.eqb_refl. rewrite iscan_dollars_more. replace (S (S k) - 2) with k by lia.
@@ -5139,7 +5139,7 @@ Proof.
     cbn [ticks iscan_str]. unfold istep. cbn [istep_at]. change (is_tick tick) with true. cbn iota.
     rewrite IH. f_equal. lia. }
   rewrite iscan_str_app. destruct d as [|d].
-  - cbn [chars iscan_str ticks]. unfold istep. cbn [istep_at]. unfold ilead.
+  - cbn [chars iscan_str ticks]. unfold istep. cbn [istep_at]. unfold ilead, itable.
     change (is_bslash tick) with false. change (is_tick tick) with true. cbn iota.
     rewrite G. cbn [Nat.sub chars]. rewrite append_empty_r. reflexivity.
   - destruct Hd as [Hd|Hm]; [discriminate|].
@@ -6060,7 +6060,7 @@ Qed.
 
 Local Lemma ilead_not_verb : forall c t p o n r t' vk o', ilead c t p o <> IVerb n r t' vk o'.
 Proof.
-  intros c t p o n r t' vk o' E. unfold ilead in E.
+  intros c t p o n r t' vk o' E. unfold ilead, itable in E.
   repeat match goal with
   | H : context [if ?b then _ else _] |- _ => destruct b
   | H : context [match ?x with Some _ => _ | None => _ end] |- _ => destruct x
@@ -7035,7 +7035,7 @@ Proof.
   assert (Fl : flush_text txt o = oview v) by (rewrite Eo, Ev; apply flush_view, Ht0).
   assert (S0 : istep ":"%char (IText false txt prev o)
                = ISymbol "" txt (IText false (txt ++ one ":"%char) (Some ":"%char) o) o)
-    by (unfold istep; cbn [istep_at]; unfold ilead; cbn; reflexivity).
+    by (unfold istep; cbn [istep_at]; unfold ilead, itable; cbn; reflexivity).
   assert (Split : forall x j, x = (substring 0 j x ++ sdrop j x)%string).
   { induction x as [|y x IHx]; intros [|j]; try reflexivity. cbn. f_equal. apply IHx. }
   unfold sym_tok in Ht.
@@ -7134,15 +7134,17 @@ Proof.
   apply andb_true_iff in H as [_ Hb]. cbn [no_bslash]. rewrite Hb, (IH Ha). reflexivity.
 Qed.
 
-Local Lemma iscan_note : forall a image lab open o, lab_all a = true ->
-  iscan_str a (INote false image lab open o) = INote false image (lab ++ a) open o.
+Local Lemma iscan_note : forall a image lab open sh o, lab_all a = true ->
+  iscan_str a (INote false image lab open sh o)
+  = INote false image (lab ++ a) open (iscan_str a sh) o.
 Proof.
-  induction a as [|c a IH]; intros image lab open o H.
+  induction a as [|c a IH]; intros image lab open sh o H.
   - rewrite append_empty_r. reflexivity.
   - cbn [lab_all] in H. apply andb_true_iff in H as [H Ha]. apply andb_true_iff in H as [H Hr].
     apply andb_true_iff in H as [_ Hb]. apply negb_true_iff in Hr, Hb.
-    cbn [iscan_str]. unfold istep. cbn [istep_at]. unfold inote_step. rewrite Hb, Hr. tred.
-    rewrite (IH image (lab ++ one c)%string open o Ha), append_assoc. reflexivity.
+    cbn [iscan_str]. unfold istep at 1. cbn [istep_at]. unfold inote_step.
+    rewrite Hb, Hr. tred.
+    rewrite (IH image (lab ++ one c)%string open _ o Ha), append_assoc. reflexivity.
 Qed.
 
 (* A run of periods from text, resolved: an ellipsis for every three,
@@ -7212,7 +7214,7 @@ Local Lemma dash_settle : forall n txt prev o c', Ascii.eqb c' hyphen = false ->
 Proof.
   intros n txt prev o c' Hh Hr. unfold istep. cbn [istep_at]. unfold idash_step. rewrite Hh.
   destruct (Ascii.eqb c' rbrace) eqn:E; [|reflexivity].
-  rewrite (Hr eq_refl). apply Ascii.eqb_eq in E. subst c'. tred. unfold ilead.
+  rewrite (Hr eq_refl). apply Ascii.eqb_eq in E. subst c'. tred. unfold ilead, itable.
   change (is_bslash rbrace) with false. change (is_tick rbrace) with false.
   change (Ascii.eqb rbrace dollar) with false. change (Ascii.eqb rbrace period) with false.
   change (Ascii.eqb rbrace hyphen) with false. change (Ascii.eqb rbrace lbrace) with false.
@@ -7248,7 +7250,7 @@ Local Lemma note_after_open : forall im l o,
       (oemit (mk (FootnoteReference (normalize_label l))) (ospan_bang im o)).
 Proof.
   intros im l o Hla Hen. cbn [append iscan_str]. unfold istep at 1. cbn [istep_at].
-  unfold ilead.
+  unfold ilead, itable.
   change (is_bslash hat) with false. change (is_tick hat) with false.
   change (Ascii.eqb hat dollar) with false. change (Ascii.eqb hat period) with false.
   change (Ascii.eqb hat hyphen) with false. change (Ascii.eqb hat lbrace) with false.
@@ -7256,7 +7258,7 @@ Proof.
   change (Ascii.eqb hat ":"%char) with false. change (Ascii.eqb hat lbrack) with false.
   change (Ascii.eqb hat rbrack) with false. change (Ascii.eqb hat hat) with true. cbn iota.
   change (note_pos "" (Some lbrack)) with true. cbn [andb]. rewrite Hen, bunpush_bpush. tred.
-  rewrite iscan_str_app, (iscan_note l im "" null_span _ Hla). cbn [append iscan_str one].
+  rewrite iscan_str_app, (iscan_note l im "" null_span _ _ Hla). cbn [append iscan_str one].
   unfold istep. cbn [istep_at]. unfold inote_step.
   change (is_bslash rbrack) with false. rewrite Ascii.eqb_refl. cbn iota. tred. reflexivity.
 Qed.

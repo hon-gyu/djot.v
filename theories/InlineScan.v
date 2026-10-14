@@ -1350,9 +1350,12 @@ Inductive iscan_g : Type :=
   (* inside a `[^`.  The label is raw source, not inline content: nothing
      inside the brackets is classified.  `esc` is a pending backslash,
      which protects a `]` without being decoded: `[^a\]b]` labels `a\]b`.
-     `image` is what the bracket this took back was opened with, kept
-     only to spell the literal fallback. *)
-  | INote (esc image : bool) (label : Buf) (open : span) (o : ostate)
+     `image` is what the bracket this took back was opened with, for the
+     `!` a reference puts back.  `sh` is the ordinary reading of the same
+     bytes, the bracket open and the `^` read as the table says; a label
+     that never closes selects it. *)
+  | INote (esc image : bool) (label : Buf) (open : span) (sh : iscan_g)
+          (o : ostate)
   (* inside a `[[`, recognised at the second `[` the way `[^` is at the
      `^`.  The region is source kept with its escapes: `esc` is a pending
      backslash and `rb` a pending `]`, the first half of a possible
@@ -1408,6 +1411,20 @@ Local Notation iscan := iscan_g.
 Definition note_pos (txt : Buf) (prev : option ascii) : bool :=
   (negb (tnonempty txt)
    && match prev with Some p => Ascii.eqb p lbrack | None => false end)%bool.
+
+(* A byte no construct claims by position: a delimiter if the table
+   spells a row with it, and otherwise text.  With holes on, a `%` waits
+   for the byte after it.  Asked after the table, so a table that spells
+   a row with `%` keeps it, and has no holes. *)
+Definition itable `{PosPolicy} `{InlineCursor}
+  (c : ascii) (txt : Buf) (prev : option ascii) (o : ostate) : iscan :=
+  match dstyle_of c with
+  | Some k => IDelim k 0 txt prev false o
+  | None =>
+      if (holes_enabled && Ascii.eqb c percent)%bool
+      then IPercent txt prev o
+      else IText false (tpush txt (one c)) (Some c) (remember_word_start c o)
+  end.
 
 (* One byte in text mode.  The delimiter arm is a table lookup.  `prev`
    is the source byte to the left of `c`, not the last byte of `txt` (see
@@ -1468,19 +1485,9 @@ Definition ilead `{PosPolicy} `{InlineCursor}
      table, where it is the superscript row. *)
   else match (if (Ascii.eqb c hat && note_pos txt prev && notes_enabled)%bool
               then bunpush o else None) with
-       | Some (image, open, o') => INote false image tnil open o'
-       | None =>
-           match dstyle_of c with
-           | Some k => IDelim k 0 txt prev false o
-           (* With holes on, a `%` waits for the byte after it.  Asked
-              after the table, so a table that spells a row with `%`
-              keeps it, and has no holes. *)
-           | None =>
-               if (holes_enabled && Ascii.eqb c percent)%bool
-               then IPercent txt prev o
-               else IText false (tpush txt (one c)) (Some c)
-                      (remember_word_start c o)
-           end
+       | Some (image, open, o') =>
+           INote false image tnil open (itable c txt prev o) o'
+       | None => itable c txt prev o
        end.
 
 (* The ordinary reading of a `](`, as a state.  The bracket's opener is
@@ -1626,18 +1633,19 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
 
 (* One byte of a footnote label.  The `]` is the only byte with a role,
    and a backslash defers it once without being decoded, since the label
-   is source: `[^a\]b]` keeps the backslash. *)
+   is source: `[^a\]b]` keeps the backslash.  `sh'` has already consumed
+   the byte as ordinary inline input. *)
 Definition inote_step `{PosPolicy} `{InlineCursor}
   (c : ascii) (esc image : bool) (label : Buf) (open : span)
-  (o : ostate) : iscan :=
-  if esc then INote false image (tpush label (one bslash ++ one c)) open o
-  else if is_bslash c then INote true image label open o
+  (o : ostate) (sh' : iscan) : iscan :=
+  if esc then INote false image (tpush label (one bslash ++ one c)) open sh' o
+  else if is_bslash c then INote true image label open sh' o
   else if Ascii.eqb c rbrack
   then IText false tnil (Some rbrack)
          (oemit (imk (span_start open) cursor_stop
                     (FootnoteReference (normalize_label (tval label))))
             (ospan_bang image o))
-  else INote false image (tpush label (one c)) open o.
+  else INote false image (tpush label (one c)) open sh' o.
 
 (* One byte of an autolink candidate.  Three bytes end it: the `>` that
    may resolve it, and the whitespace or second `<` that the region may
@@ -1704,18 +1712,6 @@ Definition iraw_step `{PosPolicy} `{InlineCursor}
   then sh'
   else IRaw (tpush spec (one c)) txt sh' o.
 
-(* A label that never closed is its own source: the bracket it took back,
-   the marker, and what it had eaten.  `opop_str` reabsorbs the `Str`
-   that the bracket's own `flush_text` emitted, so the reconstruction is
-   one run and `no_adjacent_str` survives -- the move `bclosed_lit`
-   makes, for the same reason. *)
-Definition bnote_lit `{PosPolicy} `{InlineCursor}
-  (esc image : bool) (label : string) (o : ostate)
-  : string * ostate :=
-  let '(pre, o1) := opop_str o in
-  ((pre ++ bracket_open image ++ one hat ++ label
-       ++ (if esc then one bslash else EmptyString))%string, o1).
-
 (* A wikilink region split at its first unescaped `|`: the target, and
    the alias if there is a bar.  A backslash and the byte after it stay
    together and are never split. *)
@@ -1735,7 +1731,7 @@ Fixpoint wiki_split (s : string) : string * option string :=
 
 (* A wikilink candidate's own source: both brackets, the region, and the
    pending `]` and backslash.  The literal fallback, with whatever text
-   pended before the first bracket, as `bnote_lit` rebuilds a label. *)
+   pended before the first bracket. *)
 Local Definition wiki_lit (esc rb image : bool) (region : string) : string :=
   (bracket_open image ++ one lbrack ++ region
      ++ (if rb then one rbrack else EmptyString)
@@ -2130,7 +2126,8 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
       if ap_failed (astep p c)
       then istep_at attrs_enabled c sh
       else iattr_feed c p src txt prev (istep_at attrs_enabled c sh) o
-  | INote esc image label open o => inote_step c esc image label open o
+  | INote esc image label open sh o =>
+      inote_step c esc image label open o (istep_at attrs_enabled c sh)
   | IWiki esc rb image region open o => iwiki_step c esc rb image region open o
   | IAuto src txt o => iauto_step c src txt o
   | ISymbol alias txt sh o =>
@@ -2201,8 +2198,8 @@ Definition ifinish_ostate_flat `{PosPolicy} `{InlineCursor}
   (* unreachable: `ifinish_ostate` takes a destination's shadow before it
      gets here, and `iresolve` builds no `IDest` *)
   | IDest _ _ _ _ _ _ _ o => o
-  | INote esc image label _ o =>
-      let '(txt, o') := bnote_lit esc image (tval label) o in flush_text_at txt o'
+  (* unreachable: `ifinish_ostate` takes a label's shadow first *)
+  | INote _ _ _ _ _ o => o
   (* a wikilink candidate the line ended inside is literal, brackets and
      all *)
   | IWiki esc rb image region _ o =>
@@ -2257,6 +2254,7 @@ Fixpoint ifinish_ostate `{PosPolicy} `{InlineCursor} (st : iscan) : ostate :=
   | IDest _ _ _ _ _ _ sh _ => ifinish_ostate sh
   | ISymbol _ _ sh _ => ifinish_ostate sh
   | IRaw _ _ sh _ => ifinish_ostate sh
+  | INote _ _ _ _ sh _ => ifinish_ostate sh
   | _ => ifinish_ostate_flat (iresolve st)
   end.
 
@@ -2306,9 +2304,10 @@ Fixpoint ibreak_flat `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   | IDest _ _ _ _ _ _ _ _ as st' => st'
   (* A label crosses a break and the newline is whitespace to
      `normalize_label`, so `[^a` / `b]` is one reference to `a b`. *)
-  | INote esc image label open o =>
+  | INote esc image label open sh o =>
+      (* unreachable: `ibreak_at` advances the ordinary reading too *)
       INote false image
-        (tpush label ((if esc then one bslash else EmptyString) ++ nl)) open o
+        (tpush label ((if esc then one bslash else EmptyString) ++ nl)) open sh o
   | IReference kids image open esc label o =>
       IReference kids image open false
         (tpush label ((if esc then one bslash else EmptyString) ++ nl)) o
@@ -2403,6 +2402,10 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
         (ibreak_at attrs_enabled sh) o
   | ISymbol _ _ sh _ => ibreak_at attrs_enabled sh
   | IRaw _ _ sh _ => ibreak_at attrs_enabled sh
+  | INote esc image label open sh o =>
+      INote false image
+        (tpush label ((if esc then one bslash else EmptyString) ++ nl)) open
+        (ibreak_at attrs_enabled sh) o
   | _ => ibreak_flat (iresolve st)
   end.
 
@@ -2431,7 +2434,7 @@ Definition iclosed_at (st : iscan) : bool :=
   | IPercent _ _ _
   | IPeriod _ _ _ _ | IDash _ _ _ _
   | IDelim _ _ _ _ _ _ | IClosed _ _ | ISpan _ _ _ _ _ _ _
-  | INote _ _ _ _ _ | IReference _ _ _ _ _ _
+  | INote _ _ _ _ _ _ | IReference _ _ _ _ _ _
   | IDest _ _ _ _ _ _ _ _ => false
   (* an autolink candidate owes the next line nothing: the region may not
      hold a break, so the candidate dies at the boundary and what it ate
@@ -2490,7 +2493,7 @@ Definition is_compound (st : iscan) : bool :=
              | None => false end))%bool
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _ => true
   | IAttr _ _ _ _ _ _ | ISpan _ _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
-  | ISymbol _ _ _ _ | IRaw _ _ _ _ => true
+  | ISymbol _ _ _ _ | IRaw _ _ _ _ | INote _ _ _ _ _ _ => true
   | _ => false
   end.
 
@@ -2548,7 +2551,8 @@ Fixpoint map_text (st : iscan_g (Buf:=Buf)) : iscan :=
       ISpan kids image open p (tval src) (map_text sh) o
   | IAttr p src t prev sh o => IAttr p (tval src) (tval t) prev (map_text sh) o
   | IReference kids image open esc label o => IReference kids image open esc (tval label) o
-  | INote esc image label open o => INote esc image (tval label) open o
+  | INote esc image label open sh o =>
+      INote esc image (tval label) open (map_text sh) o
   | IWiki esc rb image region open o => IWiki esc rb image (tval region) open o
   | IDest kids image open esc depth dst sh o =>
       IDest kids image open esc depth (tval dst) (map_text sh) o
@@ -2579,7 +2583,8 @@ Fixpoint lift (st : iscan) : iscan_g (Buf:=Buf) :=
       ISpan kids image open p (tof src) (lift sh) o
   | IAttr p src t prev sh o => IAttr p (tof src) (tof t) prev (lift sh) o
   | IReference kids image open esc label o => IReference kids image open esc (tof label) o
-  | INote esc image label open o => INote esc image (tof label) open o
+  | INote esc image label open sh o =>
+      INote esc image (tof label) open (lift sh) o
   | IWiki esc rb image region open o => IWiki esc rb image (tof region) open o
   | IDest kids image open esc depth dst sh o =>
       IDest kids image open esc depth (tof dst) (lift sh) o
