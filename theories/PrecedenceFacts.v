@@ -321,7 +321,6 @@ Lemma note_go_split : forall s esc l,
   note_go esc s = Some l -> exists r, s = (l ++ String rbrack r)%string.
 Proof.
   induction s as [|c s IH]; intros esc l H; [discriminate|]. cbn [note_go] in H.
-  destruct (Ascii.eqb c nl_char); [discriminate|].
   assert (K : forall e, option_map (String c) (note_go e s) = Some l ->
               exists r, String c s = (l ++ String rbrack r)%string).
   { intros e He. destruct (note_go e s) as [l'|] eqn:E; [|discriminate]. injection He as <-.
@@ -484,6 +483,40 @@ Proof.
     match goal with E : spec_at _ = Some _ |- _ =>
       destruct (spec_at_split _ _ _ E) as [r ->] end;
     exists r; reflexivity.
+Qed.
+
+(* A footnote reference is a `[`, a `^`, its label and the `]`. *)
+Lemma tok_at_note : forall s p lab l,
+  tok_at s p = Some (TNote lab, l) ->
+  l = S (S (S (String.length lab)))
+  /\ exists r, notes_enabled = true /\ sdrop p s = String lbrack (String hat r)
+               /\ note_go false r = Some lab.
+Proof.
+  intros s p lab l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
+  repeat match type of H with
+  | context [sym_tok ?a] =>
+      let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
+      cbn iota beta in H
+  | context [auto_tok ?a] =>
+      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | context [verb_tok ?a ?b] =>
+      let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | (if ?b then _ else _) = _ => destruct b eqn:?
+  | (match ?x with _ => _ end) = _ => destruct x eqn:?
+  | context [if ?b then _ else _] => destruct b eqn:?
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x eqn:?
+  | context [match ?x with pair _ _ => _ end] => destruct x eqn:?
+  end; try congruence.
+  all: injection H as <- <-; split; [reflexivity|].
+  all: match goal with E : (?x =? lbrack)%char = true |- _ => apply Ascii.eqb_eq in E; subst x end;
+    match goal with E : note_at ?rr = Some _ |- _ =>
+      destruct rr as [|d r0]; [discriminate E|]; cbn [note_at] in E;
+      destruct (notes_enabled && Ascii.eqb d hat)%bool eqn:Eh; [|discriminate E];
+      apply andb_true_iff in Eh as [Hen Eh]; apply Ascii.eqb_eq in Eh; subst d;
+      exists r0; auto end.
 Qed.
 
 Lemma tok_at_dollars : forall s p k l, tok_at s p = Some (TDollars k, l) -> l = k.

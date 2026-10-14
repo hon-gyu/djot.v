@@ -156,15 +156,14 @@ Definition spec_fails_ahead (s : string) : bool :=
   (negb inline_attrs_enabled || spec_fails ap_init s)%bool.
 
 (* The label of a footnote reference, read from after its `[^` (F1): the
-   bytes before the `]` that ends it.  A backslash keeps the byte after
-   it from ending the label, and stays in it.  As a spec does, a label
-   here ends within its line. *)
+   bytes before the `]` that ends it, anywhere in the paragraph.  A
+   backslash keeps the byte after it from ending the label, and stays in
+   it.  A line break in a label is whitespace to `normalize_label`. *)
 Fixpoint note_go (esc : bool) (s : string) : option string :=
   match s with
   | EmptyString => None
   | String c r =>
-      if Ascii.eqb c nl_char then None
-      else if esc then option_map (String c) (note_go false r)
+      if esc then option_map (String c) (note_go false r)
       else if is_bslash c then option_map (String c) (note_go true r)
       else if Ascii.eqb c rbrack then Some EmptyString
       else option_map (String c) (note_go false r)
@@ -175,22 +174,6 @@ Definition note_at (s : string) : option string :=
   match s with
   | String c r => if (notes_enabled && Ascii.eqb c hat)%bool then note_go false r else None
   | EmptyString => None
-  end.
-
-(* Whether a label closes with no backslash in it. *)
-Fixpoint note_plain (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c r =>
-      if (Ascii.eqb c nl_char || is_bslash c)%bool then false
-      else if Ascii.eqb c rbrack then true
-      else note_plain r
-  end.
-
-Definition note_ahead (s : string) : bool :=
-  match s with
-  | String c r => (notes_enabled && Ascii.eqb c hat && note_plain r)%bool
-  | EmptyString => false
   end.
 
 (* The run of `c` a string begins with. *)
@@ -210,13 +193,10 @@ Definition brace_follows (c : ascii) (rest : string) : bool :=
   negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest
   || spec_fails_ahead rest || negb (nonempty_str rest).
 
-(* A `[` before a `^` is drawn on only as a footnote reference whose
-   label closes, and with wikilinks on a `[` before a `[`, which begins a
-   wikilink, not at all. *)
+(* With wikilinks on, a `[` before a `[`, which begins a wikilink, is
+   not drawn on. *)
 Definition bracket_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c lbrack
-        && ((wikilinks_enabled && starts_with lbrack rest)
-            || (starts_with hat rest && negb (note_ahead rest)))).
+  negb (Ascii.eqb c lbrack && wikilinks_enabled && starts_with lbrack rest).
 
 (* A `{` after a `]` is drawn on as a span's spec that closes, and as
    one that fails on its line. *)
