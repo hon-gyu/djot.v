@@ -3448,12 +3448,14 @@ Qed.
 (* A state resolved as at the end of a line, through the destination
    readings.  A pending `$` is kept while dollar math is on: a break may
    open display math from it, which its resolved text cannot.  An
-   autolink candidate the line ends inside is its text, and a symbol
-   its ordinary reading. *)
+   autolink candidate the line ends inside is its text, a symbol its
+   ordinary reading, and so is a spec the line break fails. *)
 Fixpoint rres (st : iscan) : iscan :=
   match st with
   | IDest k i o e d dst sh o' => IDest k i o e d dst (rres sh) o'
   | ISymbol _ _ sh _ => rres sh
+  | IAttr p _ _ _ sh _ => if ap_failed (astep p nl_char) then rres sh else st
+  | ISpan _ _ _ p _ sh _ => if ap_failed (astep p nl_char) then rres sh else st
   | IDollar _ _ _ _ => if dollar_math_enabled then st else iresolve st
   | IAuto src txt o => IText false (txt ++ String lt src) (str_last src (Some lt)) o
   | _ => iresolve st
@@ -4018,6 +4020,10 @@ Proof.
     try (cbn [rres ifinish_ostate]; exact IHst).
   - destruct (iresolve_shape (IDelim k extra txt before marked o)) as [(t & p & o' & E)|E];
       cbn [rres ifinish_ostate]; rewrite !E; cbn [ifinish_ostate]; rewrite ?E; reflexivity.
+  - cbn [rres]. destruct (ap_failed (astep p nl_char)); [|reflexivity].
+    cbn [ifinish_ostate]. exact IHst.
+  - cbn [rres]. destruct (ap_failed (astep p nl_char)); [|reflexivity].
+    cbn [ifinish_ostate]. exact IHst.
 Qed.
 
 Local Lemma ifinish_rres : forall st : iscan, ifinish (rres st) = ifinish st.
@@ -4031,6 +4037,10 @@ Proof.
     try (cbn [rres ibreak_at]; apply IHst).
   - destruct (iresolve_shape (IDelim k extra txt before marked o)) as [(t & p & o' & E)|E];
       cbn [rres ibreak_at]; rewrite !E; cbn [ibreak_at]; rewrite ?E; reflexivity.
+  - cbn [rres]. destruct (ap_failed (astep p nl_char)) eqn:F; [|reflexivity].
+    cbn [ibreak_at]. unfold ispan_feed. rewrite F. apply IHst.
+  - cbn [rres]. destruct (ap_failed (astep p nl_char)) eqn:F; [|reflexivity].
+    cbn [ibreak_at]. unfold iattr_feed. rewrite F. apply IHst.
   - cbn [rres ibreak_at]. rewrite IHst. reflexivity.
 Qed.
 
@@ -5436,6 +5446,24 @@ Proof.
     destruct (Ascii.eqb c1 nl_char); [discriminate|].
     destruct (ap_failed (astep (astep p c) c1)) eqn:Ef1; [discriminate|].
     cbn [iscan_str]. unfold istep at 1. cbn [istep_at]. rewrite Ef1. apply IH.
+Qed.
+
+Local Lemma nt_brace_text : forall prev s,
+  starts_row s = false -> spec_at s = None ->
+  next_tok prev (String lbrace s) = Some (TText lbrace, 1).
+Proof.
+  intros prev s Hr Hs. cbn [next_tok]. unfold lbrace_tok. change (Ascii.eqb lbrace nl_char) with false.
+  change (is_bslash lbrace) with false. change (is_tick lbrace) with false.
+  try change (Ascii.eqb lbrace dollar) with false.
+  try change (Ascii.eqb lbrace lt) with false. try change (Ascii.eqb lbrace ":"%char) with false.
+  change (Ascii.eqb lbrace period) with false. change (Ascii.eqb lbrace hyphen) with false.
+  change (Ascii.eqb lbrace bang) with false.
+  change (Ascii.eqb lbrace lbrack) with false.
+  change (Ascii.eqb lbrace rbrack) with false. rewrite Ascii.eqb_refl. cbv iota.
+  destruct s as [|d r].
+  - rewrite Hs. reflexivity.
+  - cbn [starts_row] in Hr. unfold is_delim in Hr. destruct (dstyle_of d); [discriminate|].
+    rewrite Hs. reflexivity.
 Qed.
 
 Local Lemma nt_attr : forall prev s b a,
@@ -6989,6 +7017,104 @@ Proof.
   unfold in_alphabet. cbn. destruct tags_enabled; [|reflexivity]. cbn. discriminate.
 Qed.
 
+(* A spec that fails on its line: the machine reads its bytes while the
+   shadow reads them as usual, and the byte that fails it hands the
+   scanner the shadow's own state. *)
+Local Lemma attr_fail_settles : forall s p src txt prev sh o,
+  spec_fails p s = true -> settles_in (IAttr p src txt prev sh o) sh s.
+Proof.
+  induction s as [|c r IH]; intros p src txt prev sh o H.
+  - exists "", "". split; [reflexivity|right]. split; [reflexivity|].
+    cbn [spec_fails] in H. cbn [iscan_str rres]. rewrite H. reflexivity.
+  - cbn [spec_fails] in H. destruct (Ascii.eqb c nl_char || is_bslash c)%bool; [discriminate H|].
+    destruct (ap_failed (astep p c)) eqn:Ef.
+    + exists (one c), r. split; [reflexivity|left].
+      cbn [iscan_str one]. unfold istep at 1. cbn [istep_at]. rewrite Ef. reflexivity.
+    + destruct (ap_done (astep p c)) eqn:Ed; [discriminate H|].
+      destruct (IH (astep p c) (src ++ one c)%string txt prev (istep c sh) o H)
+        as (q & r' & -> & E).
+      exists (String c q), r'. split; [reflexivity|].
+      assert (S1 : istep c (IAttr p src txt prev sh o)
+                   = IAttr (astep p c) (src ++ one c) txt prev (istep c sh) o).
+      { unfold istep at 1. cbn [istep_at]. rewrite Ef. unfold iattr_feed.
+        rewrite Ef, Ed. tred. reflexivity. }
+      cbn [iscan_str]. rewrite S1. exact E.
+Qed.
+
+(* The same for a span's spec. *)
+Local Lemma span_fail_settles : forall s kids im open p src sh o,
+  spec_fails p s = true -> settles_in (ISpan kids im open p src sh o) sh s.
+Proof.
+  induction s as [|c r IH]; intros kids im open p src sh o H.
+  - exists "", "". split; [reflexivity|right]. split; [reflexivity|].
+    cbn [spec_fails] in H. cbn [iscan_str rres]. rewrite H. reflexivity.
+  - cbn [spec_fails] in H. destruct (Ascii.eqb c nl_char || is_bslash c)%bool; [discriminate H|].
+    destruct (ap_failed (astep p c)) eqn:Ef.
+    + exists (one c), r. split; [reflexivity|left].
+      cbn [iscan_str one]. unfold istep at 1. cbn [istep_at]. rewrite Ef. reflexivity.
+    + destruct (ap_done (astep p c)) eqn:Ed; [discriminate H|].
+      destruct (IH kids im open (astep p c) (src ++ one c)%string (istep c sh) o H)
+        as (q & r' & -> & E).
+      exists (String c q), r'. split; [reflexivity|].
+      assert (S1 : istep c (ISpan kids im open p src sh o)
+                   = ISpan kids im open (astep p c) (src ++ one c) (istep c sh) o).
+      { unfold istep at 1. cbn [istep_at]. rewrite Ef. unfold ispan_feed.
+        rewrite Ef, Ed. tred. reflexivity. }
+      cbn [iscan_str]. rewrite S1. exact E.
+Qed.
+
+(* A `{` that begins no spec: the scanner reads it as a candidate, or as
+   text with attributes off, and settles where the `{` read as text
+   does. *)
+Local Lemma brace_fail_settles : forall s txt prev o,
+  starts_row s = false -> spec_fails_ahead s = true \/ s = EmptyString ->
+  settles_in (IBrace txt prev o) (IText false (txt ++ one lbrace) (Some lbrace) o) s.
+Proof.
+  intros [|c r] txt prev o Hr H.
+  - exists "", "". split; [reflexivity|right]. split; reflexivity.
+  - destruct H as [H|H]; [|discriminate H].
+    cbn [starts_row] in Hr. unfold is_delim in Hr.
+    destruct (dstyle_of c) eqn:Hd; [discriminate Hr|].
+    set (st := IText false (txt ++ one lbrace) (Some lbrace) o).
+    unfold spec_fails_ahead in H. destruct inline_attrs_enabled eqn:Hen.
+    + cbn [negb orb] in H.
+      assert (S1 : istep c (IBrace txt prev o) = istep c (IAttr ap_init "" txt prev st o)).
+      { unfold istep. cbn [istep_at]. unfold ibrace_step_at. rewrite Hd, Hen.
+        unfold iattr_feed. destruct (ap_failed (astep ap_init c)); reflexivity. }
+      destruct (attr_fail_settles (String c r) ap_init "" txt prev st o H) as (q & r' & E & Eq).
+      exists q, r'. split; [exact E|].
+      destruct q as [|c' q].
+      * destruct Eq as [Eq|[Er _]]; [cbn [iscan_str] in Eq; discriminate Eq|].
+        subst r'. discriminate E.
+      * injection E as <- _. cbn [iscan_str] in Eq |- *. rewrite S1. exact Eq.
+    + exists (one c), r. split; [reflexivity|left]. cbn [iscan_str one].
+      unfold istep. cbn [istep_at]. unfold ibrace_step_at. rewrite Hd, Hen. reflexivity.
+Qed.
+
+(* A spec that fails on its line closes nowhere after it. *)
+Local Lemma spec_fails_go : forall s p x,
+  spec_fails p s = true -> line_end x -> spec_go p (s ++ x) = None.
+Proof.
+  induction s as [|c r IH]; intros p x H Hx.
+  { destruct Hx as [-> | [r ->]]; [reflexivity|]. cbn [append spec_go].
+    rewrite Ascii.eqb_refl. reflexivity. }
+  cbn [spec_fails] in H. cbn [append spec_go].
+  destruct (Ascii.eqb c nl_char) eqn:En; [discriminate H|].
+  destruct (is_bslash c); [discriminate H|]. cbn [orb] in H.
+  destruct (ap_failed (astep p c)); [reflexivity|].
+  destruct (ap_done (astep p c)); [discriminate H|].
+  rewrite (IH _ x H Hx). reflexivity.
+Qed.
+
+(* No spec begins after a `{`: the spec fails on its line, or inline
+   attributes are off. *)
+Local Lemma spec_fails_at : forall r, spec_fails_ahead r = true -> spec_at r = None.
+Proof.
+  intros r H. unfold spec_at. unfold spec_fails_ahead in H.
+  destruct inline_attrs_enabled; [|reflexivity]. cbn [negb orb] in H.
+  rewrite <- (append_empty_r r). apply spec_fails_go; [exact H|left; reflexivity].
+Qed.
+
 (* A symbol that does not close: the scanner reads its run while the
    shadow reads the same bytes as text, and takes the shadow at the byte
    that ends the run, or at the end of the line. *)
@@ -7914,11 +8040,50 @@ Proof.
     { (* a span: the closer, the `{`, and its spec *)
       destruct s' as [|c2 r]; [discriminate|]. cbn [starts_with] in S1, S2, S3.
       apply Ascii.eqb_eq in S3. subst c2.
-      assert (Hsa : spec_ahead r = true).
+      assert (Hsf : (spec_ahead r || spec_fails_ahead r)%bool = true).
       { apply follow_close in Hf. unfold close_follows in Hf. rewrite Ascii.eqb_refl in Hf.
         cbn [starts_with andb] in Hf. rewrite Ascii.eqb_refl in Hf.
         change (sdrop 1 (String lbrace r)) with r in Hf. cbn [andb] in Hf.
         apply negb_true_iff, negb_false_iff in Hf. exact Hf. }
+      destruct (spec_ahead r) eqn:Hsa.
+      2: { (* a spec that fails on its line: the `]` is text, and the span
+              the scanner opens gives way to its ordinary reading *)
+        cbn [orb] in Hsf.
+        assert (Ht1 : tok_at ps n = Some (TText rbrack, 1)).
+        { rewrite Htok, nt_rbrack. cbn [starts_with]. rewrite S1, S2, Ascii.eqb_refl.
+          change (sdrop 1 (String lbrace r)) with r. rewrite (spec_fails_at r Hsf).
+          reflexivity. }
+        apply (scan_tok_in ps after len IH (String rbrack (String lbrace r)) n false v ws
+                 (IText false txt prev o) (TText rbrack) 1 (String lbrace r) (Some rbrack)
+                 (IText false (txt ++ one rbrack) (Some rbrack) o) Hl Hs Fn V Em Ht1).
+        - reflexivity.
+        - reflexivity.
+        - reflexivity.
+        - cbn [pend_esc with_esc]. exact Hs'.
+        - right. intros t q o' E. injection E as <- _ _. destruct txt; reflexivity.
+        - cbn [tok_text one iscan_str]. unfold istep at 1. cbn [istep_at].
+          rewrite (ilead_rbrack_closed txt prev o Htag).
+          assert (Eb2 : istep lbrace (IText false (txt ++ one rbrack) (Some rbrack) o)
+                        = IBrace (txt ++ one rbrack) (Some rbrack) o) by reflexivity.
+          destruct inline_attrs_enabled eqn:Hen.
+          + unfold spec_fails_ahead in Hsf. rewrite Hen in Hsf. cbn [negb orb] in Hsf.
+            assert (Sp : istep lbrace (IClosed txt o)
+                         = ISpan kids im null_span ap_init ""
+                             (IBrace (txt ++ one rbrack) (Some rbrack) o) o1).
+            { rewrite Eo. pose proof (closed_step_span v0 txt content rest' Ht) as Hcs.
+              rewrite <- Ev in Hcs. exact (Hcs Fnm Hpc Hen). }
+            destruct (span_fail_settles r kids im null_span ap_init ""
+                        (IBrace (txt ++ one rbrack) (Some rbrack) o) o1 Hsf)
+              as (q & r' & -> & E).
+            exists (String lbrace q), r'. split; [reflexivity|].
+            cbn [iscan_str]. rewrite Sp, Eb2. exact E.
+          + exists (one lbrace), r. split; [reflexivity|left]. cbn [iscan_str one].
+            unfold istep. cbn [istep_at]. rewrite Hen, !andb_false_r. cbn [orb].
+            reflexivity.
+        - cbn [is_hard]. unfold pstep.
+          apply linked_normal; [rewrite (proj2 (pv_add_live _ _)); exact Em|].
+          apply sim_text; [exact Hsim|reflexivity].
+        - left. apply pstep_mode; [exact Em|discriminate|discriminate|discriminate]. }
       unfold spec_ahead in Hsa. apply andb_true_iff in Hsa as [Hen Hpl].
       destruct (spec_plain_go r ap_init Hpl) as (b & a & Hgo & Hnb).
       assert (Hat : spec_at r = Some (b, a)) by (unfold spec_at; rewrite Hen; exact Hgo).
@@ -7989,10 +8154,35 @@ Proof.
   destruct (Ascii.eqb c lbrace) eqn:Elb.
   { apply Ascii.eqb_eq in Elb. subst c.
     destruct (starts_row s') eqn:Hrow.
-    2: { (* an attribute spec *)
-      assert (Hsa : spec_ahead s' = true).
+    2: { (* an attribute spec, or a `{` that begins none *)
+      assert (Hsf : (spec_ahead s' || spec_fails_ahead s' || negb (nonempty_str s'))%bool = true).
       { apply follow_brace in Hf. unfold brace_follows in Hf.
         rewrite Ascii.eqb_refl, Hrow in Hf. exact Hf. }
+      destruct (spec_ahead s') eqn:Hsa.
+      2: { (* a `{` that begins no spec is text, and the candidate the
+              scanner reads gives way to its ordinary reading *)
+        assert (Hno : spec_fails_ahead s' = true \/ s' = EmptyString).
+        { cbn [orb] in Hsf. destruct (spec_fails_ahead s'); [left; reflexivity|].
+          destruct s'; [right; reflexivity|discriminate Hsf]. }
+        assert (Hna : spec_at s' = None).
+        { destruct Hno as [F| ->]; [exact (spec_fails_at s' F)|].
+          unfold spec_at. destruct inline_attrs_enabled; reflexivity. }
+        apply (scan_tok_in ps after len IH (String lbrace s') n false v ws
+                 (IText false txt prev o) (TText lbrace) 1 s' (Some lbrace)
+                 (IText false (txt ++ one lbrace) (Some lbrace) o) Hl Hs Fn V Em).
+        - rewrite Htok. exact (nt_brace_text prev s' Hrow Hna).
+        - reflexivity.
+        - reflexivity.
+        - reflexivity.
+        - cbn [pend_esc with_esc]. exact Hs'.
+        - right. intros t q o' E. injection E as <- _ _. destruct txt; reflexivity.
+        - cbn [tok_text one iscan_str].
+          change (istep lbrace (IText false txt prev o)) with (IBrace txt prev o).
+          exact (brace_fail_settles s' txt prev o Hrow Hno).
+        - cbn [is_hard]. unfold pstep.
+          apply linked_normal; [rewrite (proj2 (pv_add_live _ _)); exact Em|].
+          apply sim_text; [exact Hsim|reflexivity].
+        - left. apply pstep_mode; [exact Em|discriminate|discriminate|discriminate]. }
       unfold spec_ahead in Hsa. apply andb_true_iff in Hsa as [Hen Hpl].
       destruct (spec_plain_go s' ap_init Hpl) as (b & a & Hgo & Hnb).
       assert (Hat : spec_at s' = Some (b, a)) by (unfold spec_at; rewrite Hen; exact Hgo).
@@ -8272,15 +8462,6 @@ Proof.
   rewrite append_empty_r. reflexivity.
 Qed.
 
-Local Lemma blank_not_row : forall w, is_blank w = true -> starts_row w = false.
-Proof.
-  intros [|c w] H; [reflexivity|]. cbn [is_blank] in H.
-  apply andb_true_iff in H as [Hc _]. cbn [starts_row]. unfold is_delim.
-  destruct (dstyle_of c) as [k|] eqn:Hd; [|reflexivity].
-  apply dstyle_of_char in Hd. subst c.
-  rewrite (is_punct_not_ws _ (dchar_punct k)) in Hc. discriminate.
-Qed.
-
 (* Whitespace ends a raw spec's format, so trailing blanks do not change
    what a spec reads. *)
 Local Lemma raw_spec_blank : forall a b, is_blank b = true -> raw_spec (a ++ b) = raw_spec a.
@@ -8333,6 +8514,54 @@ Proof.
   reflexivity.
 Qed.
 
+(* The machine treats a blank byte and the line break alike. *)
+Local Lemma astep_blank_nl : forall p w, is_ws w = true ->
+  ap_failed (astep p w) = ap_failed (astep p nl_char).
+Proof.
+  intros [st tok key a] w Hw.
+  destruct w as [[] [] [] [] [] [] [] []]; try discriminate Hw;
+    destruct st; reflexivity.
+Qed.
+
+(* After whitespace that does not fail it, the machine is between
+   attributes, in a quoted value or in a comment, where no more
+   whitespace fails it, and neither does the line break. *)
+Local Lemma spec_fails_blank0 : forall b p, is_blank b = true ->
+  match ap_st p with AScan | AQuot | AComment => True | _ => False end ->
+  spec_fails p b = false.
+Proof.
+  induction b as [|w b IH]; intros [st tok key a] Hb Hs.
+  - destruct st; try contradiction; reflexivity.
+  - cbn [is_blank] in Hb. apply andb_true_iff in Hb as [Hw Hb].
+    destruct w as [[] [] [] [] [] [] [] []]; try discriminate Hw;
+      destruct st; try contradiction; cbn [spec_fails]; cbn; apply IH; try exact Hb; exact I.
+Qed.
+
+(* Trailing whitespace fails a spec exactly when the line break would. *)
+Local Lemma spec_fails_blank : forall x b p, is_blank b = true ->
+  spec_fails p (x ++ b) = spec_fails p x.
+Proof.
+  induction x as [|c x IH]; intros b p Hb.
+  - destruct b as [|w b]; [reflexivity|]. cbn [is_blank] in Hb.
+    apply andb_true_iff in Hb as [Hw Hb]. cbn [append spec_fails].
+    replace (Ascii.eqb w nl_char || is_bslash w)%bool with false
+      by (destruct w as [[] [] [] [] [] [] [] []]; try discriminate Hw; reflexivity).
+    rewrite (astep_blank_nl p w Hw).
+    destruct (ap_failed (astep p nl_char)) eqn:F; [reflexivity|].
+    destruct (ap_done (astep p w)) eqn:D; [reflexivity|].
+    apply spec_fails_blank0; [exact Hb|].
+    destruct p as [[] tok key a]; destruct w as [[] [] [] [] [] [] [] []]; try discriminate Hw;
+      cbn in F, D |- *; try discriminate F; try discriminate D; exact I.
+  - cbn [append spec_fails]. rewrite (IH b _ Hb). reflexivity.
+Qed.
+
+Local Lemma spec_fails_ahead_blank : forall x b,
+  is_blank b = true -> spec_fails_ahead (x ++ b) = spec_fails_ahead x.
+Proof.
+  intros x b Hb. unfold spec_fails_ahead. rewrite (spec_fails_blank x b ap_init Hb).
+  reflexivity.
+Qed.
+
 Local Lemma note_plain_blank : forall x b, is_blank b = true -> note_plain (x ++ b) = note_plain x.
 Proof.
   assert (B0 : forall b, is_blank b = true -> note_plain b = false).
@@ -8365,12 +8594,10 @@ Proof.
     cbn [over_alphabet]. rewrite Eb, Hc.
     rewrite (IH (String.length a) ltac:(cbn in Em; lia) a eq_refl H Hb), andb_true_r. cbn [andb].
     destruct a as [|d a].
-    + pose proof (spec_ahead_blank "" b Hb) as Sb. cbn [append] in Sb, Hf.
-      apply follow_brace in Hf. unfold brace_follows in Hf.
-      rewrite (blank_not_row b Hb), Sb, !orb_false_r in Hf.
+    + (* at the end of the line every byte may stand *)
       unfold follow_ok, brace_follows, bracket_follows,
-        close_follows, tick_follows. cbn.
-      rewrite !andb_false_r, orb_false_r, Hf. reflexivity.
+        close_follows, tick_follows. cbn [starts_with nonempty_str negb].
+      rewrite !orb_true_r, !andb_false_r. reflexivity.
     + unfold follow_ok, brace_follows, bracket_follows,
         close_follows, tick_follows, raw_ahead in *.
       change (sdrop 1 (String d a ++ b)) with (a ++ b)%string in Hf.
@@ -8380,8 +8607,9 @@ Proof.
       change (note_ahead (String d a))
         with (notes_enabled && Ascii.eqb d hat && note_plain a)%bool.
       rewrite (note_plain_blank a b Hb) in Hf.
-      rewrite (spec_ahead_blank a b Hb) in Hf.
+      rewrite (spec_ahead_blank a b Hb), (spec_fails_ahead_blank a b Hb) in Hf.
       rewrite (spec_ahead_blank (String d a) b Hb), (raw_spec_blank (String d a) b Hb) in Hf.
+      rewrite (spec_fails_ahead_blank (String d a) b Hb) in Hf.
       exact Hf.
 Qed.
 

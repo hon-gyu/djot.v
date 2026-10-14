@@ -137,6 +137,24 @@ Definition spec_at (s : string) : option (string * attr) :=
 Definition spec_ahead (s : string) : bool :=
   (inline_attrs_enabled && spec_plain ap_init s)%bool.
 
+(* Whether a spec fails on its line, at a byte the machine refuses or at
+   the line break that ends it, with no backslash before it. *)
+Fixpoint spec_fails (p : aparser) (s : string) : bool :=
+  match s with
+  | EmptyString => ap_failed (astep p nl_char)
+  | String c r =>
+      if (Ascii.eqb c nl_char || is_bslash c)%bool then false
+      else let p' := astep p c in
+           if ap_failed p' then true
+           else if ap_done p' then false
+           else spec_fails p' r
+  end.
+
+(* Whether what follows a `{` begins no spec at all: inline attributes
+   are off, or the spec fails on its line. *)
+Definition spec_fails_ahead (s : string) : bool :=
+  (negb inline_attrs_enabled || spec_fails ap_init s)%bool.
+
 (* Whether a `{` after a backtick begins a raw spec that closes. *)
 Definition raw_ahead (s : string) : bool :=
   (raw_inline_enabled && match raw_spec s with Some _ => true | None => false end)%bool.
@@ -189,10 +207,12 @@ Fixpoint run_of (c : ascii) (s : string) : nat :=
 (* What may follow a byte: one condition per shape the alphabet leaves
    out, each `true` for every byte but the one it is about. *)
 
-(* A `{` before anything but a row's character is drawn on only as an
-   attribute spec that closes. *)
+(* A `{` before anything but a row's character is drawn on as an
+   attribute spec that closes, as one that fails on its line, and at the
+   end of the line. *)
 Definition brace_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest.
+  negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest
+  || spec_fails_ahead rest || negb (nonempty_str rest).
 
 (* A `[` before a `^` is drawn on only as a footnote reference whose
    label closes, and with wikilinks on a `[` before a `[`, which begins a
@@ -202,9 +222,11 @@ Definition bracket_follows (c : ascii) (rest : string) : bool :=
         && ((wikilinks_enabled && starts_with lbrack rest)
             || (starts_with hat rest && negb (note_ahead rest)))).
 
-(* A `{` after a `]` is drawn on only as a span's spec that closes. *)
+(* A `{` after a `]` is drawn on as a span's spec that closes, and as
+   one that fails on its line. *)
 Definition close_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c rbrack && starts_with lbrace rest && negb (spec_ahead (sdrop 1 rest))).
+  negb (Ascii.eqb c rbrack && starts_with lbrace rest
+        && negb (spec_ahead (sdrop 1 rest) || spec_fails_ahead (sdrop 1 rest))).
 
 (* One after a backtick only as a raw spec that closes. *)
 Definition tick_follows (c : ascii) (rest : string) : bool :=
