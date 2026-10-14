@@ -29,8 +29,6 @@ Lemma follow_bracket : bracket_follows c rest = true.
 Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
 Lemma follow_close : close_follows c rest = true.
 Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
-Lemma follow_tick : tick_follows c rest = true.
-Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
 
 End Follow.
 

@@ -155,10 +155,6 @@ Fixpoint spec_fails (p : aparser) (s : string) : bool :=
 Definition spec_fails_ahead (s : string) : bool :=
   (negb inline_attrs_enabled || spec_fails ap_init s)%bool.
 
-(* Whether a `{` after a backtick begins a raw spec that closes. *)
-Definition raw_ahead (s : string) : bool :=
-  (raw_inline_enabled && match raw_spec s with Some _ => true | None => false end)%bool.
-
 (* The label of a footnote reference, read from after its `[^` (F1): the
    bytes before the `]` that ends it.  A backslash keeps the byte after
    it from ending the label, and stays in it.  As a spec does, a label
@@ -228,18 +224,12 @@ Definition close_follows (c : ascii) (rest : string) : bool :=
   negb (Ascii.eqb c rbrack && starts_with lbrace rest
         && negb (spec_ahead (sdrop 1 rest) || spec_fails_ahead (sdrop 1 rest))).
 
-(* One after a backtick only as a raw spec that closes. *)
-Definition tick_follows (c : ascii) (rest : string) : bool :=
-  negb (is_tick c && starts_with lbrace rest && negb (raw_ahead rest)).
-
 Definition follow_ok (c : ascii) (rest : string) : bool :=
   (brace_follows c rest && bracket_follows c rest
-   && close_follows c rest && tick_follows c rest)%bool.
+   && close_follows c rest)%bool.
 
 (* A backslash escapes the byte after it, whatever that byte is but the
-   newline, so the escaped byte is not drawn on the alphabet (O2, O3).
-   An escaped backtick is followed as a backtick is: inside a verbatim
-   the backslash is a byte and the backtick may close it. *)
+   newline, so the escaped byte is not drawn on the alphabet (O2, O3). *)
 Fixpoint over_alphabet (s : string) : bool :=
   match s with
   | EmptyString => true
@@ -248,9 +238,7 @@ Fixpoint over_alphabet (s : string) : bool :=
       then match rest with
            | EmptyString => true
            | String d rest' =>
-               negb (Ascii.eqb d nl_char)
-               && negb (is_tick d && starts_with lbrace rest' && negb (raw_ahead rest'))
-               && over_alphabet rest'
+               negb (Ascii.eqb d nl_char) && over_alphabet rest'
            end
       else (in_alphabet c && follow_ok c rest && over_alphabet rest)%bool
   end.

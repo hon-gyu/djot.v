@@ -3448,12 +3448,14 @@ Qed.
 (* A state resolved as at the end of a line, through the destination
    readings.  A pending `$` is kept while dollar math is on: a break may
    open display math from it, which its resolved text cannot.  An
-   autolink candidate the line ends inside is its text, a symbol its
-   ordinary reading, and so is a spec the line break fails. *)
+   autolink candidate the line ends inside is its text, a symbol or a
+   raw spec its ordinary reading, and so is a spec the line break
+   fails. *)
 Fixpoint rres (st : iscan) : iscan :=
   match st with
   | IDest k i o e d dst sh o' => IDest k i o e d dst (rres sh) o'
   | ISymbol _ _ sh _ => rres sh
+  | IRaw _ _ sh _ => rres sh
   | IAttr p _ _ _ sh _ => if ap_failed (astep p nl_char) then rres sh else st
   | ISpan _ _ _ p _ sh _ => if ap_failed (astep p nl_char) then rres sh else st
   | IDollar _ _ _ _ => if dollar_math_enabled then st else iresolve st
@@ -4282,12 +4284,11 @@ Definition prev_ok (prev : option ascii) (s : string) : bool :=
 
 Local Lemma prev_ok_plain : forall p s,
   Ascii.eqb p lbrace = false -> Ascii.eqb p lbrack = false -> Ascii.eqb p rbrack = false ->
-  is_tick p = false ->
   prev_ok (Some p) s = true.
 Proof.
-  intros p s H1 H2 H3 H4. unfold prev_ok, follow_ok, brace_follows, bracket_follows,
-    close_follows, tick_follows.
-  rewrite H1, H2, H3, H4. reflexivity.
+  intros p s H1 H2 H3. unfold prev_ok, follow_ok, brace_follows, bracket_follows,
+    close_follows.
+  rewrite H1, H2, H3. reflexivity.
 Qed.
 
 Local Lemma prev_ok_follow : forall c s,
@@ -4800,7 +4801,6 @@ Proof.
   - assert (Ascii.eqb c nl_char = false) as -> by (unfold is_bslash in Eb;
       apply Ascii.eqb_eq in Eb; subst c; reflexivity).
     destruct s as [|d r]; [reflexivity|]. apply andb_true_iff in H as [Hd H].
-    apply andb_true_iff in Hd as [Hd _].
     apply negb_true_iff in Hd. cbn [no_char negb andb]. rewrite Hd. exact (IH r H).
   - apply andb_true_iff in H as [H H3]. apply andb_true_iff in H as [H1 _].
     rewrite (alphabet_nl c H1). exact (IH s H3).
@@ -6044,22 +6044,6 @@ Proof.
     + exact (proj2 (proj2 (over_alphabet_cons c s Eb H))).
 Qed.
 
-Local Lemma alpha_tick : forall e0 s,
-  over_alphabet (with_esc e0 (String tick s)) = true -> starts_with lbrace s = true ->
-  raw_ahead s = true.
-Proof.
-  intros [|] s H Hb; cbn [with_esc over_alphabet] in H.
-  - change (is_bslash bslash) with true in H. cbn iota in H.
-    apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
-    change (is_tick tick) with true in H. rewrite Hb in H.
-    destruct (raw_ahead s); [reflexivity|discriminate].
-  - change (is_bslash tick) with false in H. cbn iota in H.
-    apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
-    apply follow_tick in H. unfold tick_follows in H.
-    change (is_tick tick) with true in H. rewrite Hb in H.
-    destruct (raw_ahead s); [reflexivity|discriminate].
-Qed.
-
 (* A newline inside a verbatim is one of its bytes. *)
 Local Lemma ibreak_verb : forall X, verb_state X (Some nl_char) ->
   ibreak X = istep nl_char X /\ pend_esc (ibreak X) = false.
@@ -6159,17 +6143,76 @@ Proof.
   - cbn [append raw_spec]. rewrite F. reflexivity.
 Qed.
 
-Local Lemma alpha_follow_tick : forall e0 s,
-  over_alphabet (with_esc e0 (String tick s)) = true -> follow_ok tick s = true.
+Local Lemma fmt_go_close : forall f x, fmt_ok f = true -> fmt_go (f ++ String rbrace x) = Some f.
 Proof.
-  intros [|] s H; cbn [with_esc] in H.
-  - cbn [over_alphabet] in H. change (is_bslash bslash) with true in H. cbn iota in H.
-    apply andb_true_iff in H as [H _]. apply andb_true_iff in H as [_ H].
-    unfold follow_ok, brace_follows, bracket_follows,
-      close_follows, tick_follows.
-    change (is_tick tick) with true in H |- *. rewrite H. reflexivity.
-  - exact (proj1 (proj2 (over_alphabet_cons tick s eq_refl H))).
+  induction f as [|c f IH]; intros x Ok; [reflexivity|].
+  cbn [fmt_ok] in Ok. apply andb_true_iff in Ok as [Ok Okf]. apply andb_true_iff in Ok as [Eb Es].
+  apply negb_true_iff in Eb, Es. cbn [append fmt_go]. rewrite Eb, Es, (IH x Okf). reflexivity.
 Qed.
+
+Local Lemma fmt_ok_snoc : forall f c, fmt_ok f = true ->
+  Ascii.eqb c rbrace = false -> (raw_stop c || Ascii.eqb c nl_char)%bool = false ->
+  fmt_ok (f ++ one c) = true.
+Proof.
+  induction f as [|x f IH]; intros c Ok Eb Es.
+  - cbn. rewrite Eb, Es. reflexivity.
+  - cbn [fmt_ok append] in Ok |- *. apply andb_true_iff in Ok as [Ok Okf].
+    rewrite Ok, (IH c Okf Eb Es). reflexivity.
+Qed.
+
+(* A raw spec that does not close: the scanner holds it beside its
+   ordinary reading, and takes that reading at the byte that fails it,
+   or at the end of the line. *)
+Local Lemma raw_fail_settles : forall r spec t sh o,
+  no_char nl_char r = true ->
+  (spec = EmptyString \/ exists f, spec = String eqchar f /\ fmt_ok f = true) ->
+  (raw_inline_enabled = false \/ raw_spec (String lbrace (spec ++ r)) = None) ->
+  settles_in (IRaw spec t sh o) sh r.
+Proof.
+  induction r as [|c r IH]; intros spec t sh o Hn Hs Hr.
+  { exists "", "". split; [reflexivity|right]. split; reflexivity. }
+  cbn [no_char] in Hn. apply andb_true_iff in Hn as [Hc Hn]. apply negb_true_iff in Hc.
+  assert (Fail : istep c (IRaw spec t sh o) = istep c sh -> settles_in (IRaw spec t sh o) sh (String c r)).
+  { intros E. exists (one c), r. split; [reflexivity|left]. exact E. }
+  destruct Hs as [->|(f & -> & Ok)].
+  - destruct (Ascii.eqb c eqchar) eqn:Ee.
+    2: { apply Fail. unfold istep at 1. cbn [istep_at]. unfold iraw_step. tred.
+         rewrite Ee, !andb_false_r. reflexivity. }
+    apply Ascii.eqb_eq in Ee. subst c.
+    destruct (IH (one eqchar) t (istep eqchar sh) o Hn (or_intror (ex_intro _ "" (conj eq_refl eq_refl))) Hr)
+      as (q & r' & -> & E).
+    exists (String eqchar q), r'. split; [reflexivity|]. cbn [iscan_str].
+    replace (istep eqchar (IRaw "" t sh o)) with (IRaw (one eqchar) t (istep eqchar sh) o)
+      by (unfold istep at 2; cbn [istep_at]; unfold iraw_step; tred; rewrite !andb_false_r; reflexivity).
+    exact E.
+  - destruct (Ascii.eqb c rbrace) eqn:Eb.
+    + apply Fail. apply Ascii.eqb_eq in Eb. subst c.
+      unfold istep at 1. cbn [istep_at]. unfold iraw_step. tred.
+      replace (raw_inline_enabled && Ascii.eqb rbrace rbrace && raw_spec_ok (String eqchar f))%bool
+        with false; [reflexivity|].
+      change (Ascii.eqb rbrace rbrace) with true. cbn [raw_spec_ok]. rewrite andb_true_r.
+      change (Ascii.eqb eqchar eqchar) with true. cbn [andb].
+      destruct Hr as [-> | Hr]; [reflexivity|].
+      cbn [append raw_spec] in Hr. change (Ascii.eqb lbrace lbrace && Ascii.eqb eqchar eqchar)%bool with true in Hr.
+      cbv iota in Hr. rewrite (fmt_go_close f r Ok) in Hr. destruct f; [|discriminate Hr].
+      rewrite andb_false_r. reflexivity.
+    + destruct (raw_stop c) eqn:Es.
+      * apply Fail. unfold istep at 1. cbn [istep_at]. unfold iraw_step. tred.
+        rewrite Eb, andb_false_r. cbn [nonempty_str]. rewrite Es. reflexivity.
+      * destruct (IH (String eqchar (f ++ one c)) t (istep c sh) o Hn) as (q & r' & -> & E).
+        { right. exists (f ++ one c)%string. split; [reflexivity|].
+          apply fmt_ok_snoc; [exact Ok|exact Eb|rewrite Es, Hc; reflexivity]. }
+        { cbn [append] in Hr |- *. rewrite append_assoc. exact Hr. }
+        exists (String c q), r'. split; [reflexivity|]. cbn [iscan_str].
+        replace (istep c (IRaw (String eqchar f) t sh o))
+          with (IRaw (String eqchar (f ++ one c)) t (istep c sh) o).
+        2: { unfold istep at 2. cbn [istep_at]. unfold iraw_step. tred.
+             rewrite Eb, andb_false_r. cbn [nonempty_str]. rewrite Es. reflexivity. }
+        exact E.
+Qed.
+
+Local Lemma tick_follow_ok : forall s, follow_ok tick s = true.
+Proof. reflexivity. Qed.
 
 (* A byte of a verbatim the view is inside. *)
 Local Lemma scan_atom : forall ps after len, scan_ih ps after len ->
@@ -6197,11 +6240,11 @@ Proof.
     split; [apply pbyte_tidy, Ti|]. discriminate. }
   assert (A : forall core1,
             alpha_ok (pbyte n c v) core1 s' -> note_ok (Some c) core1 s' ->
-            settles (istep c core) core1 (get 0 s') ->
+            settles_in (istep c core) core1 s' ->
             linked ps (S n) false (pbyte n c v) (Some c) core1 ->
             scanned ps n h v ws core (String c s')).
   { intros core1 A1 N1 S1 L1.
-    apply (scan_advance_gen ps after len IH (String c s') n h v ws core (one c) s' (Some c) []
+    apply (scan_advance_gen_in ps after len IH (String c s') n h v ws core (one c) s' (Some c) []
              core1 false (pbyte n c v)); cbn [String.length one]; try rewrite Nat.add_1_r;
       first [assumption | reflexivity | discriminate | exact (pruns_one _ _ _ _ _ _ _ U)
             | (rewrite Hb; apply same_prev_refl) | constructor | (cbn [iscan_str wrap]; exact S1)]. }
@@ -6238,7 +6281,7 @@ Proof.
     apply (A (istep c (iscan_str (substring p (n - p) ps) X0))); rewrite ?Pb.
     - unfold alpha_ok. rewrite Em. eexists. exact (alpha_tail e0 c s' Ha).
     - right. intros t q o E. rewrite E in VS. exact (False_ind _ VS).
-    - apply settles_refl.
+    - apply settles_in_of, settles_refl.
     - unfold linked. rewrite Em. split; [reflexivity|]. split; [lia|].
       exists p, pre, m, body, cl, rw, txt0, prev0, o0. split; [lia|]. split; [exact Ht|].
       split; [reflexivity|]. split; [exact Hsim|]. split; [exact Step|exact VS]. }
@@ -6261,7 +6304,7 @@ Proof.
       pose proof (alpha_tail e0 rbrace s' Ha) as H. change (is_bslash rbrace) with false in H.
       rewrite andb_false_r in H. exact H.
     - left. reflexivity.
-    - rewrite Step. apply settles_refl.
+    - apply settles_in_of. rewrite Step. apply settles_refl.
     - rewrite Pb. apply linked_normal; [rewrite (proj2 (pv_add_live _ _)); exact EmN|].
       exists (pv_add (verb_node 0 (Some f) body) vN).
       split; [apply oemit_view; intros s0; discriminate|].
@@ -6280,15 +6323,7 @@ Proof.
       subst c.
       assert (Hd : is_tick d = false).
       { apply Stop. replace (p + (S n - p)) with (S n) by lia. exact (get_sdrop ps (S n) d _ Hs1). }
-      pose proof (alpha_follow_tick e0 _ Ha) as Hf'.
-      assert (Hbr : Ascii.eqb d lbrace = true -> pre <> 0).
-      { intros Edb Hp0. subst pre. pose proof (follow_tick _ _ Hf') as H4.
-        unfold tick_follows in H4. change (is_tick tick) with true in H4.
-        cbn [starts_with] in H4. rewrite Edb in H4. cbn [andb] in H4.
-        destruct (raw_ahead (String d r)) eqn:Ra; [|discriminate H4].
-        unfold raw_ahead in Ra. apply andb_true_iff in Ra as [Eraw Rs].
-        pose proof (Nr eq_refl Eraw) as N0. replace (p + (S n - p)) with (S n) in N0 by lia.
-        rewrite Hs1, (raw_spec_app _ _ Hae) in N0. rewrite N0 in Rs. discriminate Rs. }
+      pose proof (tick_follow_ok (String d r)) as Hf'.
       assert (Hdm : Ascii.eqb d dollar = true -> dollar_math_enabled = false).
       { intros Edl. pose proof (alpha_tail e0 tick _ Ha) as H. rewrite andb_false_r in H.
         cbn [with_esc] in H. apply Ascii.eqb_eq in Edl. subst d.
@@ -6299,7 +6334,28 @@ Proof.
       * unfold alpha_ok. rewrite Pb, (proj2 (pv_add_live _ _)), EmN. cbn [pend_esc with_esc].
         pose proof (alpha_tail e0 tick _ Ha) as H. rewrite andb_false_r in H. exact H.
       * left. apply prev_ok_follow; [exact Hf'|reflexivity].
-      * cbn [get settles]. rewrite Step. apply verb_close_settles; [exact Hd|exact Hbr|exact Hdm].
+      * rewrite Step.
+        destruct (Ascii.eqb d lbrace && Nat.eqb pre 0)%bool eqn:Ebr.
+        2: { apply settles_in_of. apply verb_close_settles; [exact Hd| |exact Hdm].
+             intros Edb Hp0. rewrite Edb, (proj2 (Nat.eqb_eq pre 0) Hp0) in Ebr. discriminate Ebr. }
+        (* a raw spec that does not close: the `{` is read as usual *)
+        apply andb_true_iff in Ebr as [Ebr Ep]. apply Ascii.eqb_eq in Ebr. apply Nat.eqb_eq in Ep.
+        subst d pre.
+        assert (Hn : no_char nl_char r = true).
+        { pose proof (alpha_tail e0 tick _ Ha) as H. rewrite andb_false_r in H.
+          apply alphabet_no_nl in H. cbn [no_char] in H. apply andb_true_iff in H as [_ H]. exact H. }
+        assert (Hraw : raw_inline_enabled = false \/ raw_spec (String lbrace ("" ++ r)) = None).
+        { destruct raw_inline_enabled eqn:Eraw; [right|left; reflexivity].
+          pose proof (Nr eq_refl eq_refl) as N0. replace (p + (S n - p)) with (S n) in N0 by lia.
+          rewrite Hs1, (raw_spec_app _ _ Hae) in N0. exact N0. }
+        set (sh0 := IBrace "" (Some tick) (oemit (mk (verb_node 0 None body)) (oview vN))).
+        destruct (raw_fail_settles r "" (trim_verb body) sh0 (oview vN) Hn (or_introl eq_refl) Hraw)
+          as (q & r' & -> & E).
+        assert (S1 : istep lbrace (IVerb m m body (vkind_of 0) (oview vN))
+                     = IRaw "" (trim_verb body) sh0 (oview vN)).
+        { unfold istep. cbn [istep_at]. change (is_tick lbrace) with false. rewrite Nat.eqb_refl.
+          reflexivity. }
+        exists (String lbrace q), r'. split; [reflexivity|]. cbn [iscan_str]. rewrite S1. exact E.
       * rewrite Pb. apply linked_normal; [rewrite (proj2 (pv_add_live _ _)); exact EmN|].
         exists (pv_add (verb_node pre None body) vN).
         split; [apply oemit_view; apply verb_node_nonstr|].
@@ -6539,7 +6595,9 @@ Proof.
       destruct Hle as [-> | [r ->]]; [left|right]; reflexivity. }
     assert (Er : rres core = core).
     { destruct core; cbn [verb_state] in Vs; try contradiction; try reflexivity.
-      exfalso. destruct Ge as [G|G]; rewrite G in Vs; destruct Vs as [E|E]; discriminate E. }
+      - exfalso. destruct Ge as [G|G]; rewrite G in Vs; destruct Vs as [E|E]; discriminate E.
+      - exfalso. destruct Vs as (c & E & Hc & _).
+        destruct Ge as [G|G]; rewrite G in E; [discriminate E|injection E as <-; contradiction]. }
     rewrite Er. split; [exact Hh|]. split; [exact He|].
     exists p, dd, m, body, cl, rw, txt0, prev0, o0. repeat split; assumption.
   - (* a span's spec ends within its line *)
@@ -6742,7 +6800,7 @@ Proof.
   intros d r Hs Hn Hr. cbn [over_alphabet].
   destruct d as [[] [] [] [] [] [] [] []]; try discriminate Hs; try discriminate Hn;
     unfold in_alphabet, follow_ok, brace_follows, bracket_follows,
-      close_follows, tick_follows; cbn; rewrite ?andb_false_r, Hr;
+      close_follows; cbn; rewrite ?andb_false_r, Hr;
     destruct (dstyle_of _); reflexivity.
 Qed.
 
@@ -6759,7 +6817,7 @@ Proof.
   - destruct src' as [|e src''].
     + destruct Hr as [-> | (d & r & -> & Hd)]; [reflexivity|].
       cbn [append over_alphabet] in H. rewrite Eb in H.
-      apply andb_true_iff in H as [H Hr']. apply andb_true_iff in H as [Hn _].
+      apply andb_true_iff in H as [Hn Hr'].
       apply negb_true_iff in Hn. exact (auto_stop_alpha d r Hd Hn Hr').
     + cbn [append over_alphabet] in H. rewrite Eb in H.
       apply andb_true_iff in H as [_ H].
@@ -8462,30 +8520,6 @@ Proof.
   rewrite append_empty_r. reflexivity.
 Qed.
 
-(* Whitespace ends a raw spec's format, so trailing blanks do not change
-   what a spec reads. *)
-Local Lemma raw_spec_blank : forall a b, is_blank b = true -> raw_spec (a ++ b) = raw_spec a.
-Proof.
-  intros a b Hb.
-  assert (Hw : forall c b', b = String c b' -> is_ws c = true /\ Ascii.eqb c rbrace = false
-                                               /\ Ascii.eqb c lbrace = false
-                                               /\ Ascii.eqb c eqchar = false).
-  { intros c b' ->. cbn [is_blank] in Hb. apply andb_true_iff in Hb as [Hc _].
-    split; [exact Hc|].
-    destruct c as [[] [] [] [] [] [] [] []]; try discriminate Hc; repeat split; reflexivity. }
-  assert (F : forall r, fmt_go (r ++ b) = fmt_go r).
-  { induction r as [|x r IH].
-    - destruct b as [|c b']; [reflexivity|]. destruct (Hw c b' eq_refl) as (Hc & Hr & _ & _).
-      cbn [append fmt_go]. rewrite Hr. unfold raw_stop. rewrite Hc. reflexivity.
-    - cbn [append fmt_go]. rewrite IH. reflexivity. }
-  destruct a as [|x [|e r]].
-  - destruct b as [|c b']; [reflexivity|]. destruct (Hw c b' eq_refl) as (_ & _ & Hl & _).
-    destruct b'; cbn [append raw_spec]; [reflexivity|]. rewrite Hl. reflexivity.
-  - destruct b as [|c b']; [reflexivity|]. destruct (Hw c b' eq_refl) as (_ & _ & _ & He).
-    cbn [append raw_spec]. rewrite He, andb_false_r. reflexivity.
-  - cbn [append raw_spec]. rewrite F. reflexivity.
-Qed.
-
 Local Lemma spec_plain_blank0 : forall w p,
   ap_done p = false -> is_blank w = true -> spec_plain p w = false.
 Proof.
@@ -8584,11 +8618,8 @@ Proof.
   - unfold is_bslash in Eb. apply Ascii.eqb_eq in Eb. subst c.
     destruct a as [|d a]; [reflexivity|].
     cbn [append over_alphabet] in H. change (is_bslash bslash) with true in H. cbn iota in H.
-    apply andb_true_iff in H as [Hd H]. apply andb_true_iff in Hd as [Hn Ht].
+    apply andb_true_iff in H as [Hn H].
     cbn [over_alphabet]. change (is_bslash bslash) with true. cbn iota. rewrite Hn.
-    unfold raw_ahead in Ht. rewrite (raw_spec_blank a b Hb) in Ht.
-    replace (negb (is_tick d && starts_with lbrace a && negb (raw_ahead a))) with true
-      by (destruct a; [cbn [starts_with]; rewrite andb_false_r; reflexivity|exact (eq_sym Ht)]).
     apply (IH (String.length a)); [cbn in Em; lia|reflexivity|exact H|exact Hb].
   - cbn [append] in H. apply (over_alphabet_cons c _ Eb) in H as (Hc & Hf & H).
     cbn [over_alphabet]. rewrite Eb, Hc.
@@ -8596,10 +8627,10 @@ Proof.
     destruct a as [|d a].
     + (* at the end of the line every byte may stand *)
       unfold follow_ok, brace_follows, bracket_follows,
-        close_follows, tick_follows. cbn [starts_with nonempty_str negb].
+        close_follows. cbn [starts_with nonempty_str negb].
       rewrite !orb_true_r, !andb_false_r. reflexivity.
     + unfold follow_ok, brace_follows, bracket_follows,
-        close_follows, tick_follows, raw_ahead in *.
+        close_follows in *.
       change (sdrop 1 (String d a ++ b)) with (a ++ b)%string in Hf.
       change (sdrop 1 (String d a)) with a.
       change (note_ahead (String d a ++ b))
@@ -8608,7 +8639,7 @@ Proof.
         with (notes_enabled && Ascii.eqb d hat && note_plain a)%bool.
       rewrite (note_plain_blank a b Hb) in Hf.
       rewrite (spec_ahead_blank a b Hb), (spec_fails_ahead_blank a b Hb) in Hf.
-      rewrite (spec_ahead_blank (String d a) b Hb), (raw_spec_blank (String d a) b Hb) in Hf.
+      rewrite (spec_ahead_blank (String d a) b Hb) in Hf.
       rewrite (spec_fails_ahead_blank (String d a) b Hb) in Hf.
       exact Hf.
 Qed.
