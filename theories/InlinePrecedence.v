@@ -5987,13 +5987,13 @@ Proof.
       cbn [String.length] in He.
       replace (n =? se)%nat with false in A by (symmetry; apply Nat.eqb_neq; lia).
       apply (A (ISpan sk im open (astep p c) (src ++ one c)
-                  (islice_end (istep_at false c sh)) (oview v))).
+                  (istep_at inline_attrs_enabled c sh) (oview v))).
       * cbn [pend_esc with_esc]. exact (proj2 (proj2 (over_alphabet_cons c s' Hcb Ha))).
       * right. intros t q o E. discriminate E.
       * unfold istep. cbn [istep_at]. unfold ispan_feed. rewrite Ef, Ed. apply settles_refl.
       * unfold linked. rewrite Em'. split; [reflexivity|]. split; [exact Bk|].
         exists (astep p c), (src ++ one c)%string, open, b1,
-          (islice_end (istep_at false c sh)).
+          (istep_at inline_attrs_enabled c sh).
         split; [exact Ed|]. split; [rewrite Hs1; exact E1|]. split; [exact Hnb|].
         split; [lia|reflexivity].
 Qed.

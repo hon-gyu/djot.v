@@ -2658,3 +2658,31 @@ nested list, with a blank after it:
 The attributes are a block, the blank is between two items, and the
 reference says a list is loose when a blank line separates two items.
 
+## 2026-10-14 -- OURS: a failed spec is read as if its `{` opened none
+
+| Input | djot.js | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `x{a--` | `x{a--` | the same | `x{a` and an en dash |
+| `x{:b:` | `x{:b:` | the same | `x{` and the symbol `b` |
+| `x{a="{.c} y` | all text | the same | `x{a=“` with class `c`, then ` y` |
+| `[a]{k="](u)` | all text | the same | a link over `a]{k=“` |
+
+When an inline spec or a span's spec fails, djot.js reads its region
+again cut into slices at every special byte, with attributes off, and
+the scanner copied that (`islice_end`).  So a run of hyphens or a symbol
+inside the region stayed literal, and a `{` or a `]` there began
+nothing.
+
+Decided by the maintainer (2026-10-14): a failed spec reads as if its
+`{` were not a spec opener.  The `{` is text and every byte after it is
+read as usual, attributes included.  The ordinary reading beside
+`IAttr` and `ISpan` now advances as the scanner does everywhere else,
+and `islice_end` is gone.
+
+The block attribute recovery is not changed by this: it reads whole
+lines with attributes off.  `{a=}=` is unchanged (the entry of
+2026-09-09), so that difference does not come from the slicing.
+
+Pinned by `attr_failed_spec_dash`, `attr_failed_spec_symbol`,
+`attr_failed_spec_inner_spec` and `span_failed_spec_bracket_closes` in
+`dev/InlineExamples.v`.

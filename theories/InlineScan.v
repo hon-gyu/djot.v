@@ -1329,16 +1329,16 @@ Inductive iscan_g : Type :=
      are the span reading, with the bracket closed; a span ignores
      `image`, so `![x]{.a}` is a `!` followed by a span.  `sh` is the
      ordinary reading of the same bytes, as `IAttr` carries: the `]` is
-     text, the bracket is still open, and the `{` is read with attribute
-     recognition off.  It is selected if the spec never closes. *)
+     text, the bracket is still open, and the `{` is read as any other
+     `{`.  It is selected if the spec never closes. *)
   | ISpan (kids : inlines) (image : bool) (open : span)
           (p : aparser) (src : Buf)
           (sh : iscan_g) (o : ostate)
   (* an attribute spec, which attaches to whatever precedes it.  `txt` is
      the text pending when the `{` arrived and, on success, what the spec
-     attaches to.  `sh` is the ordinary reading of the same source,
-     advanced with attribute recognition off and selected if the
-     candidate never closes. *)
+     attaches to.  `sh` is the ordinary reading of the same source, the
+     `{` text and every byte after it read as usual, and it is selected
+     if the candidate never closes. *)
   | IAttr (p : aparser) (src : Buf) (txt : Buf) (prev : option ascii)
           (sh : iscan_g) (o : ostate)
   (* inside the second bracket of `[text][label]`.  The label is source
@@ -1508,35 +1508,6 @@ Local Definition dollars (two : bool) : string :=
 Local Definition auto_lit (src : string) (txt : Buf) : Buf :=
   tpush txt (String lt src).
 
-(* A slice boundary in the ordinary reading of a candidate's region.
-   djot.js re-feeds a failed region cut into slices at every special
-   byte, so a matcher bounded by the slice cannot see past the byte it
-   starts on: a run of `-` or `.` never reaches the length that would
-   make it a dash or an ellipsis, a `{` never marks the delimiter after
-   it, a `]` never finds its destination, an autolink's region never
-   reaches its `>`, and a `\` escapes nothing.  (`IEscWs` cannot arise
-   here: the escape it continues is settled at the boundary before it.)
-   What crosses a boundary lives in the parser rather than in the slice:
-   an open delimiter, a verbatim, a math prefix that peeks at the byte
-   after it.  Hence no `IDelim`, `IOpen`, `IVerb`, `IDollar` or
-   `IPercent` arm: a hole's prefix peeks as a math prefix does.
-   `IBang` is not here either: `!` is not a special byte, so no slice
-   ends on it. *)
-Fixpoint islice_end (st : iscan) : iscan :=
-  match st with
-  | IText true txt _ o => IText false (tpush txt (one bslash)) (Some bslash) o
-  | IBrace txt _ o => IText false (tpush txt (one lbrace)) (Some lbrace) o
-  | IPeriod two txt _ o =>
-      IText false (tpush txt (periods two)) (Some period) o
-  | IDash n txt _ o =>
-      IText false (tpush txt (typography_dashes n)) (Some hyphen) o
-  | IClosed txt o => IText false (tpush txt (one rbrack)) (Some rbrack) o
-  | IAuto src txt o =>
-      IText false (auto_lit (tval src) txt) (blit_prev (String lt (tval src))) o
-  | ISymbol _ _ sh _ => islice_end sh
-  | _ => st
-  end.
-
 (* Where a finished spec goes: into the scope, as a marker, with the
    pending text flushed in front of it so that the run it will attach to
    is the item immediately below.  `oresolve` settles it (see
@@ -1551,8 +1522,7 @@ Definition iattr_mark `{PosPolicy} `{InlineCursor}
 (* One byte of an inline attribute spec, read with the machine block
    attributes use.  `sh` has already consumed the same byte as ordinary
    inline input.  Failure selects it; success discards it; otherwise both
-   readings remain live -- and the one kept is stored at a slice
-   boundary, since the byte it has just read is where its slice ends. *)
+   readings remain live. *)
 Definition iattr_feed `{PosPolicy} `{InlineCursor}
   (c : ascii) (p : aparser) (src txt : Buf)
   (prev : option ascii) (sh : iscan_g) (o : ostate) : iscan :=
@@ -1561,7 +1531,7 @@ Definition iattr_feed `{PosPolicy} `{InlineCursor}
   then sh
   else if ap_done p'
   then iattr_mark src (ap_attrs p') txt o
-  else IAttr p' (tpush src (one c)) txt prev (islice_end sh) o.
+  else IAttr p' (tpush src (one c)) txt prev sh o.
 
 (* A marked open with `S extra` characters of its token in hand.  Its
    role is not in doubt (a marked delimiter can open and cannot close),
@@ -1650,7 +1620,7 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
              (Node (mkpos (inline_prov (span_start open) spec_start))
                (ap_attrs p') (Span EmptyString kids)))
            (ospan_bang image o))
-  else ISpan kids image open p' (tpush src (one c)) (islice_end sh) o.
+  else ISpan kids image open p' (tpush src (one c)) sh o.
 
 (* One byte of a footnote label.  The `]` is the only byte with a role,
    and a backslash defers it once without being decoded, since the label
@@ -2164,18 +2134,13 @@ Fixpoint istep_at `{PosPolicy} `{InlineCursor}
       | None => ilead c (tpush txt (one rbrack)) (Some rbrack) o
       end
   | ISpan kids image open p src sh o =>
-      (* as for `IAttr` below *)
       if ap_failed (astep p c)
-      then istep_at false c sh
-      else ispan_feed c kids image open p src (istep_at false c sh) o
+      then istep_at attrs_enabled c sh
+      else ispan_feed c kids image open p src (istep_at attrs_enabled c sh) o
   | IAttr p src txt prev sh o =>
-      (* The failing byte is not part of the candidate's source, so it
-         arrives in the ordinary reading after that source's last slice
-         boundary -- which `iattr_feed` has already applied.  This is what
-         keeps `{...` three literal periods rather than one ellipsis. *)
       if ap_failed (astep p c)
-      then istep_at false c sh
-      else iattr_feed c p src txt prev (istep_at false c sh) o
+      then istep_at attrs_enabled c sh
+      else iattr_feed c p src txt prev (istep_at attrs_enabled c sh) o
   | INote esc image label open o => inote_step c esc image label open o
   | IWiki esc rb image region open o => iwiki_step c esc rb image region open o
   | IAuto src txt o => iauto_step c src txt o
@@ -2449,9 +2414,9 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
            else ibreak_at attrs_enabled sh
   | IAttr p src txt prev sh o =>
       iattr_feed nl_char p src txt prev
-        (ibreak_at false sh) o
+        (ibreak_at attrs_enabled sh) o
   | ISpan kids image open p src sh o =>
-      ispan_feed nl_char kids image open p src (ibreak_at false sh) o
+      ispan_feed nl_char kids image open p src (ibreak_at attrs_enabled sh) o
   | IDest kids image open esc depth dst sh o =>
       IDest kids image open false depth
         (tpush dst ((if esc then one bslash else EmptyString) ++ nl))
@@ -2936,9 +2901,7 @@ Fixpoint iscan_str_off (s : string) (st : iscan) : iscan :=
   end.
 
 (* `k` leading lines of a paragraph read with attributes off, the rest as
-   usual.  The region is whole lines, so the in-line slice boundaries of
-   `islice_end` have no counterpart here.  The break that ends each off
-   line is off too.
+   usual.  The break that ends each off line is off too.
 
    `k = 0` is `iscan_lines`, definitionally, which leaves every statement
    about a paragraph's scan unconditioned. *)

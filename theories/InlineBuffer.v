@@ -173,18 +173,11 @@ Lemma auto_lit_map : forall src t,
   tval (InlineScan.auto_lit src t) = InlineScan.auto_lit src (tval t).
 Proof. intros src t. unfold InlineScan.auto_lit. tred. laws. reflexivity. Qed.
 
-Lemma islice_end_map : forall st,
-  map_text (islice_end st) = islice_end (map_text st).
-Proof.
-  induction st; cbn [islice_end map_text]; try destruct esc; crush;
-    rewrite ?auto_lit_map; try reflexivity; assumption.
-Qed.
-
 Lemma iattr_mark_map : forall src a t o,
   map_text (iattr_mark src a t o) = iattr_mark (tval src) a (tval t) o.
 Proof. intros. unfold iattr_mark. crush. Qed.
 
-Hint Rewrite islice_end_map iattr_mark_map : map_text.
+Hint Rewrite iattr_mark_map : map_text.
 
 Lemma iattr_feed_map : forall c p src t prev sh o,
   map_text (iattr_feed c p src t prev sh o)

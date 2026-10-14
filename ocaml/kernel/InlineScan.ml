@@ -910,33 +910,6 @@ let auto_lit x src txt =
 
     (lt, src))
 
-(** val islice_end :
-    dtable -> 'a1 coq_TextOps -> 'a1 iscan_g -> 'a1 iscan_g **)
-
-let rec islice_end t x st = match st with
-| IText (esc, txt, _, o) ->
-  if esc
-  then IText (false, (x.tpush txt (one bslash)), (Some bslash), o)
-  else st
-| IBrace (txt, _, o) ->
-  IText (false, (x.tpush txt (one lbrace)), (Some lbrace), o)
-| IPeriod (two, txt, _, o) ->
-  IText (false, (x.tpush txt (periods two)), (Some period), o)
-| IDash (n, txt, _, o) ->
-  IText (false, (x.tpush txt (typography_dashes t n)), (Some hyphen), o)
-| IClosed (txt, o) ->
-  IText (false, (x.tpush txt (one rbrack)), (Some rbrack), o)
-| IAuto (src, txt, o) ->
-  IText (false, (auto_lit x (x.tval src) txt),
-    (blit_prev
-      ((* If this appears, you're using String internals. Please don't *)
-  (fun (c, s) -> String.make 1 c ^ s)
-
-      (lt, (x.tval src)))),
-    o)
-| ISymbol (_, _, sh, _) -> islice_end t x sh
-| _ -> st
-
 (** val iattr_mark :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> attr -> 'a1
     -> ostate -> 'a1 iscan_g **)
@@ -955,18 +928,16 @@ let iattr_mark x h h0 src a txt o =
   (omark a spec (flush_text_to_at h h0 spec_start (x.tval txt) o)))
 
 (** val iattr_feed :
-    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-    aparser -> 'a1 -> 'a1 -> char option -> 'a1 iscan_g -> ostate -> 'a1
-    iscan_g **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> aparser ->
+    'a1 -> 'a1 -> char option -> 'a1 iscan_g -> ostate -> 'a1 iscan_g **)
 
-let iattr_feed t x h h0 c p src txt prev sh o =
+let iattr_feed x h h0 c p src txt prev sh o =
   let p' = astep p c in
   if ap_failed p'
   then sh
   else if ap_done p'
        then iattr_mark x h h0 src p'.ap_attrs txt o
-       else IAttr (p', (x.tpush src (one c)), txt, prev, (islice_end t x sh),
-              o)
+       else IAttr (p', (x.tpush src (one c)), txt, prev, sh, o)
 
 (** val idelim_marked : dstyle -> int -> 'a1 -> ostate -> 'a1 iscan_g **)
 
@@ -1005,7 +976,7 @@ let ibrace_step_at t x h h0 attrs_enabled c txt prev o =
   | Some k -> idelim_marked k 0 txt o
   | None ->
     if attrs_enabled
-    then iattr_feed t x h h0 c ap_init x.tnil txt prev
+    then iattr_feed x h h0 c ap_init x.tnil txt prev
            (ilead t x h h0 c (x.tpush txt (one lbrace)) (Some lbrace) o) o
     else let (t0, o') = battr_lit x h h0 "" txt o in
          ilead t x h h0 c t0 (blit_prev (one lbrace)) o'
@@ -1020,11 +991,10 @@ let ospan_bang h h0 image o =
   else o
 
 (** val ispan_feed :
-    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-    inlines -> bool -> span -> aparser -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1
-    iscan_g **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> inlines ->
+    bool -> span -> aparser -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1 iscan_g **)
 
-let ispan_feed t x h h0 c kids image open0 p src sh o =
+let ispan_feed x h h0 c kids image open0 p src sh o =
   let p' = astep p c in
   if ap_failed p'
   then sh
@@ -1044,8 +1014,7 @@ let ispan_feed t x h h0 c kids image open0 p src sh o =
                 ((h.mkpos (inline_prov open0.span_start spec_start)),
                 p'.ap_attrs, (Span ("", kids)))))
               (ospan_bang h h0 image o)))
-       else ISpan (kids, image, open0, p', (x.tpush src (one c)),
-              (islice_end t x sh), o)
+       else ISpan (kids, image, open0, p', (x.tpush src (one c)), sh, o)
 
 (** val inote_step :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool ->
@@ -1666,13 +1635,14 @@ let rec istep_at t x h h0 attrs_enabled c = function
    | None -> ilead t x h h0 c (x.tpush txt (one rbrack)) (Some rbrack) o)
 | ISpan (kids, image, open0, p, src, sh, o) ->
   if ap_failed (astep p c)
-  then istep_at t x h h0 false c sh
-  else ispan_feed t x h h0 c kids image open0 p src
-         (istep_at t x h h0 false c sh) o
+  then istep_at t x h h0 attrs_enabled c sh
+  else ispan_feed x h h0 c kids image open0 p src
+         (istep_at t x h h0 attrs_enabled c sh) o
 | IAttr (p, src, txt, prev, sh, o) ->
   if ap_failed (astep p c)
-  then istep_at t x h h0 false c sh
-  else iattr_feed t x h h0 c p src txt prev (istep_at t x h h0 false c sh) o
+  then istep_at t x h h0 attrs_enabled c sh
+  else iattr_feed x h h0 c p src txt prev
+         (istep_at t x h h0 attrs_enabled c sh) o
 | IReference (kids, image, open0, esc, label, o) ->
   if esc
   then IReference (kids, image, open0, false,
@@ -1857,10 +1827,10 @@ let ifinish t x h h0 st =
   rev (ifinish_rev t x h h0 st)
 
 (** val ibreak_flat :
-    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
-    iscan_g -> 'a1 iscan_g **)
+    'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 iscan_g -> 'a1
+    iscan_g **)
 
-let rec ibreak_flat t x h h0 st = match st with
+let rec ibreak_flat x h h0 st = match st with
 | IText (esc, txt, _, o) ->
   if esc
   then IText (false, x.tnil, None,
@@ -1883,9 +1853,9 @@ let rec ibreak_flat t x h h0 st = match st with
                o))))
   else IVerb (n, 0, (x.tpush txt ((^) (ticks run) nl)), vk, o)
 | ISpan (kids, image, open0, p, src, sh, o) ->
-  ispan_feed t x h h0 nl_char kids image open0 p src sh o
+  ispan_feed x h h0 nl_char kids image open0 p src sh o
 | IAttr (p, src, txt, prev, sh, o) ->
-  iattr_feed t x h h0 nl_char p src txt prev sh o
+  iattr_feed x h h0 nl_char p src txt prev sh o
 | IReference (kids, image, open0, esc, label, o) ->
   IReference (kids, image, open0, false,
     (x.tpush label ((^) (if esc then one bslash else "") nl)), o)
@@ -1901,7 +1871,7 @@ let rec ibreak_flat t x h h0 st = match st with
     (oword_reset
       (oemit (imk_here h h0 SoftBreak)
         (flush_text_at h h0 (x.tval (auto_lit x (x.tval src) txt)) o))))
-| ISymbol (_, _, sh, _) -> ibreak_flat t x h h0 sh
+| ISymbol (_, _, sh, _) -> ibreak_flat x h h0 sh
 | IRaw (spec, txt, o) ->
   let spec_start =
     spot_before h0.cursor_start
@@ -1928,10 +1898,10 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
               | Some p -> (=) p dollar
               | None -> false))
   then IDollarMath (true, false, (x.tof nl), txt, (Some nl_char),
-         (ibreak_flat t x h h0 (IText (false, (x.tpush txt (dollars true)),
+         (ibreak_flat x h h0 (IText (false, (x.tpush txt (dollars true)),
            (Some dollar), o))),
          o)
-  else ibreak_flat t x h h0 (iresolve t x h h0 st)
+  else ibreak_flat x h h0 (iresolve t x h h0 st)
 | IDollarMath (two, _, src, txt, _, sh, o) ->
   IDollarMath (two, false, (x.tpush src nl), txt, (Some nl_char),
     (ibreak_at t x h h0 attrs_enabled sh), o)
@@ -1947,7 +1917,7 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
             spot_before h0.cursor_start
               ((^) (dollars true) ((^) (x.tval src) (dollars true)))
           in
-          ibreak_flat t x h h0 (IText (false, x.tnil, (Some dollar),
+          ibreak_flat x h h0 (IText (false, x.tnil, (Some dollar),
             (oemit
               (imk h start h0.cursor_start (Math (DisplayMath, (x.tval src))))
               (flush_text_to_at h h0 start (x.tval txt) o)))))
@@ -1958,23 +1928,24 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
               spot_before h0.cursor_start
                 ((^) (one dollar) ((^) (x.tval src) (one dollar)))
             in
-            ibreak_flat t x h h0 (IText (false, x.tnil, (Some dollar),
+            ibreak_flat x h h0 (IText (false, x.tnil, (Some dollar),
               (oemit
                 (imk h start h0.cursor_start (Math (InlineMath,
                   (x.tval src))))
                 (flush_text_to_at h h0 start (x.tval txt) o))))
        else ibreak_at t x h h0 attrs_enabled sh
 | ISpan (kids, image, open0, p, src, sh, o) ->
-  ispan_feed t x h h0 nl_char kids image open0 p src
-    (ibreak_at t x h h0 false sh) o
+  ispan_feed x h h0 nl_char kids image open0 p src
+    (ibreak_at t x h h0 attrs_enabled sh) o
 | IAttr (p, src, txt, prev, sh, o) ->
-  iattr_feed t x h h0 nl_char p src txt prev (ibreak_at t x h h0 false sh) o
+  iattr_feed x h h0 nl_char p src txt prev
+    (ibreak_at t x h h0 attrs_enabled sh) o
 | IDest (kids, image, open0, esc, depth, dst, sh, o) ->
   IDest (kids, image, open0, false, depth,
     (x.tpush dst ((^) (if esc then one bslash else "") nl)),
     (ibreak_at t x h h0 attrs_enabled sh), o)
 | ISymbol (_, _, sh, _) -> ibreak_at t x h h0 attrs_enabled sh
-| _ -> ibreak_flat t x h h0 (iresolve t x h h0 st)
+| _ -> ibreak_flat x h h0 (iresolve t x h h0 st)
 
 (** val ibreak :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1

@@ -807,14 +807,6 @@ Proof.
   cbn [of_iscan]. rewrite of_oopen_marked. reflexivity.
 Qed.
 
-Local Lemma of_islice_end : forall st,
-  of_iscan (islice_end st) = islice_end (of_iscan st).
-Proof.
-  induction st; cbn [of_iscan islice_end];
-    try reflexivity; try (destruct esc; reflexivity).
-  exact IHst.
-Qed.
-
 Local Lemma of_iattr_mark : forall `{P : PosPolicy} `{C : InlineCursor}
   src a txt o,
   of_iscan (@iattr_mark _ _ P C src a txt o) =
@@ -828,14 +820,14 @@ Qed.
 
 Local Lemma of_iattr_feed : forall `{P : PosPolicy} `{C : InlineCursor}
   c p src txt prev sh o,
-  of_iscan (@iattr_feed T _ _ P C c p src txt prev sh o) =
-  @iattr_feed T _ _ semantic_pos semantic_inline_cursor c p src txt prev
+  of_iscan (@iattr_feed _ _ P C c p src txt prev sh o) =
+  @iattr_feed _ _ semantic_pos semantic_inline_cursor c p src txt prev
     (of_iscan sh) (of_ostate o).
 Proof.
   intros P C c p src txt prev sh o. unfold iattr_feed.
   destruct (ap_failed (astep p c)); [reflexivity|].
   destruct (ap_done (astep p c)); [apply of_iattr_mark|].
-  cbn [of_iscan]. rewrite of_islice_end. reflexivity.
+  reflexivity.
 Qed.
 
 Local Lemma of_ibrace_step_at : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -970,8 +962,8 @@ Qed.
 
 Local Lemma of_ispan_feed : forall `{P : PosPolicy} `{C : InlineCursor}
   c kids image open p src sh o,
-  of_iscan (@ispan_feed T _ _ P C c kids image open p src sh o) =
-  @ispan_feed T _ _ semantic_pos semantic_inline_cursor c (Erase.of_inlines kids) image
+  of_iscan (@ispan_feed _ _ P C c kids image open p src sh o) =
+  @ispan_feed _ _ semantic_pos semantic_inline_cursor c (Erase.of_inlines kids) image
     null_span p src (of_iscan sh) (of_ostate o).
 Proof.
   intros P C c kids image open p src sh o. unfold ispan_feed. tred.
@@ -980,7 +972,7 @@ Proof.
   - cbn [of_iscan]. rewrite of_oemit, of_add_inline_role,
       of_ospan_bang.
     cbn [Erase.inode]. rewrite span_node. reflexivity.
-  - cbn [of_iscan]. rewrite of_islice_end. reflexivity.
+  - reflexivity.
 Qed.
 
 Local Lemma of_inote_step : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -1358,8 +1350,8 @@ Proof.
 Qed.
 
 Local Lemma of_ibreak_flat : forall `{P : PosPolicy} `{C : InlineCursor} st,
-  of_iscan (@ibreak_flat T _ _ P C st) =
-  @ibreak_flat T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
+  of_iscan (@ibreak_flat _ _ P C st) =
+  @ibreak_flat _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
   intros P C. induction st as
     [esc txt prev o | ws txt prev o | txt prev o

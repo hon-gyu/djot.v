@@ -494,15 +494,6 @@ Proof.
   cbn [iout_app]. rewrite flush_text_app, omark_app. reflexivity.
 Qed.
 
-Local Lemma islice_end_app :
-  forall base st,
-    islice_end (iout_app base st) = iout_app base (islice_end st).
-Proof.
-  intros base st. induction st as [[] txt prev o|ews etxt eprev eob|txt prev o|k seen txt cc mrk o|n vk o|n run txt vk o|dtwo dtxt dprev dob|mt me ms mx ml msh IHmsh mo|mct mcs mcx mcl mcsh IHmcsh mco|ptwo ptxt pprev pob|dn dtx dpv dob2|txb prb ob|cltxt clob|kids img open sp ssrc ssh IHssh sob|ap asrc atxt aprev ash aob|kids img open label ob|nesc nimg nlab open nob|wesc wrb wimg wreg wopen wob|kids img open esc depth dst sh ob|asrc atxt aob|salias stxt sob IHsob o|rspec rtxt rob|pct pcp pco];
-    try reflexivity.
-  exact IHsob.
-Qed.
-
 Local Lemma iattr_feed_app :
   forall c p src txt prev sh o base,
     base_ok base = true ->
@@ -510,7 +501,6 @@ Local Lemma iattr_feed_app :
     = iout_app base (iattr_feed c p src txt prev sh o).
 Proof.
   intros c p src txt prev sh o base Hb. unfold iattr_feed.
-  rewrite islice_end_app.
   destruct (ap_failed (astep p c)); [reflexivity|].
   destruct (ap_done (astep p c)); [apply iattr_mark_app|reflexivity].
 Qed.
@@ -522,7 +512,6 @@ Local Lemma ispan_feed_app :
     = iout_app base (ispan_feed c kids image open p src sh o).
 Proof.
   intros c kids image open p src sh o base Hb. unfold ispan_feed.
-  rewrite islice_end_app.
   destruct (ap_failed (astep p c)); [reflexivity|].
   destruct (ap_done (astep p c)); [|reflexivity].
   cbn [iout_app]. rewrite ospan_bang_app by exact Hb.
@@ -685,10 +674,10 @@ Proof.
     destruct (Ascii.eqb c lbrack); reflexivity.
   - destruct (ap_failed (astep sp c)).
     + apply IHssh, Hb.
-    + rewrite (IHssh false c base Hb). apply ispan_feed_app, Hb.
+    + rewrite (IHssh attrs_enabled c base Hb). apply ispan_feed_app, Hb.
   - destruct (ap_failed (astep ap c)).
     + apply IHash, Hb.
-    + rewrite (IHash false c base Hb). apply iattr_feed_app, Hb.
+    + rewrite (IHash attrs_enabled c base Hb). apply iattr_feed_app, Hb.
   - destruct label; [reflexivity|]. destruct (is_bslash c); [reflexivity|].
     destruct (Ascii.eqb c rbrack); [cbn [iout_app]; rewrite oemit_app|];
       reflexivity.

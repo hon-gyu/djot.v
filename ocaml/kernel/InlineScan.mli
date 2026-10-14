@@ -243,15 +243,13 @@ val dollars : bool -> string
 
 val auto_lit : 'a1 coq_TextOps -> string -> 'a1 -> 'a1
 
-val islice_end : dtable -> 'a1 coq_TextOps -> 'a1 iscan_g -> 'a1 iscan_g
-
 val iattr_mark :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> attr -> 'a1
   -> ostate -> 'a1 iscan_g
 
 val iattr_feed :
-  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-  aparser -> 'a1 -> 'a1 -> char option -> 'a1 iscan_g -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> aparser ->
+  'a1 -> 'a1 -> char option -> 'a1 iscan_g -> ostate -> 'a1 iscan_g
 
 val idelim_marked : dstyle -> int -> 'a1 -> ostate -> 'a1 iscan_g
 
@@ -272,9 +270,8 @@ val ibrace_step_at :
 val ospan_bang : coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate
 
 val ispan_feed :
-  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-  inlines -> bool -> span -> aparser -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1
-  iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> inlines ->
+  bool -> span -> aparser -> 'a1 -> 'a1 iscan_g -> ostate -> 'a1 iscan_g
 
 val inote_step :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> bool -> bool
@@ -381,8 +378,8 @@ val ifinish :
   iscan_g -> inlines
 
 val ibreak_flat :
-  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1
-  iscan_g -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 iscan_g -> 'a1
+  iscan_g
 
 val ibreak_at :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->

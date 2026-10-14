@@ -1770,15 +1770,6 @@ Proof.
   - rewrite ocur_mark. reflexivity.
 Qed.
 
-Local Lemma islice_end_wf :
-  forall st, iscan_wf st = true -> iscan_wf (islice_end st) = true.
-Proof.
-  induction st; intros H; try exact H.
-  - destruct esc; exact H.
-  - cbn [iscan_wf] in H. apply andb_true_iff in H as [_ Hsh].
-    apply IHst, Hsh.
-Qed.
-
 Local Lemma iattr_feed_wf :
   forall c p src txt prev sh o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
@@ -1786,11 +1777,10 @@ Local Lemma iattr_feed_wf :
     iscan_wf (iattr_feed c p src txt prev sh o) = true.
 Proof.
   intros c p src txt prev sh o Ho Hs Hsh. unfold iattr_feed.
-  pose proof (islice_end_wf sh Hsh) as Hsl.
   destruct (ap_failed (astep p c)); [exact Hsh|].
   destruct (ap_done (astep p c));
     [apply iattr_mark_wf; [exact Ho | exact Hs]|].
-  cbn [iscan_wf]. rewrite Ho, hd_str_is_starts_str, Hs, Hsl. reflexivity.
+  cbn [iscan_wf]. rewrite Ho, hd_str_is_starts_str, Hs, Hsh. reflexivity.
 Qed.
 
 Local Lemma ispan_feed_wf :
@@ -1800,10 +1790,9 @@ Local Lemma ispan_feed_wf :
     iscan_wf (ispan_feed c kids image open p src sh o) = true.
 Proof.
   intros c kids image open p src sh o Ho Hk Hsh. unfold ispan_feed. tred.
-  pose proof (islice_end_wf sh Hsh) as Hsl.
   destruct (ap_failed (astep p c)); [exact Hsh|].
   - destruct (ap_done (astep p c));
-      [|cbn [iscan_wf]; rewrite Ho, Hk, Hsl; reflexivity].
+      [|cbn [iscan_wf]; rewrite Ho, Hk, Hsh; reflexivity].
     (* `starts_str` matches on the node's attributes before its payload,
        so the list has to be forced even though a `Span` is not a `Str`
        either way *)

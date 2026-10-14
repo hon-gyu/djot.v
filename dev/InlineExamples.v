@@ -774,6 +774,13 @@ Example span_unclosed_spec_is_ordinary :
   = [mk (Str "[a]{.b"); mk SoftBreak; mk (Strong [mk (Str "c")])].
 Proof. vm_compute. reflexivity. Qed.
 
+(* Inside a span's spec that fails, a `]` is read as usual too: here it
+   closes the bracket the failed span left open, into a link. *)
+Example span_failed_spec_bracket_closes :
+  parse_inline_line "[a]{k=""](u)"
+  = [mk (Link [mk (Str "a]{k=“")] (Direct "u"))].
+Proof. vm_compute. reflexivity. Qed.
+
 (* `!` is not part of a span: the image opener decays to text. *)
 Example span_ignores_image_marker :
   parse_inline_line "![x]{.a}"
@@ -1392,21 +1399,30 @@ Example attr_unclosed_spec_keeps_its_breaks :
 Proof. vm_compute. reflexivity. Qed.
 
 (* A failed attribute candidate keeps an ordinary-inline interpretation
-   current beside the spec, with attribute recognition disabled there.
-   Choosing that interpretation at the end makes the quote smart and lets
-   the delimiter pair interact normally, without replaying any source. *)
+   current beside the spec.  Choosing that interpretation at the end makes
+   the quote smart and lets the delimiter pair interact normally, without
+   replaying any source. *)
 Example attr_unclosed_spec_keeps_ordinary_scan :
   parse_inline_line "x{a=""*b*"""
   = [mk (Str "x{a=");
      mk (Quoted DoubleQuotes [mk (Strong [mk (Str "b")])])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* And it is cut at slice boundaries (`islice_end`), so a run inside the
-   candidate never grows into one token: `-` and `-` are two hyphens
-   rather than an en dash, where the same two bytes outside a candidate
-   are one. *)
-Example attr_failed_spec_cuts_a_run :
-  parse_inline_line "x{a--" = [mk (Str "x{a--")].
+(* A failed spec reads as if its `{` opened no spec: the `{` is text and
+   every byte after it is read as usual, so a run of hyphens is a dash, a
+   symbol is a symbol, and a `{` inside the region may begin a spec of
+   its own. *)
+Example attr_failed_spec_dash :
+  parse_inline_line "x{a--" = [mk (Str "x{a–")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example attr_failed_spec_symbol :
+  parse_inline_line "x{:b:" = [mk (Str "x{"); mk (Symbol "b")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example attr_failed_spec_inner_spec :
+  parse_inline_line "x{a=""{.c} y"
+  = [Node NoPos [("class", "c")] (Str "x{a=“"); mk (Str " y")].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

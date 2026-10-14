@@ -1521,34 +1521,6 @@ Proof.
   rewrite sright_sleft, Hp in H. injection H as ->. reflexivity.
 Qed.
 
-Lemma islice_end_ok : forall W cur st, st_inv W cur st -> st_inv W cur (islice_end st).
-Proof.
-  intros W cur st. induction st; intros H; cbn [islice_end]; try exact H; cbn [st_inv] in *; tred; cbn [orb] in *.
-  - (* IText *) destruct esc; [|exact H].
-    destruct H as (A & B & C). split; [|split; [|discriminate]].
-    + rewrite (nonempty_app_r txt (one bslash) eq_refl). exact A.
-    + unfold prev_ok. rewrite (C eq_refl). reflexivity.
-  - (* IBrace *) destruct H as (A & B). 
-    split; [|split; [unfold prev_ok; rewrite B; reflexivity|discriminate]].
-    rewrite (nonempty_app_r txt (one lbrace) eq_refl).
-    eapply oinv_strict; [|exact A]; apply spot_lt_sleft; lia.
-  - (* IPeriod *) destruct H as (A & B). 
-    split; [|split; [unfold prev_ok; rewrite B; reflexivity|discriminate]].
-    apply oinv_any; exact (held_oinv _ _ _ _ A).
-  - (* IDash *) destruct H as (A & B & C). 
-    split; [|split; [|discriminate]].
-    + apply oinv_any. eapply oinv_strict; [|exact C]; apply spot_lt_sleft; lia.
-    + destruct n as [|n]; [lia|]. rewrite chars_snoc in A. eapply prev_of_ends, A.
-  - (* IClosed *) destruct H as (A & B). 
-    split; [|split; [unfold prev_ok; rewrite B; reflexivity|discriminate]].
-    rewrite (nonempty_app_r txt (one rbrack) eq_refl).
-    eapply oinv_strict; [|exact A]; apply spot_lt_sleft; lia.
-  - (* IAuto *) destruct H as (A & B). 
-    split; [|split; [apply prev_blit; [exact B|discriminate]|discriminate]].
-    apply oinv_any; exact (held_oinv _ _ _ _ A).
-  - (* ISymbol *) destruct H as (_ & _ & _ & B). apply IHst, B.
-Qed.
-
 Lemma iattr_feed_ok : forall W (CU : InlineCursor) cur next c p src txt prev sh o,
   spot_le cur next ->
   (c = "}"%char -> prev_ok W (Some c) next) ->
@@ -1563,7 +1535,7 @@ Proof.
     apply oinv_any, omark_ok, flush_text_to_at_touched.
     eapply oinv_mono; [exact Hle|]. exact (held_oinv _ _ _ _ Ho).
   - cbn [st_inv]. split; [eapply held_mono; eassumption|].
-    split; [exact Ed|apply islice_end_ok, Hsh].
+    split; [exact Ed|exact Hsh].
 Qed.
 
 Lemma oopen_marked_ok : forall W (CU : InlineCursor) cur k cm txt o,
@@ -1738,7 +1710,7 @@ Proof.
     + apply dn_add_inline_role, dn_node_plain; [reflexivity|exact Hk].
     + apply ospan_bang_ok. eapply oinv_mono; [apply spot_lt_le, Hlt|exact Ht].
   - cbn [st_inv]. split; [exact Hk|split; [eapply held_mono; [apply spot_lt_le, Hlt|exact Ho]|]].
-    split; [exact Ed|apply islice_end_ok, Hsh].
+    split; [exact Ed|exact Hsh].
 Qed.
 
 Section Step.
