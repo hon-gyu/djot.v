@@ -396,7 +396,7 @@ Qed.
 (* Could `pre` be an ordered list's number, so that a period after it
    followed by a space opens a list at the start of a line?  Decimal,
    one letter, or roman, as `Marker.v` reads them. *)
-Local Definition marker_core (pre : string) : bool :=
+Definition marker_core (pre : string) : bool :=
   nonempty_str pre
   && (str_forallb is_digit pre
       || Nat.eqb (String.length pre) 1 && str_forallb is_alnum pre

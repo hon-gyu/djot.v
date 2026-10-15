@@ -5,18 +5,23 @@
    For every document of `Generate.escape_accepted`, delete each backslash
    of its rendering in turn, and each pair of an opening and a closing
    brace, and parse what is left.  A deletion that leaves the parse
-   unchanged is an escape the renderer could have left out.  They are
+   unchanged is an escape the renderer could have left out.  Each
+   rendering must also parse back to its document.  They are
    counted by the character escaped, or by the delimiter braced.
 
    Usage:
-     escapes [--report FILE] [--verbose]
+     escapes [--scan] [--report FILE] [--verbose]
 
-   The pinned count is the distance to a renderer with no redundant
-   escape.  It may only go down: lower it when a relaxation lands. *)
+   `--scan` measures `RenderScan.render_djot_scan`, whose escapes the
+   scanner decides, in place of `Render.render_djot`.
+
+   The pinned counts are the distance to a renderer with no redundant
+   escape.  They may only go down: lower one when a relaxation lands. *)
 
 open Djot_test
 
 let pinned = 1668
+let pinned_scan = 539
 
 let delete s i = String.sub s 0 i ^ String.sub s (i + 1) (String.length s - i - 1)
 
@@ -58,21 +63,28 @@ let redundant parse s =
   List.rev !found
 
 let () =
-  let report = ref "" and verbose = ref false in
+  let report = ref "" and verbose = ref false and scan = ref false in
   let rec args = function
     | [] -> ()
     | "--report" :: v :: rest -> report := v; args rest
     | "--verbose" :: rest -> verbose := true; args rest
+    | "--scan" :: rest -> scan := true; args rest
     | a :: _ -> prerr_endline ("escapes: unknown argument " ^ a); exit 2
   in
   args (List.tl (Array.to_list Sys.argv));
   let r = Report.create !report in
   let module G = Djot_fixtures.Generate in
   let docs = G.escape_accepted in
-  let classes = Hashtbl.create 64 and total = ref 0 in
+  let src = if !scan then G.rt_src_scan else G.rt_src
+  and pinned = if !scan then pinned_scan else pinned in
+  let classes = Hashtbl.create 64 and total = ref 0 and wrong = ref 0 in
   List.iter
     (fun c ->
-      let s = G.rt_src c in
+      let s = src c in
+      if G.rt_parse s <> G.rt_rhs c then begin
+        incr wrong;
+        Report.out r "ROUNDTRIP FAILS: %s\n" (String.escaped s)
+      end;
       List.iter
         (fun (cls, s') ->
           incr total;
@@ -95,7 +107,7 @@ let () =
              Report.out r "    %s  =>  %s\n" (String.escaped (String.trim s))
                (String.escaped (String.trim s')))
            shown);
-  let ok = !total <= pinned in
+  let ok = !total <= pinned && !wrong = 0 in
   if not ok then
     Report.out r "COUNT ROSE: at most %d redundant escapes expected, got %d\n"
       pinned !total;

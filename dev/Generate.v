@@ -20,7 +20,7 @@
 
 From Stdlib Require Import String Ascii List Bool.
 From DjotV Require Import Strings Line Ast Inline InlineTable InlineView Parser
-  Render.
+  Render RenderScan.
 Import ListNotations.
 
 Local Open Scope string_scope.
@@ -121,6 +121,13 @@ Definition rt_lhs (c : cblock) : blocks :=
 
 Definition rt_rhs (c : cblock) : blocks := blocks_of_cblocks [c].
 
+(* The left side with the renderer whose escapes the scanner decides
+   (`RenderScan.v`), which nothing proves yet, at a table and settings. *)
+Definition scan_lhs_at (T : dtable) (K : bconfig) (c : cblock) : blocks :=
+  @parse_blocks T K _ _ (@render_djot_scan T K (blocks_of_cblocks [c])).
+
+Definition rt_lhs_scan : cblock -> blocks := scan_lhs_at djot_table djot_bconfig.
+
 (* djot.js has no keys to compare against.  Keep their pool separate so the
    djot.js corpus stays meaningful, and exercise both sides of nesting:
    a key over each ordinary child, and containers over each key. *)
@@ -139,6 +146,8 @@ Definition keyed_accepted (d : nat) : list cblock :=
 
 Definition keyed_rt_lhs (c : cblock) : blocks :=
   @parse_blocks _ keyed_bconfig _ _ (@render_djot _ keyed_bconfig (blocks_of_cblocks [c])).
+
+Definition keyed_rt_lhs_scan : cblock -> blocks := scan_lhs_at djot_table keyed_bconfig.
 
 (* djot.js has no wikilinks either.  Their pool is the ordinary one read
    at a table with the setting on, since switching it on must not move
@@ -172,6 +181,8 @@ Definition wiki_rt_lhs (c : cblock) : blocks :=
   @parse_blocks wiki_table _ _ _
     (@render_djot wiki_table _ (blocks_of_cblocks [c])).
 
+Definition wiki_rt_lhs_scan : cblock -> blocks := scan_lhs_at wiki_table djot_bconfig.
+
 (* Dollar math has no node of its own in the canonical view, so its pool
    is the ordinary one read with the setting on, plus text that would
    open or close dollar math if a `$` were left bare, and `$` beside a
@@ -198,6 +209,8 @@ Definition dollar_accepted (d : nat) : list cblock :=
 Definition dollar_rt_lhs (c : cblock) : blocks :=
   @parse_blocks dollar_table _ _ _
     (@render_djot dollar_table _ (blocks_of_cblocks [c])).
+
+Definition dollar_rt_lhs_scan : cblock -> blocks := scan_lhs_at dollar_table djot_bconfig.
 
 (* Custom tag names move both layers, so their pool is read with both
    settings on: the ordinary pool, which must not move, then each named
@@ -239,6 +252,8 @@ Definition tags_rt_lhs (c : cblock) : blocks :=
   @parse_blocks tags_table tags_bconfig _ _
     (@render_djot tags_table tags_bconfig (blocks_of_cblocks [c])).
 
+Definition tags_rt_lhs_scan : cblock -> blocks := scan_lhs_at tags_table tags_bconfig.
+
 (* Holes have no node in the canonical view, so their pool is the
    ordinary one read with the setting on, plus text that would open a hole
    if a `%` were left bare: right before a code span, at the end of a run
@@ -265,6 +280,8 @@ Definition holes_accepted (d : nat) : list cblock :=
 Definition holes_rt_lhs (c : cblock) : blocks :=
   @parse_blocks holes_table _ _ _
     (@render_djot holes_table _ (blocks_of_cblocks [c])).
+
+Definition holes_rt_lhs_scan : cblock -> blocks := scan_lhs_at holes_table djot_bconfig.
 
 (* Callouts exercise both title syntax and nesting under the enabled block
    setting.  Ordinary quotes beginning with literal header text are retained
@@ -295,6 +312,8 @@ Definition callout_accepted (d : nat) : list cblock :=
 Definition callout_rt_lhs (c : cblock) : blocks :=
   @parse_blocks wiki_table callout_bconfig _ _
     (@render_djot wiki_table callout_bconfig (blocks_of_cblocks [c])).
+
+Definition callout_rt_lhs_scan : cblock -> blocks := scan_lhs_at wiki_table callout_bconfig.
 
 Example gen_roundtrip_1 : map rt_lhs (accepted 1) = map rt_rhs (accepted 1).
 Proof. vm_compute. reflexivity. Qed.
@@ -509,6 +528,9 @@ Definition escape_pool : list cblock :=
 Definition escape_accepted : list cblock := filter cb_ok escape_pool.
 
 Definition rt_src (c : cblock) : string := render_djot (blocks_of_cblocks [c]).
+
+Definition rt_src_scan (c : cblock) : string :=
+  render_djot_scan (blocks_of_cblocks [c]).
 
 Definition rt_parse (s : string) : blocks := parse_blocks s.
 

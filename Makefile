@@ -1,5 +1,5 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
-        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes \
+        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes roundtrip-scan roundtrip-escapes \
         check-span-containment check-stack check-holes bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
         site site-serve site-publish py-wasm check-py check-rocq check-readme check-axioms check-versions check-site
@@ -83,8 +83,18 @@ roundtrip-tags: build  ## Custom tag names
 roundtrip-holes: build  ## Holes
 	dune exec test/roundtrip.exe -- $(VERBOSE) --holes 3
 
-roundtrip-escapes: build  ## Escapes of the canonical renderer that the parse does not need
+roundtrip-escapes: build  ## Escapes the parse does not need, canonical renderer then RenderScan's
 	dune exec test/escapes.exe -- $(VERBOSE)
+	dune exec test/escapes.exe -- $(VERBOSE) --scan
+
+roundtrip-scan: build  ## Every pool, rendered with escapes decided by the scanner (RenderScan.v)
+	dune exec test/roundtrip.exe -- $(VERBOSE) --scan 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --keyed 1
+	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --wiki 2
+	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --callouts 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --dollar 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --tags 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --holes 3
 
 # Other checks
 # ------------

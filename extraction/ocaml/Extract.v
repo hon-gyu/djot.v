@@ -12,7 +12,7 @@
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
 From Stdlib Require OrdersEx.
 From DjotV Require Import Strings Html Step Document Profile ProfileChecks Properties
-  Spec Reparse Readable.
+  Spec Reparse Readable RenderScan.
 From DjotVDev Require Import Fixtures Generate.
 
 Extraction Language OCaml.
@@ -663,7 +663,7 @@ Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs rend
   DjotV.Readable.readable_inline_lines
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   callout_accepted callout_rt_lhs dollar_accepted dollar_rt_lhs
-  tags_accepted tags_rt_lhs holes_accepted holes_rt_lhs escape_accepted rt_src rt_parse
+  tags_accepted tags_rt_lhs holes_accepted holes_rt_lhs escape_accepted rt_src rt_parse rt_src_scan rt_lhs_scan keyed_rt_lhs_scan wiki_rt_lhs_scan dollar_rt_lhs_scan tags_rt_lhs_scan holes_rt_lhs_scan callout_rt_lhs_scan
   parse_blocks_located parse_doc_located
   DjotV.Reparse.sem_step DjotV.Reparse.loc_step DjotV.Reparse.pieces
   DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble
