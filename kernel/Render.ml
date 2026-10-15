@@ -582,12 +582,11 @@ let table_lines t rows =
 let text_lines t ils =
   split_lines (join_nl (inline_lines t ils ""))
 
-(** val caption_lines : dtable -> inlines -> string list **)
+(** val caption_lines : string list -> string list **)
 
-let caption_lines t ils =
-  match text_lines t ils with
-  | [] -> "^" :: []
-  | l :: rest -> ((^) "^ " l) :: rest
+let caption_lines = function
+| [] -> "^" :: []
+| l :: rest -> ((^) "^ " l) :: rest
 
 (** val task_open : task_status -> string **)
 
@@ -684,12 +683,15 @@ let note_indent l =
     (fun _ _ -> (^) "  " l)
     l
 
-(** val render_lines : dtable -> bconfig -> attr -> block -> string list **)
+(** val render_lines_with :
+    dtable -> bconfig -> (inlines -> string list) -> attr -> block -> string
+    list **)
 
-let rec render_lines t k a b =
+let rec render_lines_with t k text_of a b =
   let blocks_lines = fun bs ->
     sep_lines
-      (map (fun n -> render_lines t k (node_attrs n) (node_contents n)) bs)
+      (map (fun n ->
+        render_lines_with t k text_of (node_attrs n) (node_contents n)) bs)
   in
   let itemss = map (fun it -> blocks_lines (node_contents it)) in
   let taskitemss =
@@ -703,16 +705,17 @@ let rec render_lines t k a b =
         (app
           (match node_contents term with
            | [] -> []
-           | n :: l -> (text_lines t (n :: l)) :: [])
-          (map (fun n -> render_lines t k (node_attrs n) (node_contents n))
+           | n :: l -> (text_of (n :: l)) :: [])
+          (map (fun n ->
+            render_lines_with t k text_of (node_attrs n) (node_contents n))
             (node_contents def))))
   in
   let cls = fence_class k a b in
   app (attr_lines (drop_class cls a))
     (match b with
-     | Para ils -> text_lines t ils
+     | Para ils -> text_of ils
      | Section bs -> blocks_lines bs
-     | Heading (lvl, ils) -> map (heading_line lvl) (text_lines t ils)
+     | Heading (lvl, ils) -> map (heading_line lvl) (text_of ils)
      | BlockQuote bs -> map quote_line (blocks_lines bs)
      | CodeBlock (lang, text) ->
        (code_open lang) :: (app (split_lines text) (code_close :: []))
@@ -749,7 +752,7 @@ let rec render_lines t k a b =
            (map (fun r -> map node_contents (node_contents r)) rows))
          (match node_contents cap with
           | [] -> []
-          | n :: l -> caption_lines t (n :: l))
+          | n :: l -> caption_lines (text_of (n :: l)))
      | RawBlock (fmt, text) ->
        (code_open ((^) "=" fmt)) :: (app (split_lines text)
                                       (code_close :: []))
@@ -769,17 +772,17 @@ let rec render_lines t k a b =
                     | Para _ -> true
                     | _ -> false)
            | _ :: _ -> false))
-         (render_lines t k (node_attrs inner) (node_contents inner))
+         (render_lines_with t k text_of (node_attrs inner)
+           (node_contents inner))
      | Ext_callout (kind, fold, title, bs) ->
        (quote_line
-         (callout_header_line kind fold
-           (String.concat " " (text_lines t title)))) :: (map quote_line
-                                                           (blocks_lines bs)))
+         (callout_header_line kind fold (String.concat " " (text_of title)))) ::
+         (map quote_line (blocks_lines bs)))
 
 (** val render_node_lines : dtable -> bconfig -> block node -> string list **)
 
 let render_node_lines t k n =
-  render_lines t k (node_attrs n) (node_contents n)
+  render_lines_with t k (text_lines t) (node_attrs n) (node_contents n)
 
 (** val render_blocks_lines :
     dtable -> bconfig -> blocks -> string list list **)
