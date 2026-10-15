@@ -1,4 +1,5 @@
 open InlineTable
+open InlineView
 open Profile
 open ProfileChecks
 
@@ -298,8 +299,13 @@ let p_inline_precedence =
     "When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.";
     p_implication =
     "Overlapping delimiters have one meaning, which can be worked out by hand.";
-    p_theorems = ("para_inlines_valid" :: ("valid_unique" :: [])); p_status =
-    (always (Conditional "For every inline construct.")) }
+    p_theorems =
+    ("para_inlines_valid_lines" :: ("para_inlines_valid" :: ("valid_unique" :: [])));
+    p_status = (fun o ->
+    if alphabet_total o.o_inline
+    then Proved
+    else Conditional
+           "For a paragraph without a character an extension claims: `[[` with wikilinks, `$` with dollar math, `:` with tags, `%` with holes, a hyphen when the delete delimiter is wider than one, or a parenthesis used as a delimiter.") }
 
 (** val p_inline_grammar : property **)
 

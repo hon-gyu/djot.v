@@ -52,6 +52,10 @@ val dbare : dtable -> dstyle -> char option -> bool
 
 val is_delim : dtable -> char -> bool
 
+val hyphen_row_ok : dtable -> bool
+
+val alphabet_total : dtable -> bool
+
 val marked_open : dtable -> dstyle -> string
 
 val marked_close : dtable -> dstyle -> string -> string

@@ -1,4 +1,5 @@
 open InlineTable
+open InlineView
 open Profile
 open ProfileChecks
 
