@@ -167,12 +167,14 @@ ocaml-pkg-split-branch:  ## Update the ocaml branch from ocaml/ at HEAD
 # ----
 
 # site/ is a dune project of its own, which needs the ocaml/ package's
-# dependencies plus brr and js_of_ocaml.  The Python API reference is built
-# from py/ with uv, from the source alone: it needs no djot.wasm.
+# dependencies plus brr and js_of_ocaml.  DJOT_NO_YAML=1 builds ocaml/
+# without yaml where it is installed: it binds C, which js_of_ocaml cannot
+# link, and the playground would fail at load.  The Python API reference is
+# built from py/ with uv, from the source alone: it needs no djot.wasm.
 SITE = _build/site
 
 site:  ## Build the static site into _build/site
-	cd site && dune build --root . --profile release ./gen/gen.exe ./playground/playground.bc.js ./playground/worker.bc.js
+	cd site && DJOT_NO_YAML=1 dune build --root . --profile release ./gen/gen.exe ./playground/playground.bc.js ./playground/worker.bc.js
 	cd ocaml && dune build @doc
 	cd py && uv run --group docs zensical build --strict
 	rm -rf $(SITE)
