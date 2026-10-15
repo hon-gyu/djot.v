@@ -260,7 +260,7 @@ is <code>div</code> or <code>span</code> and the name is in a <code>data-tag</co
 <section id="Properties-1">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
-<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>For a paragraph without a character an extension claims: `[[` with wikilinks, `$` with dollar math, `:` with tags, `%` with holes, a hyphen when the delete delimiter is wider than one, or a parenthesis used as a delimiter.</small></td></tr></table></section>
 </section>
 <section id="Dollar-math">
 <h2>Dollar math</h2>
@@ -358,7 +358,7 @@ it.</p>
 <section id="Properties-2">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
-<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>For a paragraph without a character an extension claims: `[[` with wikilinks, `$` with dollar math, `:` with tags, `%` with holes, a hyphen when the delete delimiter is wider than one, or a parenthesis used as a delimiter.</small></td></tr></table></section>
 </section>
 <section id="Holes">
 <h2>Holes</h2>
@@ -370,116 +370,116 @@ for Documents”, POPL 2024). The parser records the expression as written
 and never reads it. What language it is in, how it is evaluated, and
 whether its value is a node, a list or an option are the consumer’s.</p>
 <div class="example">
-<pre class="source"><code>Today I am going shopping for %{List.length items} things.
+<pre class="source"><code>Today I am going shopping for %`List.length items` things.
 </code></pre>
 <pre class="rendered"><code>&lt;p&gt;Today I am going shopping for &lt;code data-hole=&quot;&quot;&gt;List.length items&lt;/code&gt; things.&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=Today%20I%20am%20going%20shopping%20for%20%25%7BList.length%20items%7D%20things.%0A">Open in the playground</a>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=Today%20I%20am%20going%20shopping%20for%20%25%60List.length%20items%60%20things.%0A">Open in the playground</a>
 </div><p>The HTML renderer shows a hole nobody evaluated as its expression, so it
 is not lost silently.</p>
-<section id="Where-a-hole-ends">
-<h3>Where a hole ends</h3>
-<p><code>%{</code> opens a hole. Inside, every <code>{</code> must be matched by a <code>}</code>, and the <code>}</code>
-that matches the opening one closes the hole.</p>
+<section id="A-hole-is-a-code-span">
+<h3>A hole is a code span</h3>
+<p>A <code>%</code> directly before a code span makes it a hole, as a <code>$</code> makes it
+math. Everything djot says of the code span holds of the hole: its
+content is read verbatim, backslashes and braces included, a longer
+backtick run lets it hold backticks, and a single space is removed on
+each side when it starts or ends with a backtick.</p>
 <div class="example">
-<pre class="source"><code>%{ {r with x = 1} }
+<pre class="source"><code>%`{r with x = 1}` and %``f `A`` and %`print_string &quot;\n&quot;`
 </code></pre>
-<pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot;&gt; {r with x = 1} &lt;/code&gt;&lt;/p&gt;
+<pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot;&gt;{r with x = 1}&lt;/code&gt; and &lt;code data-hole=&quot;&quot;&gt;f `A&lt;/code&gt; and &lt;code data-hole=&quot;&quot;&gt;print_string &quot;\n&quot;&lt;/code&gt;&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%7B%20%7Br%20with%20x%20%3D%201%7D%20%7D%0A">Open in the playground</a>
-</div><p>A brace that should not count is escaped. <code>\{</code>, <code>\}</code> and <code>\\</code> are read as
-<code>{</code>, <code>}</code> and <code>\</code>; a backslash before any other character is kept with it,
-so the expression’s own escapes reach the consumer as written.</p>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%60%7Br%20with%20x%20%3D%201%7D%60%20and%20%25%60%60f%20%60A%60%60%20and%20%25%60print_string%20%22%5Cn%22%60%0A">Open in the playground</a>
+</div><p>A hole may cross a line break, which is part of the expression, and one
+the paragraph ends inside runs to its end, as a code span does.</p>
 <div class="example">
-<pre class="source"><code>%{ print_string &quot;\}\n&quot; }
+<pre class="source"><code>a %`f
+x` b %`g y
 </code></pre>
-<pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot;&gt; print_string &quot;}\n&quot; &lt;/code&gt;&lt;/p&gt;
+<pre class="rendered"><code>&lt;p&gt;a &lt;code data-hole=&quot;&quot;&gt;f
+x&lt;/code&gt; b &lt;code data-hole=&quot;&quot;&gt;g y&lt;/code&gt;&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%7B%20print_string%20%22%5C%7D%5Cn%22%20%7D%0A">Open in the playground</a>
-</div><p>A hole may cross a line break, which is part of the expression. It ends
-with its paragraph, heading or table cell like any inline.</p>
-<div class="example">
-<pre class="source"><code>a %{ f
-x } b
-</code></pre>
-<pre class="rendered"><code>&lt;p&gt;a &lt;code data-hole=&quot;&quot;&gt; f
-x &lt;/code&gt; b&lt;/p&gt;
-</code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%7B%20f%0Ax%20%7D%20b%0A">Open in the playground</a>
-</div></section>
-<section id="What-is-not-a-hole">
-<h3>What is not a hole</h3>
-<p>A hole is always closed. When no closing <code>}</code> arrives before the end of the
-block, there is no hole and the source reads as if the <code>%</code> had been
-escaped. Here the first <code>%{</code> never closes, so the second one opens a hole.</p>
-<div class="example">
-<pre class="source"><code>a %{x and %{y} b
-</code></pre>
-<pre class="rendered"><code>&lt;p&gt;a %{x and &lt;code data-hole=&quot;&quot;&gt;y&lt;/code&gt; b&lt;/p&gt;
-</code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%7Bx%20and%20%25%7By%7D%20b%0A">Open in the playground</a>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%60f%0Ax%60%20b%20%25%60g%20y%0A">Open in the playground</a>
 </div><p>An empty expression is still a hole, for the consumer to reject.</p>
 <div class="example">
-<pre class="source"><code>%{}
+<pre class="source"><code>%``
 </code></pre>
 <pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot;&gt;&lt;/code&gt;&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%7B%7D%0A">Open in the playground</a>
-</div><p>Without the setting, <code>%{.c}</code> is a <code>%</code> with attributes. With it, <code>%{</code> is
-always a hole’s opener, and <code>\%</code> writes a <code>%</code> before braces.</p>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%60%60%0A">Open in the playground</a>
+</div><p>Attributes after a hole are the hole’s, as they are a code span’s. A raw
+format is not: as after math, <code>{=html}</code> is text.</p>
 <div class="example">
-<pre class="source"><code>a %{.c} b and \%{.c} c
+<pre class="source"><code>%`x`{.c} and %`y`{=html}
 </code></pre>
-<pre class="rendered"><code>&lt;p&gt;a &lt;code data-hole=&quot;&quot;&gt;.c&lt;/code&gt; b and &lt;span class=&quot;c&quot;&gt;%&lt;/span&gt; c&lt;/p&gt;
+<pre class="rendered"><code>&lt;p&gt;&lt;code data-hole=&quot;&quot; class=&quot;c&quot;&gt;x&lt;/code&gt; and &lt;code data-hole=&quot;&quot;&gt;y&lt;/code&gt;{=html}&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%7B.c%7D%20b%20and%20%5C%25%7B.c%7D%20c%0A">Open in the playground</a>
-</div><p>A <code>%</code> inside a code span, an autolink or a link destination is not an
-opener.</p>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%25%60x%60%7B.c%7D%20and%20%25%60y%60%7B%3Dhtml%7D%0A">Open in the playground</a>
+</div></section>
+<section id="What-is-not-a-hole">
+<h3>What is not a hole</h3>
+<p>Only a <code>%</code> immediately before the backticks prefixes them, and <code>\%</code>
+writes one that does not.</p>
 <div class="example">
-<pre class="source"><code>`%{x}` and [a](%{u})
+<pre class="source"><code>a % `x` and \%`y` and %{.c}
 </code></pre>
-<pre class="rendered"><code>&lt;p&gt;&lt;code&gt;%{x}&lt;/code&gt; and &lt;a href=&quot;%{u}&quot;&gt;a&lt;/a&gt;&lt;/p&gt;
+<pre class="rendered"><code>&lt;p&gt;a % &lt;code&gt;x&lt;/code&gt; and %&lt;code&gt;y&lt;/code&gt; and &lt;span class=&quot;c&quot;&gt;%&lt;/span&gt;&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=%60%25%7Bx%7D%60%20and%20%5Ba%5D%28%25%7Bu%7D%29%0A">Open in the playground</a>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=a%20%25%20%60x%60%20and%20%5C%25%60y%60%20and%20%25%7B.c%7D%0A">Open in the playground</a>
+</div><p>A <code>%</code> inside a code span, an autolink or a link destination is not a
+prefix.</p>
+<div class="example">
+<pre class="source"><code>``%`x`` and [a](%`u`)
+</code></pre>
+<pre class="rendered"><code>&lt;p&gt;&lt;code&gt;%`x&lt;/code&gt; and &lt;a href=&quot;%`u`&quot;&gt;a&lt;/a&gt;&lt;/p&gt;
+</code></pre>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%60%60%25%60x%60%60%20and%20%5Ba%5D%28%25%60u%60%29%0A">Open in the playground</a>
 </div></section>
 <section id="Priority-1">
 <h3>Priority</h3>
-<p>Once a hole closes, it wins over emphasis, links and spans that overlap
-it: its content is not markup.</p>
+<p>A hole opens at its backticks and closes at the matching run, as a code
+span does, so whatever it holds is not markup and what opens first wins.</p>
 <div class="example">
-<pre class="source"><code>*a %{b* c}
+<pre class="source"><code>*a %`b* c` and `d %`e` f`
 </code></pre>
-<pre class="rendered"><code>&lt;p&gt;*a &lt;code data-hole=&quot;&quot;&gt;b* c&lt;/code&gt;&lt;/p&gt;
+<pre class="rendered"><code>&lt;p&gt;*a &lt;code data-hole=&quot;&quot;&gt;b* c&lt;/code&gt; and &lt;code&gt;d %&lt;/code&gt;e&lt;code&gt; f&lt;/code&gt;&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=%2Aa%20%25%7Bb%2A%20c%7D%0A">Open in the playground</a>
-</div><p>Between a hole and a code span, whichever opens first wins: a code span
-reads its content as text, and a hole that closes reads its own.</p>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%2Aa%20%25%60b%2A%20c%60%20and%20%60d%20%25%60e%60%20f%60%0A">Open in the playground</a>
+</div></section>
+<section id="Text">
+<h3>Text</h3>
+<p>A hole’s text, from which a heading’s identifier and an empty
+reference’s label are made, is its expression, as math’s is its formula.</p>
 <div class="example">
-<pre class="source"><code>`a %{b` c} and %{ f &quot;`&quot; }
+<pre class="source"><code># Total %`n`
 </code></pre>
-<pre class="rendered"><code>&lt;p&gt;&lt;code&gt;a %{b&lt;/code&gt; c} and &lt;code data-hole=&quot;&quot;&gt; f &quot;`&quot; &lt;/code&gt;&lt;/p&gt;
+<pre class="rendered"><code>&lt;section id=&quot;Total-n&quot;&gt;
+&lt;h1&gt;Total &lt;code data-hole=&quot;&quot;&gt;n&lt;/code&gt;&lt;/h1&gt;
+&lt;/section&gt;
 </code></pre>
-<a href="../playground/#profile=ext_holes%3Don&amp;text=%60a%20%25%7Bb%60%20c%7D%20and%20%25%7B%20f%20%22%60%22%20%7D%0A">Open in the playground</a>
+<a href="../playground/#profile=ext_holes%3Don&amp;text=%23%20Total%20%25%60n%60%0A">Open in the playground</a>
 </div></section>
 <section id="Blocks">
 <h3>Blocks</h3>
-<p>There is no block syntax. A code block whose language is <code>%</code> is a code
-block to the parser; a consumer that evaluates holes may read it as one,
-with its content kept exactly, blank lines and indentation included.</p>
+<p>There is no block syntax. A raw block in format <code>hole</code> is a raw block to
+the parser, kept exactly, blank lines and indentation included, and a
+consumer that evaluates holes may read it as one. Like any raw block in
+a format the HTML renderer does not know, it renders as nothing.</p>
 <div class="example">
-<pre class="source"><code>``` %
+<pre class="source"><code>Items:
+
+``` =hole
 ul (List.map item items)
 ```
 </code></pre>
-<pre class="rendered"><code>&lt;pre&gt;&lt;code class=&quot;language-%&quot;&gt;ul (List.map item items)
-&lt;/code&gt;&lt;/pre&gt;
+<pre class="rendered"><code>&lt;p&gt;Items:&lt;/p&gt;
 </code></pre>
-<a href="../playground/#profile=&amp;text=%60%60%60%20%25%0Aul%20%28List.map%20item%20items%29%0A%60%60%60%0A">Open in the playground</a>
+<a href="../playground/#profile=&amp;text=Items%3A%0A%0A%60%60%60%20%3Dhole%0Aul%20%28List.map%20item%20items%29%0A%60%60%60%0A">Open in the playground</a>
 </div></section>
 <section id="Properties-3">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
-<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>For a paragraph without a character an extension claims: `[[` with wikilinks, `$` with dollar math, `:` with tags, `%` with holes, a hyphen when the delete delimiter is wider than one, or a parenthesis used as a delimiter.</small></td></tr></table></section>
 </section>
 <section id="Keyed-blocks">
 <h2>Keyed blocks</h2>
@@ -653,7 +653,9 @@ node of its own, with the label and the block.</p>
 <section id="Properties-4">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
-<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status conjectured">conjectured</td></tr>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>With keys on, for items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.</small></td></tr>
+<tr><td>The same, for the items of a definition list.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>With keys on, for items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.</small></td></tr>
+<tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status conjectured">conjectured</td></tr>
 <tr><td>Which blocks a document has, and how they nest, is decided without reading inline syntax.</td><td class="status conditional">conditional<small>Except a table caption, which disappears when its inline content is empty.</small></td><td class="status unknown">unknown</td></tr></table></section>
 </section>
 <section id="List-interruption">
@@ -884,7 +886,7 @@ and whether it is an embed.</p>
 <section id="Properties-7">
 <h3>Properties</h3>
 <p>What turning this on changes, against djot. Every property not listed keeps its status.</p>
-<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr></table></section>
+<table class="properties"><tr><th>Property</th><th>djot</th><th>with this extension</th></tr><tr><td>When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>For a paragraph without a character an extension claims: `[[` with wikilinks, `$` with dollar math, `:` with tags, `%` with holes, a hyphen when the delete delimiter is wider than one, or a parenthesis used as a delimiter.</small></td></tr></table></section>
 </section>
 </section>
 </main>
@@ -908,9 +910,10 @@ and whether it is an embed.</p>
 <a class="level3" href="#Priority">Priority</a>
 <a class="level3" href="#Properties-2">Properties</a>
 <a class="level2" href="#Holes">Holes</a>
-<a class="level3" href="#Where-a-hole-ends">Where a hole ends</a>
+<a class="level3" href="#A-hole-is-a-code-span">A hole is a code span</a>
 <a class="level3" href="#What-is-not-a-hole">What is not a hole</a>
 <a class="level3" href="#Priority-1">Priority</a>
+<a class="level3" href="#Text">Text</a>
 <a class="level3" href="#Blocks">Blocks</a>
 <a class="level3" href="#Properties-3">Properties</a>
 <a class="level2" href="#Keyed-blocks">Keyed blocks</a>
@@ -935,7 +938,7 @@ and whether it is an embed.</p>
 </nav>
 </div>
 <footer>
-djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/3918c6165684414c5283ce8fa5a39676edbb4905">kernel-0.1.0-3-g3918c61</a> (2026-10-08).
+djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/a446c49728ab2cc6e1b3b4f64fc8ae68c1688c84">kernel-0.1.0-127-ga446c49</a> (2026-10-15).
 Models the <a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">djot syntax reference at d77f8a0</a> (2026-06-16).
 </footer>
 </html>

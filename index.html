@@ -61,7 +61,7 @@ package.
 <dl class="versions">
 <dt>Version</dt><dd>0.1.0</dd>
 <dt>Syntax reference</dt><dd><a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">jgm/djot at d77f8a0</a>, 2026-06-16</dd>
-<dt>Built from</dt><dd><a href="https://github.com/hon-gyu/djot.v/tree/3918c6165684414c5283ce8fa5a39676edbb4905">kernel-0.1.0-3-g3918c61</a>, 2026-10-08</dd>
+<dt>Built from</dt><dd><a href="https://github.com/hon-gyu/djot.v/tree/a446c49728ab2cc6e1b3b4f64fc8ae68c1688c84">kernel-0.1.0-127-ga446c49</a>, 2026-10-15</dd>
 </dl></section>
 <section id="Properties">
 <h2>Properties</h2>
@@ -82,23 +82,24 @@ shows the same for any profile.</p>
 <tr><td>Recording source positions does not change the parse.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
 <tr><td>Parsing takes linear time.</td><td class="status conjectured">conjectured</td><td class="status conjectured">conjectured</td></tr>
 <tr><td>Text inside a block quote parses as it would at top level.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
-<tr><td>Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.</td><td class="status conditional">conditional<small>For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.</small></td><td class="status conditional">conditional<small>For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.</small></td></tr>
-<tr><td>The same, for the items of a definition list.</td><td class="status conditional">conditional<small>For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.</small></td><td class="status conditional">conditional<small>For items with no block attribute outside a block quote, and that do not end inside a code block or on a blank line.</small></td></tr>
+<tr><td>Text inside an item of a bullet or ordered list parses as it would at top level, when indented the way the formatter writes it.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
+<tr><td>The same, for the items of a definition list.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
 <tr><td>Text inside a fenced div parses as it would at top level, unless it contains the div's own closing fence.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
 <tr><td>Lines indented under a footnote belong to it, cannot affect anything outside it, and parse as they would at top level.</td><td class="status conditional">conditional<small>Not when the footnote's first line starts a list: the indentation of the following items is measured from the footnote marker.</small></td><td class="status conditional">conditional<small>Not when the footnote's first line starts a list: the indentation of the following items is measured from the footnote marker.</small></td></tr>
 <tr><td>A text line that continues a paragraph may leave out the prefixes of the quotes, list items and footnotes around it, and parses as it would with them written.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>Not for a line that underlines the paragraph: it makes a setext heading.</small></td></tr>
-<tr><td>A list is loose exactly where a blank line separates two of its items, or two blocks inside one item.</td><td class="status conditional">conditional<small>For items with no block attribute outside a block quote. A blank line inside a code block does not count.</small></td><td class="status conditional">conditional<small>For items with no block attribute outside a block quote. A blank line inside a code block does not count.</small></td></tr>
+<tr><td>A list is loose exactly where a blank line separates two of its items, or two blocks inside one item.</td><td class="status conditional">conditional<small>A blank line inside a code block does not count.</small></td><td class="status conditional">conditional<small>A blank line inside a code block does not count.</small></td></tr>
 <tr><td>Indenting every line of a document by the same amount does not change its parse.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
 <tr><td>Whether [foo][bar] is a link does not depend on whether bar is defined.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
 <tr><td>Adding, removing or changing a reference definition changes only link and image attributes in the HTML.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr>
 <tr><td>A line inside a paragraph never starts a new block.</td><td class="status proved">proved</td><td class="status broken">broken<small>A line that begins with a list marker starts a list.</small></td></tr>
 <tr><td>A heading continues on the following lines until a blank line.</td><td class="status proved">proved</td><td class="status broken">broken<small>A heading is one line.</small></td></tr>
 <tr><td>Which blocks a document has, and how they nest, is decided without reading inline syntax.</td><td class="status conditional">conditional<small>Except a table caption, which disappears when its inline content is empty.</small></td><td class="status conditional">conditional<small>Except a table caption, which disappears when its inline content is empty.</small></td></tr>
-<tr><td>When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.</td><td class="status conditional">conditional<small>For emphasis-like delimiters, links and plain text. Smart quotes, spans and images are not covered.</small></td><td class="status conditional">conditional<small>For emphasis-like delimiters, links and plain text. Smart quotes, spans and images are not covered.</small></td></tr></table></section>
+<tr><td>When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it.</td><td class="status proved">proved</td><td class="status conditional">conditional<small>For a paragraph without a character an extension claims: `[[` with wikilinks, `$` with dollar math, `:` with tags, `%` with holes, a hyphen when the delete delimiter is wider than one, or a parenthesis used as a delimiter.</small></td></tr>
+<tr><td>The same rules, written as a grammar over a paragraph's delimiters, give every paragraph exactly one parse, and it is the reading the rules allow.</td><td class="status proved">proved</td><td class="status proved">proved</td></tr></table></section>
 </section>
 </main>
 <footer>
-djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/3918c6165684414c5283ce8fa5a39676edbb4905">kernel-0.1.0-3-g3918c61</a> (2026-10-08).
+djot.v 0.1.0, built from <a href="https://github.com/hon-gyu/djot.v/tree/a446c49728ab2cc6e1b3b4f64fc8ae68c1688c84">kernel-0.1.0-127-ga446c49</a> (2026-10-15).
 Models the <a href="https://github.com/jgm/djot/blob/d77f8a0cbea6785c42b3e2b03463195b5ca6f7c7/doc/syntax.md">djot syntax reference at d77f8a0</a> (2026-06-16).
 </footer>
 </html>
