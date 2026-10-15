@@ -26,14 +26,9 @@ written bare or in braces, `= +` written only in braces, and the two
 quotes.  An unmatched token of a row is its own text, or for a quote a
 curly quote (`delim_lit` below). *)
 
-(* A row spelled with the hyphen is one hyphen wide, as djot's delete row
-   is: a run of hyphens before a `}` gives its last one back to be the
-   row's closer. *)
-Definition hyphen_row_ok : bool :=
-  match dstyle_of hyphen with Some k => Nat.eqb (dwidth k) 1 | None => true end.
-
 (* The bytes a line is drawn from: the characters of the rows, the
-   braces, the brackets, the backtick, `<`, `!`, `.`, `-`, `:` while tags
+   braces, the brackets, the backtick, `<`, `!`, `.`, `-` while the row
+   spelled with it is one hyphen wide (`hyphen_row_ok`), `:` while tags
    are off, and
    bytes that no row and no other syntax claims, the parens among them.  A paren is not a row's character
    here, since a destination counts parens.  The newline ends the

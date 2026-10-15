@@ -9492,4 +9492,14 @@ Proof.
   exact (proj1 (valid_unique _ _ _ _ _ Hr Hv)).
 Qed.
 
+(* With no option claiming a byte the alphabet leaves out, every
+   paragraph: a line holds no newline. *)
+Corollary para_inlines_valid_lines : alphabet_total = true -> forall ls m os,
+  Forall (fun x => no_char nl_char x = true) ls -> valid (para_string ls) (m, os) ->
+  para_inlines ls = tree_of (para_string ls) m.
+Proof.
+  intros Ht ls m os Hn Hv. apply (para_inlines_valid ls m os); [|exact Hv].
+  apply (Forall_impl _ (alphabet_total_line Ht) Hn).
+Qed.
+
 End WithTable.

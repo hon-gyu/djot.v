@@ -106,6 +106,20 @@ Definition dbare (k : dstyle) (before : option ascii) : bool :=
 Definition is_delim (c : ascii) : bool :=
   match dstyle_of c with Some _ => true | None => false end.
 
+(* A row spelled with the hyphen is one hyphen wide, as djot's delete row
+   is: a run of hyphens before a `}` gives its last one back to be the
+   row's closer. *)
+Definition hyphen_row_ok : bool :=
+  match dstyle_of hyphen with Some k => Nat.eqb (dwidth k) 1 | None => true end.
+
+(* Whether every line is over the alphabet of the inline specification
+   (`over_alphabet`, Precedence.v): no option claims a byte it leaves
+   out, as none does at djot's settings. *)
+Definition alphabet_total : bool :=
+  (negb wikilinks_enabled && negb dollar_math_enabled && negb tags_enabled
+   && negb holes_enabled && hyphen_row_ok
+   && negb (is_delim lparen) && negb (is_delim rparen))%bool.
+
 
 (* Everything the scanner and the renderer assume about the table is
    derived from the instance's own side condition, so an instance is

@@ -134,6 +134,28 @@ let is_delim t c =
   | Some _ -> true
   | None -> false
 
+(** val hyphen_row_ok : dtable -> bool **)
+
+let hyphen_row_ok t =
+  match dstyle_of t hyphen with
+  | Some k -> ( = ) (dwidth t k) (Stdlib.succ 0)
+  | None -> true
+
+(** val alphabet_total : dtable -> bool **)
+
+let alphabet_total t =
+  (&&)
+    ((&&)
+      ((&&)
+        ((&&)
+          ((&&)
+            ((&&) (negb (wikilinks_enabled t)) (negb (dollar_math_enabled t)))
+            (negb (tags_enabled t)))
+          (negb (holes_enabled t)))
+        (hyphen_row_ok t))
+      (negb (is_delim t lparen)))
+    (negb (is_delim t rparen))
+
 (** val marked_open : dtable -> dstyle -> string **)
 
 let marked_open t k =

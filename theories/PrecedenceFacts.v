@@ -1513,4 +1513,47 @@ Proof.
   apply rgo_valid; [apply rinv_start|constructor|lia].
 Qed.
 
+(*
+Lines over the alphabet
+=======================
+
+With no option claiming a byte the alphabet leaves out, every line is
+over it.  A backslash pairs with the byte after it, and the rest are
+bytes the alphabet admits one by one. *)
+
+Lemma alphabet_total_byte : alphabet_total = true ->
+  forall c, Ascii.eqb c nl_char = false -> is_bslash c = false -> in_alphabet c = true.
+Proof.
+  intros H c Hn Hb. unfold alphabet_total in H.
+  repeat rewrite andb_true_iff in H.
+  destruct H as ((((((Hw & Hd) & Ht) & Hh) & Hy) & Hl) & Hr).
+  apply negb_true_iff in Hw, Hd, Ht, Hh, Hl, Hr. unfold is_delim in Hl, Hr.
+  unfold in_alphabet. rewrite Hd, Ht, Hh, Hy, Hn. cbn [negb andb orb].
+  destruct c as [[] [] [] [] [] [] [] []]; try discriminate Hn; try discriminate Hb; cbn;
+    match goal with |- context [match ?m with Some _ => _ | None => _ end] =>
+      destruct m eqn:E end;
+    try reflexivity.
+  all: change rparen with ")"%char in Hr; change lparen with "("%char in Hl;
+    first [rewrite E in Hr; discriminate Hr | rewrite E in Hl; discriminate Hl].
+Qed.
+
+Lemma alphabet_total_line : alphabet_total = true ->
+  forall x, no_char nl_char x = true -> over_alphabet x = true.
+Proof.
+  intros H x. remember (String.length x) as m eqn:Em. revert x Em.
+  induction m as [m IH] using lt_wf_ind. intros x Em Hn.
+  destruct x as [|c x]; [reflexivity|].
+  cbn [no_char] in Hn. apply andb_true_iff in Hn as [Hc Hn]. apply negb_true_iff in Hc.
+  cbn [over_alphabet]. destruct (is_bslash c) eqn:Eb.
+  - destruct x as [|d x]; [reflexivity|].
+    cbn [no_char] in Hn. apply andb_true_iff in Hn as [Hd Hn]. rewrite Hd. cbn [andb].
+    apply (IH (String.length x)); [cbn in Em; lia|reflexivity|exact Hn].
+  - rewrite (alphabet_total_byte H c Hc Eb).
+    assert (Hf : follow_ok c x = true).
+    { unfold alphabet_total in H. unfold follow_ok.
+      destruct wikilinks_enabled; [rewrite andb_false_l in H; discriminate H|].
+      rewrite andb_false_r. reflexivity. }
+    rewrite Hf. apply (IH (String.length x)); [cbn in Em; lia|reflexivity|exact Hn].
+Qed.
+
 End WithTable.
