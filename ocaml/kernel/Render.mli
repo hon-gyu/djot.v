@@ -146,7 +146,7 @@ val table_lines : dtable -> cell list list -> string list
 
 val text_lines : dtable -> inlines -> string list
 
-val caption_lines : dtable -> inlines -> string list
+val caption_lines : string list -> string list
 
 val task_open : task_status -> string
 
@@ -168,7 +168,9 @@ val div_fence_for : dtable -> bconfig -> string list -> string
 
 val note_indent : string -> string
 
-val render_lines : dtable -> bconfig -> attr -> block -> string list
+val render_lines_with :
+  dtable -> bconfig -> (inlines -> string list) -> attr -> block -> string
+  list
 
 val render_node_lines : dtable -> bconfig -> block node -> string list
 

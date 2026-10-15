@@ -1165,8 +1165,8 @@ Definition table_lines (rows : list (list cell)) : list string :=
 Definition text_lines (ils : inlines) : list string :=
   split_lines (join_nl (inline_lines ils EmptyString)).
 
-Local Definition caption_lines (ils : inlines) : list string :=
-  match text_lines ils with
+Local Definition caption_lines (ls : list string) : list string :=
+  match ls with
   | [] => ["^"]
   | l :: rest => ("^ " ++ l)%string :: rest
   end.
@@ -1254,12 +1254,18 @@ Definition div_fence_for (body : list string) : string :=
 Local Definition note_indent (l : string) : string :=
   match l with EmptyString => EmptyString | _ => ("  " ++ l)%string end.
 
+Section Lines.
+
+(* How a paragraph's inlines are spelled as lines: `text_lines` for the
+   canonical renderer. *)
+Variable text_of : inlines -> list string.
+
 (* A block with its attributes [a], to djot source lines.  A section is its
    blocks: its attributes came off its heading, and the line in front of
    the section is the line in front of the heading. *)
-Fixpoint render_lines (a : attr) (b : block) : list string :=
+Fixpoint render_lines_with (a : attr) (b : block) : list string :=
   let blocks_lines (bs : blocks) :=
-    sep_lines (map (fun n => render_lines (node_attrs n) (node_contents n)) bs) in
+    sep_lines (map (fun n => render_lines_with (node_attrs n) (node_contents n)) bs) in
   let itemss := map (fun it : node blocks => blocks_lines (node_contents it)) in
   let taskitemss :=
     map (fun it : node (task_status * blocks) =>
@@ -1273,15 +1279,15 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
            sep_lines
              ((match node_contents term with
                | [] => []
-               | ils => [text_lines ils]
+               | ils => [text_of ils]
                end)
-              ++ map (fun n => render_lines (node_attrs n) (node_contents n))
+              ++ map (fun n => render_lines_with (node_attrs n) (node_contents n))
                    (node_contents def))%list) in
   let cls := fence_class a b in
   (attr_lines (drop_class cls a) ++
    match b with
-   | Para ils => text_lines ils
-   | Heading lvl ils => map (heading_line lvl) (text_lines ils)
+   | Para ils => text_of ils
+   | Heading lvl ils => map (heading_line lvl) (text_of ils)
    | ThematicBreak => [thematic_line]
    | CodeBlock lang text =>
        (code_open lang :: split_lines text ++ [code_close])%list
@@ -1292,7 +1298,7 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
          (blocks_lines bs)
    | Ext_callout kind fold title bs =>
        (quote_line
-          (callout_header_line kind fold (String.concat " " (text_lines title)))
+          (callout_header_line kind fold (String.concat " " (text_of title)))
         :: map quote_line
           (blocks_lines bs))%list
    | Div name bs =>
@@ -1322,14 +1328,18 @@ Fixpoint render_lines (a : attr) (b : block) : list string :=
        key_lines
          (String.concat "" (map (fun n => inline_text (node_contents n)) label))
          (match inner with Node _ [] (Para _) => true | _ => false end)
-         (render_lines (node_attrs inner) (node_contents inner))
+         (render_lines_with (node_attrs inner) (node_contents inner))
    | Table cap rows =>
        (table_lines (map (fun r => map node_contents (node_contents r)) rows)
         ++ match node_contents cap with
            | [] => []
-           | c => caption_lines c
+           | c => caption_lines (text_of c)
            end)%list
    end)%list.
+
+End Lines.
+
+Local Notation render_lines := (render_lines_with text_lines).
 
 Definition render_block_lines (b : block) : list string := render_lines [] b.
 
@@ -1376,7 +1386,7 @@ Proof.
     destruct (String.eqb "class" k) eqn:E; [discriminate H|].
     rewrite String.eqb_sym, E. reflexivity. }
   unfold render_block_lines.
-  destruct x; cbn [render_lines drop_class attr_lines String.eqb app];
+  destruct x; cbn [render_lines_with drop_class attr_lines String.eqb app];
     try (rewrite Hc, fence_class_nil; reflexivity); try reflexivity.
   contradiction.
 Qed.
@@ -1389,7 +1399,7 @@ Lemma render_block_div :
          :: sep_lines (render_blocks_lines bs) ++ [div_fence])%list.
 Proof.
   intros name bs H. unfold render_block_lines.
-  cbn [render_lines]. rewrite fence_class_nil.
+  cbn [render_lines_with]. rewrite fence_class_nil.
   cbn [drop_class attr_lines String.eqb app].
   change (map (fun n => render_lines (node_attrs n) (node_contents n)) bs)
     with (render_blocks_lines bs).
@@ -1495,7 +1505,7 @@ Proof.
   intros [| |checks|d start|up d start|up d start] sp items Hrok;
     [| | | | destruct up | destruct up ];
     unfold render_block_lines;
-    cbn [ck_block render_lines fence_class drop_class attr_lines String.eqb app
+    cbn [ck_block render_lines_with fence_class drop_class attr_lines String.eqb app
          lk_of_ol roman_sty alpha_sty
          ol_style ol_delim ol_start];
     unfold ck_render_ok in Hrok; apply andb_true_iff in Hrok as [Hne Hrok];
@@ -1513,7 +1523,7 @@ Proof.
       intros [|chk checks] Hlen Hne; try discriminate; [reflexivity|].
     cbn [length forallb] in Hlen, Hne. injection Hlen as Hlen.
     apply andb_true_iff in Hne as [Hit Hitems].
-    cbn [task_items render_lines ck_items task_ck_items map fst snd mk].
+    cbn [task_items render_lines_with ck_items task_ck_items map fst snd mk].
     destruct (sep_lines (render_blocks_lines it)) as [|l0 more] eqn:E;
       [discriminate Hit|].
     change (fun n : node block =>
@@ -1745,6 +1755,8 @@ Definition doc_source_blocks (d : doc) : blocks :=
 Definition render_doc (d : doc) : string := render_djot (doc_source_blocks d).
 
 End WithTable.
+
+Notation render_lines := (render_lines_with text_lines).
 
 (* `cb_pairs_ok`'s caption conjunct, on the one pair that could reach it:
    `^` is in `InlineView.needs_escape`, so a paragraph of literal `^ cap`

@@ -2019,7 +2019,7 @@ Proof.
     destruct (map ci_line ls) as [|a ls'] eqn:E; [discriminate|].
     apply para_ok_parts in Hp as (_ & Hlok & _).
     rewrite <- E in Hlok.
-    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+    cbn [render_node_lines render_lines_with fence_class drop_class attr_lines
          String.eqb node_attrs app cb_ast cb_lines node_contents mk].
     unfold text_lines. rewrite inline_lines_ci;
       [ apply split_join_nl; exact (forallb_weaken _ _ line_ok_no_nl _ Hlok)
@@ -2030,19 +2030,19 @@ Proof.
   - (* code block *)
     cbn [cb_ok] in H. apply andb_true_iff in H as [H _].
     apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+    cbn [render_node_lines render_lines_with fence_class drop_class attr_lines
          String.eqb node_attrs app cb_ast cb_lines node_contents mk].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* raw block *)
     cbn [cb_ok] in H. apply andb_true_iff in H as [_ H].
     unfold raw_ok in H. apply code_ok_parts in H as (_ & Hnl & _).
-    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+    cbn [render_node_lines render_lines_with fence_class drop_class attr_lines
          String.eqb node_attrs app cb_ast cb_lines node_contents mk].
     rewrite split_join_nl by exact Hnl. reflexivity.
   - (* heading: the same inline inversion as a paragraph, prefixed *)
     rewrite cb_ok_heading in H. apply andb_true_iff in H as [Hh Hc].
     apply heading_ok_parts in Hh as (_ & Hne & Hlok & _ & _).
-    cbn [render_node_lines render_lines fence_class drop_class attr_lines
+    cbn [render_node_lines render_lines_with fence_class drop_class attr_lines
          String.eqb node_attrs app cb_ast cb_lines node_contents mk].
     f_equal.
     unfold text_lines. rewrite inline_lines_ci;
@@ -2071,7 +2071,7 @@ Proof.
       reflexivity. }
     cbn [cb_ast]. rewrite render_node_lines_mk.
     unfold render_block_lines.
-    cbn [render_lines fence_class drop_class attr_lines String.eqb app].
+    cbn [render_lines_with fence_class drop_class attr_lines String.eqb app].
     rewrite Htext.
     change (map (fun n => render_lines (node_attrs n) (node_contents n))
       (map cb_ast inner)) with (render_blocks_lines (map cb_ast inner)).
@@ -2115,7 +2115,7 @@ Proof.
     rewrite cb_ok_table in H.
     apply andb_true_iff in H as [_ Hrows].
     rewrite cb_ast_table, render_node_lines_mk. unfold render_block_lines.
-    cbn [render_lines fence_class drop_class attr_lines String.eqb app].
+    cbn [render_lines_with fence_class drop_class attr_lines String.eqb app].
     rewrite app_nil_r, cb_lines_table, rows_mk_contents.
     apply table_lines_ctable. exact Hrows.
   - (* explicit id: the spec is its own line.  Every wrapped block is
