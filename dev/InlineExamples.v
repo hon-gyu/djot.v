@@ -1410,6 +1410,13 @@ Example attr_spec_crosses_a_break :
        (Str "hi")].
 Proof. vm_compute. reflexivity. Qed.
 
+(* So does a spec whose `{` ends its line: the `{` begins a spec as
+   before any other byte that is no row's character. *)
+Example attr_brace_ends_its_line :
+  para_inlines ["hi{"; "#i}"]
+  = [Node NoPos [("id", "i")] (Str "hi")].
+Proof. vm_compute. reflexivity. Qed.
+
 (* A comment is a spec that commits nothing, so a multi-line one is a
    spec that attaches nothing -- and the text before it ends in a space,
    which is where a spec is dropped rather than attached. *)

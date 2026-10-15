@@ -2728,3 +2728,21 @@ so a label over a break stays outside its alphabet.
 Pinned by `note_unclosed_keeps_emphasis`,
 `note_unclosed_hat_is_superscript` and `note_unclosed_across_break` in
 `dev/InlineExamples.v`.
+
+## 2026-10-15 -- AGREES now: a `{` that ends a line
+
+The 2026-08-22 entry above, for the spec's opening brace.
+
+| Input | djot.js | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `hi{` / `#i}` | a span `hi` with id `i` | `hi{`, a soft break, `#i}` | as djot.js |
+| `hi{#i` / `.c}` | a span `hi` with id `i` and class `c` | the same | the same |
+
+A spec crossed a line break once it had read a byte, but a `{` still
+pending at the break was resolved to text. `ibreak_at` now feeds the
+break to a spec begun at that `{`, as `ibrace_step_at` does for any
+other byte that is no row's character. The syntax reference says
+specifiers may contain line breaks, and the inline specification now
+reads a spec to its `}` anywhere in the paragraph.
+
+Pinned by `attr_brace_ends_its_line` in `dev/InlineExamples.v`.

@@ -2409,6 +2409,14 @@ Proof.
   induction st; intros allow H; cbn [ibreak_at];
     try (apply ibreak_flat_ok;
          [apply iresolve_settled; reflexivity|apply (iresolve_ok W CU cur); assumption]).
+  - (* IBrace *) destruct allow.
+    + destruct H as (Ho & Hb). apply iattr_feed_ok with (cur := cur).
+      * apply spot_lt_le, Hlt.
+      * discriminate.
+      * eapply held_intro; [|exact Ho]. apply spot_lt_sleft; lia.
+      * reflexivity.
+      * apply ibreak_flat_ok; [exact I|apply (iresolve_ok W CU cur); [exact Hs|split; assumption]].
+    + apply ibreak_flat_ok; [exact I|apply (iresolve_ok W CU cur); assumption].
   - (* IDollar *)
     destruct (two && dollar_math_enabled && _)%bool eqn:Ec.
     + destruct H as (Ho & Hb). cbn [st_inv].
@@ -2507,6 +2515,8 @@ Proof.
   intros W CU cur st Hs. induction st; intros H; cbn [ifinish_ostate];
     try (eapply finish_flat_ok;
          [apply iresolve_settled; reflexivity|apply (iresolve_ok W CU cur); assumption]).
+  - (* IBrace *)
+    eapply finish_flat_ok; [exact I|apply (iresolve_ok W CU cur); assumption].
   - (* IDollar *)
     eapply finish_flat_ok; [exact I|apply (iresolve_ok W CU cur); assumption].
   - (* IDollarMath *) destruct H as (_ & Hsh). apply IHst, Hsh.

@@ -380,6 +380,8 @@ Proof.
   intros attrs st. revert attrs.
   induction st; intros attrs; cbn [ibreak_at map_text];
     try solve [rewrite ibreak_flat_map, iresolve_map; reflexivity].
+  - destruct attrs; [|rewrite ibreak_flat_map, iresolve_map; reflexivity].
+    rewrite iattr_feed_map, ibreak_flat_map, iresolve_map. cbn [map_text]. laws. reflexivity.
   - destruct (two && dollar_math_enabled &&
       negb (match prev with Some p => Ascii.eqb p dollar
             | None => false end))%bool.

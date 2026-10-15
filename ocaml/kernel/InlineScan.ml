@@ -1831,6 +1831,11 @@ let rec ibreak_flat x h h0 st = match st with
     'a1 iscan_g -> 'a1 iscan_g **)
 
 let rec ibreak_at t x h h0 attrs_enabled st = match st with
+| IBrace (txt, prev, o) ->
+  if attrs_enabled
+  then iattr_feed x h h0 nl_char ap_init x.tnil txt prev
+         (ibreak_flat x h h0 (iresolve t x h h0 st)) o
+  else ibreak_flat x h h0 (iresolve t x h h0 st)
 | IDollar (two, txt, prev, o) ->
   if (&&) ((&&) two (dollar_math_enabled t))
        (negb (match prev with

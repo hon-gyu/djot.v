@@ -102,58 +102,26 @@ Fixpoint symbol_run (s : string) : nat :=
   end.
 
 (* An attribute spec read from after its `{` (AT1): the bytes before the
-   `}` that ends it, and its attributes.  The machine is the one block
-   attributes use (`Attributes.v`); a spec ends within its line. *)
+   `}` that ends it, anywhere in the paragraph, and its attributes.  The
+   machine is the one block attributes use (`Attributes.v`), and it reads
+   a line break as whitespace, or as a byte of a quoted value, and a
+   backslash as an escape in a quoted value. *)
 Fixpoint spec_go (p : aparser) (s : string) : option (string * attr) :=
   match s with
   | EmptyString => None
   | String c r =>
-      if Ascii.eqb c nl_char then None
-      else let p' := astep p c in
-           if ap_failed p' then None
-           else if ap_done p' then Some (EmptyString, ap_attrs p')
-           else match spec_go p' r with
-                | Some (b, a) => Some (String c b, a)
-                | None => None
-                end
-  end.
-
-(* Whether a spec closes with no backslash in it. *)
-Fixpoint spec_plain (p : aparser) (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c r =>
-      if (Ascii.eqb c nl_char || is_bslash c)%bool then false
-      else let p' := astep p c in
-           if ap_failed p' then false
-           else if ap_done p' then true
-           else spec_plain p' r
+      let p' := astep p c in
+      if ap_failed p' then None
+      else if ap_done p' then Some (EmptyString, ap_attrs p')
+      else match spec_go p' r with
+           | Some (b, a) => Some (String c b, a)
+           | None => None
+           end
   end.
 
 (* The spec after a `{`, while inline attributes are on. *)
 Definition spec_at (s : string) : option (string * attr) :=
   if inline_attrs_enabled then spec_go ap_init s else None.
-
-Definition spec_ahead (s : string) : bool :=
-  (inline_attrs_enabled && spec_plain ap_init s)%bool.
-
-(* Whether a spec fails on its line, at a byte the machine refuses or at
-   the line break that ends it, with no backslash before it. *)
-Fixpoint spec_fails (p : aparser) (s : string) : bool :=
-  match s with
-  | EmptyString => ap_failed (astep p nl_char)
-  | String c r =>
-      if (Ascii.eqb c nl_char || is_bslash c)%bool then false
-      else let p' := astep p c in
-           if ap_failed p' then true
-           else if ap_done p' then false
-           else spec_fails p' r
-  end.
-
-(* Whether what follows a `{` begins no spec at all: inline attributes
-   are off, or the spec fails on its line. *)
-Definition spec_fails_ahead (s : string) : bool :=
-  (negb inline_attrs_enabled || spec_fails ap_init s)%bool.
 
 (* The label of a footnote reference, read from after its `[^` (F1): the
    bytes before the `]` that ends it, anywhere in the paragraph.  A
@@ -183,30 +151,10 @@ Fixpoint run_of (c : ascii) (s : string) : nat :=
   | EmptyString => 0
   end.
 
-(* What may follow a byte: one condition per shape the alphabet leaves
-   out, each `true` for every byte but the one it is about. *)
-
-(* A `{` before anything but a row's character is drawn on as an
-   attribute spec that closes, as one that fails on its line, and at the
-   end of the line. *)
-Definition brace_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c lbrace) || starts_row rest || spec_ahead rest
-  || spec_fails_ahead rest || negb (nonempty_str rest).
-
-(* With wikilinks on, a `[` before a `[`, which begins a wikilink, is
-   not drawn on. *)
-Definition bracket_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c lbrack && wikilinks_enabled && starts_with lbrack rest).
-
-(* A `{` after a `]` is drawn on as a span's spec that closes, and as
-   one that fails on its line. *)
-Definition close_follows (c : ascii) (rest : string) : bool :=
-  negb (Ascii.eqb c rbrack && starts_with lbrace rest
-        && negb (spec_ahead (sdrop 1 rest) || spec_fails_ahead (sdrop 1 rest))).
-
+(* What may follow a byte: with wikilinks on, a `[` before a `[`, which
+   begins a wikilink, is not drawn on. *)
 Definition follow_ok (c : ascii) (rest : string) : bool :=
-  (brace_follows c rest && bracket_follows c rest
-   && close_follows c rest)%bool.
+  negb (Ascii.eqb c lbrack && wikilinks_enabled && starts_with lbrack rest).
 
 (* A backslash escapes the byte after it, whatever that byte is but the
    newline, so the escaped byte is not drawn on the alphabet (O2, O3). *)

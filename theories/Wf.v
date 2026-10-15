@@ -2261,6 +2261,7 @@ Proof.
        | IH : iscan_wf _ = true -> _ |- _ => apply IH
        end;
        cbn [iscan_wf] in H; apply andb_true_iff in H as [_ H]; exact H).
+  - exact (iscan_wf_ostate_flat _ H).
   - cbn [ifinish_ostate iresolve ifinish_ostate_flat iscan_wf]
       in H |- *.
     apply andb_true_iff in H as [Ho Hs].
@@ -2371,6 +2372,15 @@ Proof.
   induction st; intros attrs_enabled H;
     try (rewrite ibreak_at_flat_state by reflexivity;
          apply iscan_wf_break_flat; [reflexivity|exact H]).
+  - cbn [ibreak_at].
+    assert (Hf : iscan_wf (ibreak_flat (iresolve (IBrace txt prev o))) = true).
+    { apply (iscan_wf_break_flat (IText false (txt ++ one lbrace) (Some lbrace) o));
+        [reflexivity|].
+      exact (iscan_wf_resolve _ H). }
+    destruct attrs_enabled; [|exact Hf].
+    cbn [iscan_wf] in H. apply andb_true_iff in H as [Ho Hs].
+    rewrite hd_str_is_starts_str in Hs. apply negb_true_iff in Hs.
+    apply iattr_feed_wf; assumption.
   - cbn [ibreak_at].
     destruct (two && dollar_math_enabled &&
       negb (match prev with Some p => Ascii.eqb p dollar

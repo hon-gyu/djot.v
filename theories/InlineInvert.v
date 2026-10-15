@@ -797,6 +797,10 @@ Proof.
          rewrite (ibreak_at_flat_state attrs_enabled) by reflexivity;
          apply ibreak_flat_state_app; [exact Hb|reflexivity]).
   - cbn [ibreak_at iout_app].
+    change (IBrace txt prev (oout_app base o)) with (iout_app base (IBrace txt prev o)).
+    rewrite iresolve_app, ibreak_flat_app by exact Hb.
+    destruct attrs_enabled; [apply iattr_feed_app, Hb|reflexivity].
+  - cbn [ibreak_at iout_app].
     destruct (dtwo && dollar_math_enabled &&
       negb (match dprev with Some p => Ascii.eqb p dollar
             | None => false end))%bool.

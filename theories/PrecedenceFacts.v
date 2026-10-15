@@ -13,26 +13,6 @@ Section WithTable.
 Context {T : dtable}.
 
 (*
-What may follow a byte
-======================
-
-Each condition of `follow_ok` on its own, so that a proof names the one
-it reads and a condition can go without the others moving. *)
-
-Section Follow.
-Variables (c : ascii) (rest : string).
-Hypothesis H : follow_ok c rest = true.
-
-Lemma follow_brace : brace_follows c rest = true.
-Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
-Lemma follow_bracket : bracket_follows c rest = true.
-Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
-Lemma follow_close : close_follows c rest = true.
-Proof. unfold follow_ok in H. repeat rewrite andb_true_iff in H. tauto. Qed.
-
-End Follow.
-
-(*
 Uniqueness
 ==========
 
@@ -295,7 +275,6 @@ Lemma spec_go_split : forall s p b a,
   exists r, s = (b ++ String rbrace r)%string.
 Proof.
   induction s as [|c s IH]; intros p b a Hp H; [discriminate|]. cbn [spec_go] in H.
-  destruct (Ascii.eqb c nl_char); [discriminate|].
   destruct (ap_failed (astep p c)); [discriminate|].
   destruct (ap_done (astep p c)) eqn:Ed.
   - injection H as <- _. rewrite (astep_done p c Hp Ed). exists s. reflexivity.
@@ -483,6 +462,39 @@ Proof.
     match goal with E : spec_at _ = Some _ |- _ =>
       destruct (spec_at_split _ _ _ E) as [r ->] end;
     exists r; reflexivity.
+Qed.
+
+(* An attribute spec is a `{`, its bytes and the `}`, before a byte that
+   is no row's character. *)
+Lemma tok_at_attr : forall s p b a l,
+  tok_at s p = Some (TAttr b a, l) ->
+  l = S (S (String.length b))
+  /\ exists d r, sdrop p s = String lbrace (String d r) /\ dstyle_of d = None
+                 /\ spec_at (String d r) = Some (b, a).
+Proof.
+  intros s p b a l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
+  repeat match type of H with
+  | context [sym_tok ?a] =>
+      let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
+      cbn iota beta in H
+  | context [auto_tok ?a] =>
+      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | context [verb_tok ?a ?b] =>
+      let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
+      cbn iota beta in H
+  | (if ?b then _ else _) = _ => destruct b eqn:?
+  | (match ?x with _ => _ end) = _ => destruct x eqn:?
+  | context [if ?b then _ else _] => destruct b eqn:?
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x eqn:?
+  | context [match ?x with pair _ _ => _ end] => destruct x eqn:?
+  end; try congruence.
+  all: injection H as <- <- <-; split; [reflexivity|].
+  all: match goal with E : (?x =? lbrace)%char = true |- _ => apply Ascii.eqb_eq in E; subst x end.
+  all: match goal with E : spec_at ?rr = Some _, D : match ?rr with _ => _ end = None |- _ =>
+         destruct rr as [|d r];
+         [unfold spec_at in E; destruct inline_attrs_enabled; discriminate E|exists d, r; auto] end.
 Qed.
 
 (* A footnote reference is a `[`, a `^`, its label and the `]`. *)

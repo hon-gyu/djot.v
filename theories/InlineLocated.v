@@ -1393,6 +1393,8 @@ Proof.
   intros P C allow st. revert allow. induction st; intros allow;
     try (cbn [ibreak_at];
          rewrite of_ibreak_flat, of_iresolve; reflexivity).
+  - cbn [ibreak_at]. destruct allow; [|rewrite of_ibreak_flat, of_iresolve; reflexivity].
+    rewrite of_iattr_feed, of_ibreak_flat, of_iresolve. reflexivity.
   - cbn [of_iscan ibreak_at].
     destruct (two && dollar_math_enabled &&
       negb (match prev with Some p => Ascii.eqb p dollar

@@ -2396,6 +2396,12 @@ Fixpoint ibreak_at `{PosPolicy} `{InlineCursor}
         (ibreak_at attrs_enabled sh) o
   | ISpan kids image open p src sh o =>
       ispan_feed nl_char kids image open p src (ibreak_at attrs_enabled sh) o
+  (* a `{` that ends a line begins a spec as before any other byte that
+     is no row's character: `hi{` / `#i}` attaches to `hi` *)
+  | IBrace txt prev o =>
+      if attrs_enabled
+      then iattr_feed nl_char ap_init tnil txt prev (ibreak_flat (iresolve st)) o
+      else ibreak_flat (iresolve st)
   | IDest kids image open esc depth dst sh o =>
       IDest kids image open false depth
         (tpush dst ((if esc then one bslash else EmptyString) ++ nl))
@@ -2451,6 +2457,8 @@ Definition iscan_closed `{PosPolicy} `{InlineCursor} (st : iscan) : bool :=
           negb (match prev with Some p => Ascii.eqb p dollar
                 | None => false end))%bool
       then false else iclosed_at (iresolve st)
+  (* a `{` may begin a spec on the next line *)
+  | IBrace _ _ _ => false
   | _ => iclosed_at (iresolve st)
   end.
 
@@ -2492,6 +2500,7 @@ Definition is_compound (st : iscan) : bool :=
        negb (match prev with Some p => Ascii.eqb p dollar
              | None => false end))%bool
   | IDollarMath _ _ _ _ _ _ _ | IDollarMathClose _ _ _ _ _ _ => true
+  | IBrace _ _ _
   | IAttr _ _ _ _ _ _ | ISpan _ _ _ _ _ _ _ | IDest _ _ _ _ _ _ _ _
   | ISymbol _ _ _ _ | IRaw _ _ _ _ | INote _ _ _ _ _ _ => true
   | _ => false
@@ -2777,7 +2786,7 @@ Proof.
                 | None => false end))%bool;
         [discriminate H|reflexivity]).
   assert (Hclosed : iclosed_at (iresolve st) = true).
-  { destruct st; cbn [iscan_closed] in H; try exact H.
+  { destruct st; cbn [iscan_closed] in H; try exact H; try discriminate H.
     destruct (two && dollar_math_enabled &&
       negb (match prev with Some p => Ascii.eqb p dollar
             | None => false end))%bool; [discriminate H|exact H]. }

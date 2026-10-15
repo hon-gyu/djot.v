@@ -101,7 +101,7 @@ The theorems are checked by Rocq, with no axioms and no admitted proofs.
 
 | Property | Implication | Status |
 | --- | --- | --- |
-| When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, which can be worked out by hand. | conditional: `para_inlines_valid`, `valid_unique`. For every inline construct. A few shapes are not covered: an attribute specifier or a symbol left unclosed on its line; a backslash in a specifier or an autolink candidate; a second bracket right after a bracket; two or more hyphens right before a closing brace. |
+| When delimiters overlap, the first opener that gets closed wins, and a closer takes the closest open opener. Exactly one reading follows these rules, and the parser gives it. | Overlapping delimiters have one meaning, which can be worked out by hand. | conditional: `para_inlines_valid`, `valid_unique`. For every inline construct. |
 | The same rules, written as a grammar over a paragraph's delimiters, give every paragraph exactly one parse, and it is the reading the rules allow. | A paragraph's reading can be derived by hand, one grammar rule at a time. | proved: `parses_ref_read`, `parses_valid`, `valid_parses`, `parses_unique` |
 
 <!-- /properties -->

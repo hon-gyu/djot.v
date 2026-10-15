@@ -299,8 +299,7 @@ let p_inline_precedence =
     p_implication =
     "Overlapping delimiters have one meaning, which can be worked out by hand.";
     p_theorems = ("para_inlines_valid" :: ("valid_unique" :: [])); p_status =
-    (always (Conditional
-      "For every inline construct. A few shapes are not covered: an attribute specifier or a symbol left unclosed on its line; a backslash in a specifier or an autolink candidate; a second bracket right after a bracket; two or more hyphens right before a closing brace.")) }
+    (always (Conditional "For every inline construct.")) }
 
 (** val p_inline_grammar : property **)
 
