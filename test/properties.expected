@@ -19,7 +19,7 @@ reference-shape: proved
 hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
-inline-precedence: conditional
+inline-precedence: proved
 inline-grammar: proved
 
 markdown_like
@@ -91,7 +91,7 @@ reference-shape: proved
 hard-wrap-paragraph: conjectured
 hard-wrap-heading: proved
 block-structure-first: unknown
-inline-precedence: conditional
+inline-precedence: proved
 inline-grammar: proved
 
 djot, callouts on, divs off
@@ -115,6 +115,6 @@ reference-shape: proved
 hard-wrap-paragraph: proved
 hard-wrap-heading: proved
 block-structure-first: conditional
-inline-precedence: conditional
+inline-precedence: proved
 inline-grammar: proved
 
