@@ -3,6 +3,8 @@
 # Fails unless the stated versions agree: ocaml/kernel/VERSION is VERSION,
 # the syntax reference is the `djot` submodule's commit or an ancestor of
 # it, and the changelog lists the kernel's and each package's version.
+# Also that ocaml/LICENSE is LICENSE: a copy, not a link, since the
+# ocaml branch is ocaml/ alone.
 # Given a release tag, also that the tag names the version stated.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
@@ -12,6 +14,8 @@ err() { echo "check-versions: $*" >&2; bad=1; }
 
 cmp -s VERSION ocaml/kernel/VERSION ||
   err "ocaml/kernel/VERSION differs from VERSION: run make ocaml-pkg-regen"
+
+cmp -s LICENSE ocaml/LICENSE || err "ocaml/LICENSE differs from LICENSE"
 
 # The ancestor test needs the submodule checked out; the equality does not.
 ref=$(sed -n 's/^syntax-reference-commit: *//p' VERSION)

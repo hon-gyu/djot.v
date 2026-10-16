@@ -230,7 +230,7 @@ check-axioms: build  ## Fail if a theory rests on an axiom or on a check the ker
 	         /^\* (Axioms|Constants|Inductives)/ { n++; if ($$0 !~ /<none> *$$/) bad = 1 } \
 	         END { exit bad || n != 4 }'
 
-check-versions:  ## Fail if VERSION, its copy in ocaml/kernel, the djot submodule and the changelog disagree, or if TAG= is not a stated version
+check-versions:  ## Fail if VERSION, its copy in ocaml/kernel, the djot submodule and the changelog disagree, or ocaml/LICENSE is not LICENSE, or if TAG= is not a stated version
 	@scripts/check-versions.sh $(TAG)
 
 check-site: site  ## test the ocaml/ package and build the site
