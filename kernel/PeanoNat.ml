@@ -17,6 +17,18 @@ module Nat =
         m)
       n
 
+  (** val min : int -> int -> int **)
+
+  let rec min n m =
+    (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+      (fun _ -> 0)
+      (fun n' ->
+      (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+        (fun _ -> 0)
+        (fun m' -> Stdlib.succ (min n' m'))
+        m)
+      n
+
   (** val divmod : int -> int -> int -> int -> int * int **)
 
   let rec divmod x y q u =
