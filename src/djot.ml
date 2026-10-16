@@ -1339,23 +1339,22 @@ end
    constructor added in Rocq fails to compile here until it is placed. *)
 
 module Mapper = struct
-  type 'a filter_map = 'a option
-
   type 'a result =
     [ `Default
-    | `Map of 'a
+    | `Map of 'a list
     ]
 
   let default = `Default
-  let delete : 'a result = `Map None
-  let ret (x : 'a) : 'a filter_map result = `Map (Some x)
+  let delete : 'a result = `Map []
+  let ret (x : 'a) : 'a result = `Map [ x ]
+  let splice (xs : 'a list) : 'a result = `Map xs
 
   type t =
-    { inline : t -> Inline.t node -> Inline.t node filter_map result
-    ; block : t -> Block.t node -> Block.t node filter_map result
+    { inline : t -> Inline.t node -> Inline.t node result
+    ; block : t -> Block.t node -> Block.t node result
     }
 
-  type 'a mapper = t -> 'a -> 'a filter_map result
+  type 'a mapper = t -> 'a -> 'a result
 
   let make
         ?(inline : Inline.t node mapper = fun _ _ -> `Default)
@@ -1365,12 +1364,13 @@ module Mapper = struct
     { inline; block }
   ;;
 
+  (* [List.concat_map] maps in list order, so nodes are visited in source order. *)
   let rec map_inline m n =
     match m.inline m n with
     | `Map r -> r
-    | `Default -> Some (inline_children m n)
+    | `Default -> [ inline_children m n ]
 
-  and map_inlines m ns = List.filter_map (map_inline m) ns
+  and map_inlines m ns = List.concat_map (map_inline m) ns
 
   and inline_children m (Node (p, a, x)) : Inline.t node =
     let k = map_inlines m in
@@ -1407,10 +1407,12 @@ module Mapper = struct
   let rec map_block m n =
     match m.block m n with
     | `Map r -> r
-    | `Default -> block_children m n
+    | `Default -> Option.to_list (block_children m n)
 
-  and map_blocks m ns = List.filter_map (map_block m) ns
+  and map_blocks m ns = List.concat_map (map_block m) ns
 
+  (* Children are mapped in source order: a [let] fixes the order where OCaml would
+     evaluate a constructor's or a tuple's arguments right to left. *)
   and block_children m (Node (p, a, x)) : Block.t node option =
     let il = map_inlines m
     and bl = map_blocks m in
@@ -1429,13 +1431,25 @@ module Mapper = struct
       | TaskList (sp, its) ->
         Some (TaskList (sp, List.map (on (fun (s, it) -> s, bl it)) its))
       | DefinitionList (sp, its) ->
-        Some (DefinitionList (sp, List.map (on (fun (t, d) -> on il t, on bl d)) its))
-      | Table (cap, rows) -> Some (Table (on il cap, List.map (on (List.map cell)) rows))
+        let item (t, d) =
+          let t = on il t in
+          t, on bl d
+        in
+        Some (DefinitionList (sp, List.map (on item) its))
+      | Table (cap, rows) ->
+        (* The caption is written after the rows. *)
+        let rows = List.map (on (List.map cell)) rows in
+        Some (Table (on il cap, rows))
       | FootnoteDef (l, bs) -> Some (FootnoteDef (l, bl bs))
       | Ext_keyed (l, b) ->
-        Option.map (fun b -> Block.Ext_keyed (il l, b)) (map_block m b)
+        let l = il l in
+        (match map_block m b with
+         | [] -> None
+         | [ b ] -> Some (Ext_keyed (l, b))
+         | bs -> Some (Ext_keyed (l, Node.make (Block.Div ("", bs)))))
       | Ext_callout (kind, fold, title, body) ->
-        Some (Ext_callout (kind, fold, il title, bl body))
+        let title = il title in
+        Some (Ext_callout (kind, fold, title, bl body))
       | (CodeBlock _ | ThematicBreak | RawBlock _ | RefDef _ | AttrBlock) as x -> Some x
     in
     Option.map (fun x -> Node (p, a, x)) x
