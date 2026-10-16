@@ -673,7 +673,7 @@ Proof.
     apply IH. exact Hx.
 Qed.
 
-Local Lemma split_lines_single :
+Lemma split_lines_single :
   forall x, no_nl x = true -> x <> EmptyString -> split_lines x = [x].
 Proof.
   intros x H Hne. unfold split_lines.
@@ -686,7 +686,7 @@ Proof.
   - rewrite <- E, rev_string_involutive. reflexivity.
 Qed.
 
-Local Lemma split_lines_line :
+Lemma split_lines_line :
   forall x r, no_nl x = true ->
   split_lines (x ++ String "010" r) = x :: split_lines r.
 Proof.
@@ -735,7 +735,7 @@ Qed.
 
 (* ...and the same when more input follows the join: the joined lines
    come off the front and the remainder splits independently. *)
-Local Lemma split_join_line :
+Lemma split_join_line :
   forall a ls r, forallb no_nl (a :: ls) = true ->
   split_lines (String.concat nl (a :: ls) ++ String "010" r) =
   ((a :: ls) ++ split_lines r)%list.

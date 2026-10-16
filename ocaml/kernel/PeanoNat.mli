@@ -5,6 +5,8 @@ module Nat :
 
   val max : int -> int -> int
 
+  val min : int -> int -> int
+
   val divmod : int -> int -> int -> int -> int * int
 
   val div : int -> int -> int
