@@ -3,6 +3,7 @@
  (extracted_modules
   Ascii
   Ast
+  AstEq
   Attributes
   BinInt
   BinNat
@@ -25,6 +26,7 @@
   InlineTable
   InlineView
   Int
+  Irredundant
   Line
   List0
   ListDef
@@ -48,7 +50,6 @@
   Properties
   Readable
   Render
-  RenderScan
   Reparse
   Spec
   Specif

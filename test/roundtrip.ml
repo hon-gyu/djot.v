@@ -4,7 +4,7 @@
    accepts, in the extracted parser.  No other parser is consulted.
 
    Usage:
-     roundtrip [--keyed | --wiki | --callouts | --dollar | --tags | --holes] [--scan] [DEPTH] [--report FILE] [--verbose]
+     roundtrip [--keyed | --wiki | --callouts | --dollar | --tags | --holes] [--irredundant] [DEPTH] [--report FILE] [--verbose]
 
    The plain pool is what `Generate.gen_roundtrip_1` and `gen_roundtrip_2`
    prove in the kernel at depths 1 and 2; its default depth is 3, which
@@ -17,9 +17,9 @@
    `--tags` the ordinary pool with custom tag names on plus named spans
    and divs in the containers (default depth 2), and `--holes` the
    ordinary pool with holes on plus text with `%` beside code spans (default
-   depth 2); djot.js has none of these extensions.  `--scan` renders any
-   pool with `RenderScan.render_djot_scan`, whose escapes the scanner
-   decides.
+   depth 2); djot.js has none of these extensions.  `--irredundant`
+   renders any pool with `Irredundant.render_djot_irredundant`, which
+   drops every escape a paragraph's own parse does not need.
 
    The pinned counts are the coverage witness: the fragment must grow when
    a construct lands, and a shrinking count is a regression that zero
@@ -36,32 +36,32 @@ let dollar_counts = [ (1, 383); (2, 5594); (3, 83401) ]
 let tags_counts = [ (1, 408); (2, 5619); (3, 83426) ]
 let holes_counts = [ (1, 383); (2, 5594); (3, 83401) ]
 
-let run ~pool ~scan depth r verbose =
+let run ~pool ~irr depth r verbose =
   let t0 = Unix.gettimeofday () in
   let module G = Djot_fixtures.Generate in
   let name, accepted, lhs, counts =
     match pool with
-    | `Plain -> "", G.accepted, (if scan then G.rt_lhs_scan else G.rt_lhs), plain_counts
+    | `Plain -> "", G.accepted, (if irr then G.rt_lhs_irr else G.rt_lhs), plain_counts
     | `Keyed ->
       "keyed ", G.keyed_accepted,
-      (if scan then G.keyed_rt_lhs_scan else G.keyed_rt_lhs), keyed_counts
+      (if irr then G.keyed_rt_lhs_irr else G.keyed_rt_lhs), keyed_counts
     | `Wiki ->
       "wiki ", G.wiki_accepted,
-      (if scan then G.wiki_rt_lhs_scan else G.wiki_rt_lhs), wiki_counts
+      (if irr then G.wiki_rt_lhs_irr else G.wiki_rt_lhs), wiki_counts
     | `Callouts ->
       "callout ", G.callout_accepted,
-      (if scan then G.callout_rt_lhs_scan else G.callout_rt_lhs), callout_counts
+      (if irr then G.callout_rt_lhs_irr else G.callout_rt_lhs), callout_counts
     | `Dollar ->
       "dollar ", G.dollar_accepted,
-      (if scan then G.dollar_rt_lhs_scan else G.dollar_rt_lhs), dollar_counts
+      (if irr then G.dollar_rt_lhs_irr else G.dollar_rt_lhs), dollar_counts
     | `Tags ->
       "tags ", G.tags_accepted,
-      (if scan then G.tags_rt_lhs_scan else G.tags_rt_lhs), tags_counts
+      (if irr then G.tags_rt_lhs_irr else G.tags_rt_lhs), tags_counts
     | `Holes ->
       "holes ", G.holes_accepted,
-      (if scan then G.holes_rt_lhs_scan else G.holes_rt_lhs), holes_counts
+      (if irr then G.holes_rt_lhs_irr else G.holes_rt_lhs), holes_counts
   in
-  let name = if scan then "scan " ^ name else name in
+  let name = if irr then "irredundant " ^ name else name in
   let docs = accepted depth in
   let t1 = Unix.gettimeofday () in
   let total = ref 0 and bad = ref 0 in
@@ -93,7 +93,7 @@ let run ~pool ~scan depth r verbose =
   !bad = 0 && count_ok
 
 let () =
-  let pool = ref `Plain and depth = ref None and scan = ref false in
+  let pool = ref `Plain and depth = ref None and irr = ref false in
   let report = ref "" and verbose = ref false in
   let rec args = function
     | [] -> ()
@@ -103,7 +103,7 @@ let () =
     | "--dollar" :: rest -> pool := `Dollar; args rest
     | "--tags" :: rest -> pool := `Tags; args rest
     | "--holes" :: rest -> pool := `Holes; args rest
-    | "--scan" :: rest -> scan := true; args rest
+    | "--irredundant" :: rest -> irr := true; args rest
     | "--report" :: v :: rest -> report := v; args rest
     | "--verbose" :: rest -> verbose := true; args rest
     | d :: rest when int_of_string_opt d <> None ->
@@ -123,6 +123,6 @@ let () =
     | None, `Holes -> 2
   in
   let r = Report.create !report in
-  let ok = run ~pool:!pool ~scan:!scan depth r !verbose in
+  let ok = run ~pool:!pool ~irr:!irr depth r !verbose in
   Report.save r;
   exit (if ok then 0 else 1)

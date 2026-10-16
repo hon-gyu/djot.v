@@ -1,5 +1,5 @@
 .PHONY: help build doc build-djotjs build-haskell-extraction diff diff-shape \
-        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes roundtrip-scan roundtrip-escapes \
+        roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes roundtrip-irredundant roundtrip-escapes \
         check-span-containment check-stack check-holes bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
         site site-serve site-publish py-wasm check-py check-rocq check-readme check-axioms check-versions check-site
@@ -83,18 +83,18 @@ roundtrip-tags: build  ## Custom tag names
 roundtrip-holes: build  ## Holes
 	dune exec test/roundtrip.exe -- $(VERBOSE) --holes 3
 
-roundtrip-escapes: build  ## Escapes the parse does not need, canonical renderer then RenderScan's
+roundtrip-escapes: build  ## Escapes the parse does not need, canonical renderer then the irredundant one
 	dune exec test/escapes.exe -- $(VERBOSE)
-	dune exec test/escapes.exe -- $(VERBOSE) --scan
+	dune exec test/escapes.exe -- $(VERBOSE) --irredundant
 
-roundtrip-scan: build  ## Every pool, rendered with escapes decided by the scanner (RenderScan.v)
-	dune exec test/roundtrip.exe -- $(VERBOSE) --scan 3
-	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --keyed 1
-	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --wiki 2
-	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --callouts 3
-	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --dollar 3
-	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --tags 3
-	dune exec test/roundtrip.exe -- $(VERBOSE) --scan --holes 3
+roundtrip-irredundant: build  ## Every pool, rendered by the paragraph-at-a-time irredundant renderer (Irredundant.v)
+	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --keyed 1
+	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --wiki 2
+	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --callouts 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --dollar 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --tags 3
+	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --holes 3
 
 # Other checks
 # ------------

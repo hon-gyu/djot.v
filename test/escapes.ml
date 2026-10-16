@@ -10,10 +10,10 @@
    counted by the character escaped, or by the delimiter braced.
 
    Usage:
-     escapes [--scan] [--report FILE] [--verbose]
+     escapes [--irredundant] [--report FILE] [--verbose]
 
-   `--scan` measures `RenderScan.render_djot_scan`, whose escapes the
-   scanner decides, in place of `Render.render_djot`.
+   `--irredundant` measures `Irredundant.render_djot_irredundant` in
+   place of `Render.render_djot`.
 
    The pinned counts are the distance to a renderer with no redundant
    escape.  They may only go down: lower one when a relaxation lands. *)
@@ -21,7 +21,7 @@
 open Djot_test
 
 let pinned = 1668
-let pinned_scan = 539
+let pinned_irr = 0
 
 let delete s i = String.sub s 0 i ^ String.sub s (i + 1) (String.length s - i - 1)
 
@@ -63,20 +63,20 @@ let redundant parse s =
   List.rev !found
 
 let () =
-  let report = ref "" and verbose = ref false and scan = ref false in
+  let report = ref "" and verbose = ref false and irr = ref false in
   let rec args = function
     | [] -> ()
     | "--report" :: v :: rest -> report := v; args rest
     | "--verbose" :: rest -> verbose := true; args rest
-    | "--scan" :: rest -> scan := true; args rest
+    | "--irredundant" :: rest -> irr := true; args rest
     | a :: _ -> prerr_endline ("escapes: unknown argument " ^ a); exit 2
   in
   args (List.tl (Array.to_list Sys.argv));
   let r = Report.create !report in
   let module G = Djot_fixtures.Generate in
   let docs = G.escape_accepted in
-  let src = if !scan then G.rt_src_scan else G.rt_src
-  and pinned = if !scan then pinned_scan else pinned in
+  let src = if !irr then G.rt_src_irr else G.rt_src
+  and pinned = if !irr then pinned_irr else pinned in
   let classes = Hashtbl.create 64 and total = ref 0 and wrong = ref 0 in
   List.iter
     (fun c ->

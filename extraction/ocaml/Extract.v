@@ -12,7 +12,7 @@
 From Stdlib Require Import Extraction ExtrOcamlBasic ExtrOcamlNativeString.
 From Stdlib Require OrdersEx.
 From DjotV Require Import Strings Html Step Document Profile ProfileChecks Properties
-  Spec Reparse Readable RenderScan.
+  Spec Reparse Readable Irredundant.
 From DjotVDev Require Import Fixtures Generate.
 
 Extraction Language OCaml.
@@ -107,6 +107,13 @@ Extract Constant OrdersEx.String_as_OT.compare =>
 Extract Constant DjotV.Strings.rev_string =>
   "(fun s -> let n = String.length s in
      String.init n (fun i -> String.get s (n - 1 - i)))".
+(* Byte access and deletion, which the Gallina definitions reach by
+   destructing a copied suffix per byte. *)
+Extract Constant String.get =>
+  "(fun i s -> if i < String.length s then Some (String.get s i) else None)".
+Extract Constant DjotV.Irredundant.del =>
+  "(fun i s -> let n = String.length s in
+     if i < n then String.sub s 0 i ^ String.sub s (i + 1) (n - i - 1) else s)".
 (* Reversed byte lists are used by label words and attribute tokens. *)
 Extract Constant DjotV.Ast.rev_chars =>
   "(fun cs ->
@@ -658,12 +665,13 @@ Extract Constant DjotV.InlineScan.ddecode_from =>
        else Buffer.add_char b c) s;
      Buffer.contents b)".
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
+  DjotV.Irredundant.irredundant_spec DjotV.Irredundant.render_djot_irredundant
   DjotV.Document.unsection
   DjotV.Readable.readable_djot DjotV.Readable.readable_doc
   DjotV.Readable.readable_inline_lines
   keyed_accepted keyed_rt_lhs wiki_accepted wiki_rt_lhs
   callout_accepted callout_rt_lhs dollar_accepted dollar_rt_lhs
-  tags_accepted tags_rt_lhs holes_accepted holes_rt_lhs escape_accepted rt_src rt_parse rt_src_scan rt_lhs_scan keyed_rt_lhs_scan wiki_rt_lhs_scan dollar_rt_lhs_scan tags_rt_lhs_scan holes_rt_lhs_scan callout_rt_lhs_scan
+  tags_accepted tags_rt_lhs holes_accepted holes_rt_lhs escape_accepted rt_src rt_parse rt_src_irr rt_lhs_irr keyed_rt_lhs_irr wiki_rt_lhs_irr dollar_rt_lhs_irr tags_rt_lhs_irr holes_rt_lhs_irr callout_rt_lhs_irr
   parse_blocks_located parse_doc_located
   DjotV.Reparse.sem_step DjotV.Reparse.loc_step DjotV.Reparse.pieces
   DjotV.Reparse.pieces_tree DjotV.Reparse.splice DjotV.Reparse.assemble
