@@ -13,10 +13,13 @@
      escapes [--irredundant] [--report FILE] [--verbose]
 
    `--irredundant` measures `Irredundant.render_djot_irredundant` in
-   place of `Render.render_djot`.
+   place of `Render.render_djot`.  Its count is zero by
+   `irredundant_backslash` and `irredundant_braces`, for brace pairs with
+   no empty line between; this runs the extracted code, and also tries
+   pairs across an empty line.
 
-   The pinned counts are the distance to a renderer with no redundant
-   escape.  They may only go down: lower one when a relaxation lands. *)
+   The canonical renderer's count is the distance to a renderer with no
+   redundant escape.  It may only go down. *)
 
 open Djot_test
 

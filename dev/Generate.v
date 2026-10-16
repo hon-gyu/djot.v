@@ -121,8 +121,8 @@ Definition rt_lhs (c : cblock) : blocks :=
 
 Definition rt_rhs (c : cblock) : blocks := blocks_of_cblocks [c].
 
-(* The left side with the renderer that shrinks a paragraph at a time
-   (`Irredundant.v`), which nothing proves yet, at a table and settings. *)
+(* The left side with the renderer that leaves no redundant escape
+   (`Irredundant.v`), at a table and settings. *)
 Definition irr_lhs_at (T : dtable) (K : bconfig) (c : cblock) : blocks :=
   @parse_blocks T K _ _ (@render_djot_irredundant T K (blocks_of_cblocks [c])).
 

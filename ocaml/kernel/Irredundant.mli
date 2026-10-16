@@ -1,8 +1,9 @@
 open Ast
 open AstEq
 open Attributes
+open Datatypes
 open InlineTable
-open ListDef
+open List0
 open Nat0
 open Render
 open Step
@@ -11,20 +12,45 @@ open Strings
 
 val del : int -> string -> string
 
-val first_at : (string -> bool) -> string -> int -> string option
+val stop_go : int -> int -> string -> int
 
-val first_in : (string -> bool) -> string -> int list -> (string * int) option
+val para_stop : string -> int -> int
 
-val next : (string -> bool) -> int -> string -> (string * int) option
+val first_at :
+  (string -> 'a1 option) -> string -> int -> (string * 'a1) option
 
-val shrink_from : (string -> bool) -> int -> int -> string -> string
+val first_from :
+  (string -> 'a1 option) -> string -> int -> int -> ((string * 'a1) * int)
+  option
 
-val shrink : (string -> bool) -> int -> string -> string
+val next :
+  (string -> 'a1 option) -> int -> string -> ((string * 'a1) * int) option
 
-val parses_to : dtable -> bconfig -> blocks -> string -> bool
+val shrink_by :
+  ('a1 -> string -> 'a1 option) -> int -> int -> 'a1 -> string -> string
 
-val irredundant_spec : dtable -> bconfig -> blocks -> string
+val same_state : pstate -> pstate -> bool
 
-val block_lines : dtable -> bconfig -> block node -> string list
+type entry = (string * pstate) * blocks
+
+val trace : dtable -> bconfig -> string list -> pstate -> entry list * pstate
+
+val rest_of : dtable -> bconfig -> entry list -> pstate -> blocks
+
+type known = { k_rev : string list; k_trace : entry list; k_fin : pstate }
+
+val known_of : dtable -> bconfig -> string -> known
+
+val resync :
+  dtable -> bconfig -> int -> int -> pstate -> blocks -> blocks -> entry list
+  -> entry list -> string list -> pstate -> (entry list * pstate) option
+
+val walk :
+  dtable -> bconfig -> int -> int -> entry list -> entry list -> string list
+  -> pstate -> (entry list * pstate) option
+
+val common_prefix : string list -> string list -> int
+
+val fast_test : dtable -> bconfig -> known -> string -> known option
 
 val render_djot_irredundant : dtable -> bconfig -> blocks -> string

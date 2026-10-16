@@ -665,7 +665,7 @@ Extract Constant DjotV.InlineScan.ddecode_from =>
        else Buffer.add_char b c) s;
      Buffer.contents b)".
 Separate Extraction convert generated lazy_generated accepted rt_lhs rt_rhs render_cb DjotV.Render.render_doc
-  DjotV.Irredundant.irredundant_spec DjotV.Irredundant.render_djot_irredundant
+  DjotV.Irredundant.render_djot_irredundant
   DjotV.Document.unsection
   DjotV.Readable.readable_djot DjotV.Readable.readable_doc
   DjotV.Readable.readable_inline_lines

@@ -19,7 +19,7 @@
    ordinary pool with holes on plus text with `%` beside code spans (default
    depth 2); djot.js has none of these extensions.  `--irredundant`
    renders any pool with `Irredundant.render_djot_irredundant`, which
-   drops every escape a paragraph's own parse does not need.
+   drops every escape the parse does not need.
 
    The pinned counts are the coverage witness: the fragment must grow when
    a construct lands, and a shrinking count is a regression that zero

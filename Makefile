@@ -87,7 +87,7 @@ roundtrip-escapes: build  ## Escapes the parse does not need, canonical renderer
 	dune exec test/escapes.exe -- $(VERBOSE)
 	dune exec test/escapes.exe -- $(VERBOSE) --irredundant
 
-roundtrip-irredundant: build  ## Every pool, rendered by the paragraph-at-a-time irredundant renderer (Irredundant.v)
+roundtrip-irredundant: build  ## Every pool, rendered by the irredundant renderer (Irredundant.v)
 	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant 3
 	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --keyed 1
 	dune exec test/roundtrip.exe -- $(VERBOSE) --irredundant --wiki 2

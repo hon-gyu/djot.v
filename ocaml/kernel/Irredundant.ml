@@ -1,8 +1,9 @@
 open Ast
 open AstEq
 open Attributes
+open Datatypes
 open InlineTable
-open ListDef
+open List0
 open Nat0
 open Render
 open Step
@@ -14,84 +15,205 @@ open Strings
 let rec del = (fun i s -> let n = String.length s in
      if i < n then String.sub s 0 i ^ String.sub s (i + 1) (n - i - 1) else s)
 
-(** val first_at : (string -> bool) -> string -> int -> string option **)
+(** val stop_go : int -> int -> string -> int **)
 
-let first_at ok s i =
-  let test = fun t -> if ok t then Some t else None in
+let rec stop_go fuel p s =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> p)
+    (fun f ->
+    match get p s with
+    | Some c ->
+      (match get (Stdlib.succ p) s with
+       | Some d ->
+         if (&&) ((=) c '\n') ((=) d '\n')
+         then p
+         else stop_go f (Stdlib.succ p) s
+       | None -> String.length s)
+    | None -> String.length s)
+    fuel
+
+(** val para_stop : string -> int -> int **)
+
+let para_stop s p =
+  stop_go (sub (String.length s) p) p s
+
+(** val first_at :
+    (string -> 'a1 option) -> string -> int -> (string * 'a1) option **)
+
+let first_at f s i =
+  let test = fun t -> match f t with
+                      | Some b -> Some (t, b)
+                      | None -> None in
   (match get i s with
    | Some c ->
      if (=) c bslash
      then test (del i s)
      else if (=) c lbrace
-          then let rec go = function
-               | [] -> None
-               | j :: rest ->
-                 (match match get j s with
-                        | Some d ->
-                          if (=) d rbrace
-                          then test (del i (del j s))
-                          else None
-                        | None -> None with
-                  | Some t -> Some t
-                  | None -> go rest)
-               in go
-                    (seq (Stdlib.succ i)
-                      (sub (String.length s) (Stdlib.succ i)))
+          then let rec go m j =
+                 (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+                   (fun _ -> None)
+                   (fun m' ->
+                   match match get j s with
+                         | Some d ->
+                           if (=) d rbrace
+                           then test (del i (del j s))
+                           else None
+                         | None -> None with
+                   | Some r -> Some r
+                   | None -> go m' (Stdlib.succ j))
+                   m
+               in go (sub (para_stop s (Stdlib.succ i)) (Stdlib.succ i))
+                    (Stdlib.succ i)
           else None
    | None -> None)
 
-(** val first_in :
-    (string -> bool) -> string -> int list -> (string * int) option **)
+(** val first_from :
+    (string -> 'a1 option) -> string -> int -> int -> ((string * 'a1) * int)
+    option **)
 
-let rec first_in ok s = function
-| [] -> None
-| i :: rest ->
-  (match first_at ok s i with
-   | Some t -> Some (t, i)
-   | None -> first_in ok s rest)
+let rec first_from f s n i =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> None)
+    (fun m ->
+    match first_at f s i with
+    | Some p -> Some (p, i)
+    | None -> first_from f s m (Stdlib.succ i))
+    n
 
-(** val next : (string -> bool) -> int -> string -> (string * int) option **)
+(** val next :
+    (string -> 'a1 option) -> int -> string -> ((string * 'a1) * int) option **)
 
-let next ok k s =
-  match first_in ok s (seq k (sub (String.length s) k)) with
+let next f k s =
+  match first_from f s (sub (String.length s) k) k with
   | Some r -> Some r
-  | None -> first_in ok s (seq 0 (String.length s))
+  | None -> first_from f s (String.length s) 0
 
-(** val shrink_from : (string -> bool) -> int -> int -> string -> string **)
+(** val shrink_by :
+    ('a1 -> string -> 'a1 option) -> int -> int -> 'a1 -> string -> string **)
 
-let rec shrink_from ok fuel k s =
+let rec shrink_by test fuel k c s =
   (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
     (fun _ -> s)
     (fun f ->
-    match next ok k s with
-    | Some p -> let (t, i) = p in shrink_from ok f i t
+    match next (test c) k s with
+    | Some p -> let (p0, i) = p in let (t, c') = p0 in shrink_by test f i c' t
     | None -> s)
     fuel
 
-(** val shrink : (string -> bool) -> int -> string -> string **)
+(** val same_state : pstate -> pstate -> bool **)
 
-let shrink ok fuel s =
-  shrink_from ok fuel 0 s
+let same_state a b =
+  match a with
+  | PPara cur ->
+    (match cur with
+     | [] ->
+       (match b with
+        | PPara cur0 -> (match cur0 with
+                         | [] -> true
+                         | _ :: _ -> false)
+        | _ -> false)
+     | _ :: _ -> false)
+  | _ -> false
 
-(** val parses_to : dtable -> bconfig -> blocks -> string -> bool **)
+type entry = (string * pstate) * blocks
 
-let parses_to t k want t0 =
-  blocks_eqb (parse_blocks t k semantic_line_ix semantic_pos t0) want
+(** val trace :
+    dtable -> bconfig -> string list -> pstate -> entry list * pstate **)
 
-(** val irredundant_spec : dtable -> bconfig -> blocks -> string **)
+let rec trace t k ls st =
+  match ls with
+  | [] -> ([], st)
+  | l :: rest ->
+    let (bs, st') = step t k semantic_line_ix semantic_pos l st in
+    let (tr, fin) = trace t k rest st' in ((((l, st), bs) :: tr), fin)
 
-let irredundant_spec t k bs =
-  let s = render_djot t k bs in shrink (parses_to t k bs) (String.length s) s
+(** val rest_of : dtable -> bconfig -> entry list -> pstate -> blocks **)
 
-(** val block_lines : dtable -> bconfig -> block node -> string list **)
+let rest_of t k tr fin =
+  app (flat_map snd tr) (finish t k semantic_pos fin)
 
-let block_lines t k n =
-  let ls = render_node_lines t k n in
-  let s = String.concat nl ls in
-  let ok = parses_to t k (n :: []) in
-  if ok s then split_lines (shrink ok (String.length s) s) else ls
+type known = { k_rev : string list; k_trace : entry list; k_fin : pstate }
+
+(** val known_of : dtable -> bconfig -> string -> known **)
+
+let known_of t k s =
+  let ls = split_lines s in
+  let run = trace t k ls (PPara []) in
+  { k_rev = (rev ls); k_trace = (fst run); k_fin = (snd run) }
+
+(** val resync :
+    dtable -> bconfig -> int -> int -> pstate -> blocks -> blocks -> entry
+    list -> entry list -> string list -> pstate -> (entry list * pstate)
+    option **)
+
+let rec resync t k d n stc cand ref acc tr ls fin =
+  match tr with
+  | [] ->
+    let run = trace t k ls stc in
+    if blocks_eqb (app cand (rest_of t k (fst run) (snd run)))
+         (app ref (rest_of t k tr fin))
+    then Some ((rev_append acc (fst run)), (snd run))
+    else None
+  | e :: tr' ->
+    let (p, bs) = e in
+    let (_, st) = p in
+    (match ls with
+     | [] ->
+       let run = trace t k ls stc in
+       if blocks_eqb (app cand (rest_of t k (fst run) (snd run)))
+            (app ref (rest_of t k tr fin))
+       then Some ((rev_append acc (fst run)), (snd run))
+       else None
+     | l :: ls' ->
+       if (&&) (same_state stc st) (( <= ) n d)
+       then if blocks_eqb cand ref
+            then Some ((rev_append acc tr), fin)
+            else None
+       else let (bs', stc') = step t k semantic_line_ix semantic_pos l stc in
+            resync t k d (pred n) stc' (app cand bs') (app ref bs) (((l, stc),
+              bs') :: acc) tr' ls' fin)
+
+(** val walk :
+    dtable -> bconfig -> int -> int -> entry list -> entry list -> string list
+    -> pstate -> (entry list * pstate) option **)
+
+let rec walk t k d n acc tr ls fin =
+  match tr with
+  | [] -> resync t k d n fin [] [] acc tr ls fin
+  | e :: tr' ->
+    let (p, bs) = e in
+    let (l, st) = p in
+    (match ls with
+     | [] -> resync t k d n st [] [] acc tr ls fin
+     | l' :: ls' ->
+       if (=) l l'
+       then walk t k d (pred n) (((l, st), bs) :: acc) tr' ls' fin
+       else resync t k d n st [] [] acc tr ls fin)
+
+(** val common_prefix : string list -> string list -> int **)
+
+let rec common_prefix xs ys =
+  match xs with
+  | [] -> 0
+  | x :: xs' ->
+    (match ys with
+     | [] -> 0
+     | y :: ys' -> if (=) x y then Stdlib.succ (common_prefix xs' ys') else 0)
+
+(** val fast_test : dtable -> bconfig -> known -> string -> known option **)
+
+let fast_test t k kn t0 =
+  let ls = split_lines t0 in
+  let rls = rev ls in
+  let n = length kn.k_trace in
+  let d = if ( = ) (length ls) n then common_prefix kn.k_rev rls else 0 in
+  (match walk t k d n [] kn.k_trace ls kn.k_fin with
+   | Some p ->
+     let (tr, fin) = p in Some { k_rev = rls; k_trace = tr; k_fin = fin }
+   | None -> None)
 
 (** val render_djot_irredundant : dtable -> bconfig -> blocks -> string **)
 
 let render_djot_irredundant t k bs =
-  String.concat nl (sep_lines (map (block_lines t k) bs))
+  let s = render_djot t k bs in
+  shrink_by (fast_test t k) (String.length s) 0 (known_of t k s) s
