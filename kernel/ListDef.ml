@@ -5,6 +5,14 @@ let rec map f = function
 | [] -> []
 | a :: l0 -> (f a) :: (map f l0)
 
+(** val seq : int -> int -> int list **)
+
+let rec seq start len =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> [])
+    (fun len0 -> start :: (seq (Stdlib.succ start) len0))
+    len
+
 (** val firstn : int -> 'a1 list -> 'a1 list **)
 
 let rec firstn n l =
