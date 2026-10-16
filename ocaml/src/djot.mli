@@ -781,27 +781,40 @@ end
 (** {1 Traversals} *)
 
 module Mapper : sig
-  type 'a filter_map = 'a option
-
+  (** What a mapper does with a node: [`Map ns] puts the nodes [ns] in its place, in the
+      list that holds it. *)
   type 'a result =
     [ `Default
-    | `Map of 'a
+    | `Map of 'a list
     ]
 
   (** Keep the node and map its children. *)
   val default : 'a result
 
-  val delete : 'a filter_map result
-  val ret : 'a -> 'a filter_map result
+  (** [`Map []]: no node in its place. *)
+  val delete : 'a result
+
+  (** [`Map [n]]: [n] in its place. *)
+  val ret : 'a -> 'a result
+
+  (** [`Map ns]: the nodes [ns] in its place, in order. *)
+  val splice : 'a list -> 'a result
 
   type t
-  type 'a mapper = t -> 'a -> 'a filter_map result
+  type 'a mapper = t -> 'a -> 'a result
 
+  (** Nodes are visited in source order, so a mapper may keep state: a node is mapped
+      after every node written before it. *)
   val make : ?inline:Inline.t node mapper -> ?block:Block.t node mapper -> unit -> t
-  val map_inline : t -> Inline.t node -> Inline.t node filter_map
 
-  (** A {!Block.Ext_keyed} whose block is deleted is deleted. *)
-  val map_block : t -> Block.t node -> Block.t node filter_map
+  (** The nodes in the place of one node. *)
+  val map_inline : t -> Inline.t node -> Inline.t node list
+
+  (** The nodes in the place of one node.
+
+      A {!Block.Ext_keyed} holds one block. When its block is deleted, it is deleted;
+      when its block is mapped to several, they are put in an unnamed {!Block.Div}. *)
+  val map_block : t -> Block.t node -> Block.t node list
 
   (** The document made of the mapped blocks, as {!Doc.make} gives it, with the profile
       and the positions of the one given. The mapper sees {!Doc.blocks} without the

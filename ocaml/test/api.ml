@@ -235,3 +235,51 @@ let () =
   assert (raws d' = [ "x" ]);
   assert (raws d' = raws (Doc.of_string ~profile "a `x`{=hole} b\n"))
 ;;
+
+(* A mapper splices: a block is replaced by several in the list that holds it, at any
+   depth, and so is an inline. *)
+let () =
+  let d = Doc.of_string "a\n\n> b\n\n- c\n" in
+  let block _ = function
+    | Node (_, _, Block.Para _) as n -> Mapper.splice [ n; Node.make Block.ThematicBreak ]
+    | _ -> Mapper.default
+  in
+  let d' = Mapper.map_doc (Mapper.make ~block ()) d in
+  assert (Doc.to_string d' = "a\n\n* * * *\n\n> b\n>\n> * * * *\n\n- c\n\n  * * * *");
+  let inline _ = function
+    | Node (_, _, Inline.Str s) ->
+      Mapper.splice [ Node.make (Inline.Str s); Node.make (Inline.Str "!") ]
+    | _ -> Mapper.default
+  in
+  let d' = Mapper.map_doc (Mapper.make ~inline ()) (Doc.of_string "_a_ b\n") in
+  assert (Html.of_doc d' = "<p><em>a!</em> b!</p>\n")
+;;
+
+(* Nodes are visited in source order, a definition's term before its definition and a
+   table's rows before the caption written after them. *)
+let () =
+  let src = "x\n\n: t\n\n  d\n\n| r |\n\n^ c\n\nk: v\n" in
+  let profile = Profile.with_ext_keyed true Profile.djot in
+  let seen = ref [] in
+  let inline _ = function
+    | Node (_, _, Inline.Str s) ->
+      seen := s :: !seen;
+      Mapper.default
+    | _ -> Mapper.default
+  in
+  ignore (Mapper.map_doc (Mapper.make ~inline ()) (Doc.of_string ~profile src) : Doc.t);
+  assert (List.rev !seen = [ "x"; "t"; "d"; "r"; "c"; "k"; "v" ])
+;;
+
+(* A keyed block whose block is mapped to several holds them in an unnamed div. *)
+let () =
+  let profile = Profile.with_ext_keyed true Profile.djot in
+  let d = Doc.of_string ~profile "k: v\n" in
+  let block _ = function
+    | Node (_, _, Block.Para _) as n -> Mapper.splice [ n; n ]
+    | _ -> Mapper.default
+  in
+  match Doc.blocks (Mapper.map_doc (Mapper.make ~block ()) d) with
+  | [ Node (_, _, Block.Ext_keyed (_, Node (_, _, Block.Div ("", [ _; _ ])))) ] -> ()
+  | _ -> failwith "unexpected keyed block"
+;;

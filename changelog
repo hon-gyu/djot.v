@@ -40,6 +40,8 @@ A new kernel is a new release of the package.
 - `Doc.source_blocks`: the blocks without the identifiers derived from heading text, for `Doc.make` to give the same document
 - `Profile.with_ext_holes` and `Inline.Hole`: holes, `` %`e` ``
 - `Mapper.holes_as_raw`: each hole as a raw inline in format `hole`, which `` `e`{=hole} `` also reads as
+- breaking: a mapper puts a list of nodes in the place of a node, `` `Map of 'a list ``, so it can splice; `Mapper.splice ns` puts several. `Mapper.map_inline` and `Mapper.map_block` return lists and the type `Mapper.filter_map` is gone. A keyed block whose block is mapped to several holds them in an unnamed div
+- `Mapper` visits nodes in source order; a definition's term was mapped after its definition, a keyed block's label after its block, and a callout's title after its body
 
 ### [0.1.0]
 - initial release, with kernel 0.1.0
