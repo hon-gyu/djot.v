@@ -93,6 +93,8 @@ val opush_at : dstyle -> bool -> bool -> span -> ostate -> ostate
 
 val previous_spot : spot -> spot
 
+val next_spot : spot -> spot
+
 val source_shape : string -> (int * int) * int
 
 val spot_before : spot -> string -> spot
@@ -244,7 +246,10 @@ val ibrace_step_at :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> bool ->
   char -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
-val ospan_bang : coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate
+val ospan_bang :
+  coq_PosPolicy -> coq_InlineCursor -> bool -> span -> ostate -> ostate
+
+val bracket_start : bool -> span -> spot
 
 val ispan_feed :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> inlines ->
