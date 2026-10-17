@@ -376,6 +376,16 @@ Okay"
        (Para [mk (Str "Okay")])].
 Proof. reflexivity. Qed.
 
+(* A div's class word combines with the classes before it, which come
+   first. *)
+Example parse_attr_div_class_word :
+  parse_blocks "{.a}
+::: b
+y
+:::"
+  = [Node NoPos [("class", "a b")] (Div "" [mk (Para [mk (Str "y")])])].
+Proof. reflexivity. Qed.
+
 (* Duplicate explicit ids are source data, not a parser error.  The
    editing layer may reject this document as ambiguous, but parsing must
    retain both occurrences. *)

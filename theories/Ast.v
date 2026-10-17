@@ -207,10 +207,20 @@ Proof.
   apply IH.
 Qed.
 
-(* The pending set onto the attributes of the block it decorates.  Plain
-   assignment: classes do not accumulate here, as in djot.js. *)
+(* A class put before the classes a set already has. *)
+Local Definition prepend_class (v : string) (a : attr) : attr :=
+  match alist_lookup "class" a with
+  | None => set "class" v a
+  | Some old => set "class" (v ++ " " ++ old) a
+  end.
+
+(* The pending set onto the attributes of the block it decorates: a key
+   the block has is replaced, but its classes are combined, the pending
+   ones first, as djot.js orders them (a div's class word arrives after
+   the block attributes). *)
 Local Definition apply_pending (pending a : attr) : attr :=
-  fold_left (fun a' kv => set (fst kv) (snd kv) a') pending a.
+  fold_left (fun a' kv => if String.eqb (fst kv) "class" then prepend_class (snd kv) a'
+                          else set (fst kv) (snd kv) a') pending a.
 
 End Attr.
 

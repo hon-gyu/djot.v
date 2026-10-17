@@ -76,10 +76,20 @@ module Attr =
   let merge new0 acc =
     fold_left (fun acc' kv -> put kv acc') new0 acc
 
+  (** val prepend_class : string -> attr -> attr **)
+
+  let prepend_class v a =
+    match alist_lookup "class" a with
+    | Some old -> set "class" ((^) v ((^) " " old)) a
+    | None -> set "class" v a
+
   (** val apply_pending : attr -> attr -> attr **)
 
   let apply_pending pending a =
-    fold_left (fun a' kv -> set (fst kv) (snd kv) a') pending a
+    fold_left (fun a' kv ->
+      if (=) (fst kv) "class"
+      then prepend_class (snd kv) a'
+      else set (fst kv) (snd kv) a') pending a
  end
 
 type spot = { spot_line : int; spot_rem : int }

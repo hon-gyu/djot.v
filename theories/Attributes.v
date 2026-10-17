@@ -744,7 +744,9 @@ Proof.
   unfold Ast.Attr.apply_pending.
   induction pend as [|[k v] pend IH]; intros a Hp Ha; [exact Ha|].
   apply attr_ok_cons in Hp as (Hk & _ & Hp). cbn [fold_left fst snd].
-  apply IH; [exact Hp|]. apply attr_ok_set; auto.
+  apply IH; [exact Hp|].
+  destruct (String.eqb k "class"); [unfold Ast.Attr.prepend_class; destruct (alist_lookup _ a)|];
+    apply attr_ok_set; auto.
 Qed.
 
 Local Lemma key_ok_snoc : forall k c,

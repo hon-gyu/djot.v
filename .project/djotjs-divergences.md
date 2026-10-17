@@ -2841,3 +2841,17 @@ Pinned in `dev/InlineExamples.v` by `dest_unterminated_is_no_barrier`,
 `unclosed_reference_is_read_through`, `auto_failed_region_is_ordinary`,
 `auto_failed_region_decodes_escapes` and
 `auto_failed_region_reaches_past`.
+
+## 2026-10-17 -- AGREES now: block attributes combine with a div's class word
+
+The 2026-10-03 entry, done.
+
+| Input | djot.js | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `{.a}` / `::: b` / `y` / `:::` | `<div class="a b">` | `<div class="a">` | as djot.js |
+| `{.a .c}` / `::: b` / `y` / `:::` | `<div class="a c b">` | `<div class="a c">` | as djot.js |
+
+`Attr.apply_pending` keeps assignment for every key but `class`, whose
+pending words now go before the block's own.  The order of the keys is
+unchanged: with `{#i .a}` djot.js writes `id` first and ours `class`.
+Pinned by `parse_attr_div_class_word` in `dev/ParserExamples.v`.
