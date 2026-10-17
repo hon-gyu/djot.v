@@ -2746,3 +2746,65 @@ specifiers may contain line breaks, and the inline specification now
 reads a spec to its `}` anywhere in the paragraph.
 
 Pinned by `attr_brace_ends_its_line` in `dev/InlineExamples.v`.
+
+## 2026-10-17 -- OURS, to do: a failed autolink is read as ordinary text
+
+Corrects two entries.  The 2026-10-11 entry on a `]{` whose spec fails
+says a failed autolink "already" leaves no trace; it does not.  At
+`5345168`, as on 2026-08-21:
+
+| Input | djot.js (`3b3a9f5`) | Ours |
+| --- | --- | --- |
+| `<_a_>` | `&lt;<em>a</em>&gt;` | `&lt;_a_&gt;` |
+| `<_a>b_` | `&lt;<em>a&gt;b</em>` | `&lt;_a&gt;b_` |
+| `` <a:b`c> `` | a link to ``a:b`c`` | the same |
+
+The 2026-08-21 entry kept ours because matching needed a second read of
+the region.  The ordinary reading kept beside a candidate, which
+`IAttr`, `ISpan`, `IDest` and `INote` now carry, needs none.  Its other
+objection, that an unclosed verbatim in the ordinary reading would
+swallow the `>`, does not apply: the candidate decides at the `>` by
+itself, so the last row stays a link.
+
+Decided by the maintainer (2026-10-17): follow djot.js.  A `<` whose
+candidate fails is text, and the region is read as usual.
+
+## 2026-10-17 -- OURS, to do: a failed destination is read as if its `](` were text
+
+Corrects the 2026-10-11 entry's "an unclosed destination ... already
+do": the ordinary reading `IDest` keeps is not the reading without the
+`](`.  It keeps the `FKDest` barrier, and the `[` is closed.
+
+| Input | djot.js (`3b3a9f5`) | Ours | Decided |
+| --- | --- | --- | --- |
+| `[u](a ](b) c` | a link `u](a ` to `b` | all text | as djot.js |
+| `_[](a_` | all text | all text | `<em>[](a</em>` |
+| `*x [u](a* b` | all text | all text | `<strong>x [u](a</strong> b` |
+| `_[]([a_` | `<em>[]([a</em>` | all text | as djot.js |
+| `[u](a ](b))` | a link `u](a ` to `b`, then `)` | a link `u` to `a ](b)` | as ours |
+
+Decided by the maintainer (2026-10-17).  Two statements, of which only
+the first is new:
+
+- A destination's content is literal, and it ends at the first `)` that
+  does not close a `(` inside it.  This decides the last row: the second
+  `]` is a character.  The parenthesis counting is djot.js's
+  (`inline.ts:501-517`); the syntax reference does not state it.
+- A delimiter that is never closed is ordinary text.  This is the
+  reference's precedence principle ("the first opener that gets closed
+  takes precedence") applied to the destination's `(`, not a rule of
+  its own.  In the first row the `(` is never closed, so the first
+  opener closed is the `[`, by `](b)`.  In the second and third nothing
+  stands between the two delimiters.
+
+djot.js differs on the last row because its `]` closes the kept `[`
+opener again when a `(` follows, and on the second and third because
+its barrier (`inline.ts:198`) is applied while the destination is open
+and is not withdrawn when it fails.  The barrier asks only whether the
+innermost `[` opener is the link's, which is why the fourth row is
+emphasis there.  Both are in `upstream-reports.dj`.
+
+The fix is in the reading `IDest` keeps: no barrier, and the `[` left
+open.  This replaces the residue recorded in `exact-html-gaps.md`
+(*The residue of the destination gap*), which followed djot.js on both
+points.
