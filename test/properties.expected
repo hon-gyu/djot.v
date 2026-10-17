@@ -21,6 +21,7 @@ hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: proved
 inline-grammar: proved
+inline-no-trace: proved
 
 markdown_like
 ====================
@@ -45,6 +46,7 @@ hard-wrap-heading: broken
 block-structure-first: conditional
 inline-precedence: conditional
 inline-grammar: proved
+inline-no-trace: proved
 
 djot, wikilinks and dollar math on
 ====================
@@ -69,6 +71,7 @@ hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: conditional
 inline-grammar: proved
+inline-no-trace: proved
 
 djot, keyed on
 ====================
@@ -93,6 +96,7 @@ hard-wrap-heading: proved
 block-structure-first: unknown
 inline-precedence: proved
 inline-grammar: proved
+inline-no-trace: proved
 
 djot, callouts on, divs off
 ====================
@@ -117,4 +121,5 @@ hard-wrap-heading: proved
 block-structure-first: conditional
 inline-precedence: proved
 inline-grammar: proved
+inline-no-trace: proved
 

@@ -318,7 +318,16 @@ let p_inline_grammar =
     ("parses_ref_read" :: ("parses_valid" :: ("valid_parses" :: ("parses_unique" :: []))));
     p_status = (always Proved) }
 
+(** val p_inline_no_trace : property **)
+
+let p_inline_no_trace =
+  { p_id = "inline-no-trace"; p_group = precedence; p_statement =
+    "A `<`, `[`, `]` or `!` that is read as text gives the same reading when escaped: a link, image, span or autolink that does not form leaves nothing behind.";
+    p_implication =
+    "Text that only looks like the start of a link or an autolink does not change how the rest of the paragraph is read.";
+    p_theorems = ("escape_no_trace" :: []); p_status = (always Proved) }
+
 (** val all : property list **)
 
 let all =
-  p_block_no_backtracking :: (p_inline_no_backtracking :: (p_incremental_reparse :: (p_block_replace :: (p_positions :: (p_linear_time :: (p_quote_uniformity :: (p_list_uniformity :: (p_definition_list_uniformity :: (p_div_uniformity :: (p_footnote_uniformity :: (p_lazy_lines :: (p_list_tightness :: (p_indent_uniformity :: (p_reference_locality :: (p_reference_shape :: (p_hard_wrap_paragraph :: (p_hard_wrap_heading :: (p_block_structure_first :: (p_inline_precedence :: (p_inline_grammar :: []))))))))))))))))))))
+  p_block_no_backtracking :: (p_inline_no_backtracking :: (p_incremental_reparse :: (p_block_replace :: (p_positions :: (p_linear_time :: (p_quote_uniformity :: (p_list_uniformity :: (p_definition_list_uniformity :: (p_div_uniformity :: (p_footnote_uniformity :: (p_lazy_lines :: (p_list_tightness :: (p_indent_uniformity :: (p_reference_locality :: (p_reference_shape :: (p_hard_wrap_paragraph :: (p_hard_wrap_heading :: (p_block_structure_first :: (p_inline_precedence :: (p_inline_grammar :: (p_inline_no_trace :: [])))))))))))))))))))))
