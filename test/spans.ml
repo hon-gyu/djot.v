@@ -12,7 +12,8 @@
    *Bounds*: every span the tree carries resolves to a byte range inside
    the document, running forwards.  *Containment*: the tree nests, so a
    child's span lies inside its parent's, list items, table rows, cells
-   and captions included.
+   and captions included.  *Order*: inline siblings follow one another,
+   so no inline starts before the one before it ends.
 
    Syntax roles are bounds-checked and not contained, and that is by
    design rather than by omission: an `RAttrSpec` sits outside the node it
@@ -66,10 +67,17 @@ let located_failures src =
     own
   in
   let rec inlines parent ils =
+    let last = ref 0 in
     List.iter
       (fun n ->
          let own = prov "inline" n in
          inside "inline" own parent;
+         (match own with
+          | Some (a, b) ->
+            if a < !last then
+              note "overlapping" (Printf.sprintf "inline [%d,%d) before %d" a b !last);
+            last := max !last b
+          | None -> ());
          match n with
          | Djot.Ast.Node (_, _, contents) ->
            (match contents with
@@ -134,6 +142,11 @@ let located_failures src =
        Djot.Step.djot_bconfig src);
   List.rev !bad
 
+(* Inputs neither source has: an image's `!` before a footnote
+   reference or a span, which once gave the `!` and the construct
+   overlapping spans. *)
+let extra = [ "a![^a]b"; "a![b]{.c}d" ]
+
 let run depth files r verbose =
   (* Both inputs: the generator emits canonical source, so anything the
      renderer escapes is outside its image by construction, and the test
@@ -143,6 +156,7 @@ let run depth files r verbose =
       (Djot_fixtures.Generate.accepted depth)
     @ List.map (fun (c : Corpus.case) -> c.input)
         (List.concat_map Corpus.parse_file files)
+    @ extra
   in
   let total = ref 0 and bad = ref 0 in
   let seen = Hashtbl.create 16 in
@@ -164,7 +178,7 @@ let run depth files r verbose =
   Report.out r
     "\n== located bounds: %d documents (generated depth %d, plus the file corpus) ==\n"
     !total depth;
-  Report.out r "spans bounded and contained   ok %6d   bad %4d\n"
+  Report.out r "spans bounded, contained, ordered  ok %6d   bad %4d\n"
     (!total - !bad) !bad;
   Hashtbl.iter (fun k n -> Report.out r "  %-16s %4d\n" k n) seen;
   !bad = 0

@@ -1713,12 +1713,13 @@ Qed.
    same one `bclosed_lit` does, so the text it re-emits is one `Str` and
    the tip it lands on is not one. *)
 Local Lemma ospan_bang_ok :
-  forall image o,
-    oscope_ok o = true -> oscope_ok (ospan_bang image o) = true.
+  forall image open o,
+    oscope_ok o = true -> oscope_ok (ospan_bang image open o) = true.
 Proof.
-  intros image o Ho. unfold ospan_bang. destruct image; [|exact Ho].
+  intros image open o Ho. unfold ospan_bang. destruct image; [|exact Ho].
   destruct (opop_str_ok o Ho) as [H1 H2].
   destruct (opop_str o) as [pre o1]; cbn [snd] in H1, H2.
+  change (@flush_text_to_at semantic_pos semantic_inline_cursor ?st ?t ?o) with (flush_text t o).
   apply iscan_wf_flush; assumption.
 Qed.
 

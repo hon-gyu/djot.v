@@ -688,13 +688,13 @@ Local Lemma of_battr_lit : forall `{P : PosPolicy} `{C : InlineCursor} src txt o
      of_ostate (snd (@battr_lit _ _ P C src txt o))).
 Proof. intros P C src txt o. apply of_bsplit_nl. Qed.
 
-Local Lemma of_ospan_bang : forall `{P : PosPolicy} `{C : InlineCursor} image o,
-  of_ostate (@ospan_bang P C image o) =
-  @ospan_bang semantic_pos semantic_inline_cursor image (of_ostate o).
+Local Lemma of_ospan_bang : forall `{P : PosPolicy} `{C : InlineCursor} image open o,
+  of_ostate (@ospan_bang P C image open o) =
+  @ospan_bang semantic_pos semantic_inline_cursor image null_span (of_ostate o).
 Proof.
-  intros P C image o. unfold ospan_bang. destruct image; [|reflexivity].
+  intros P C image open o. unfold ospan_bang. destruct image; [|reflexivity].
   rewrite of_opop_str. destruct (opop_str o) as [pre o1]; cbn [fst snd].
-  apply of_flush_text_at.
+  apply of_flush_text_to_at.
 Qed.
 
 Local Lemma of_itable : forall `{P : PosPolicy} `{C : InlineCursor} c txt prev o,

@@ -436,11 +436,11 @@ Proof.
 Qed.
 
 Local Lemma ospan_bang_app :
-  forall image o base,
+  forall image open o base,
     base_ok base = true ->
-    ospan_bang image (oout_app base o) = oout_app base (ospan_bang image o).
+    ospan_bang image open (oout_app base o) = oout_app base (ospan_bang image open o).
 Proof.
-  intros image o base Hb. unfold ospan_bang. destruct image; [|reflexivity].
+  intros image open o base Hb. unfold ospan_bang. destruct image; [|reflexivity].
   rewrite (opop_str_app o base Hb).
   destruct (opop_str o) as [pre o1]; cbn [fst snd].
   apply flush_text_app.
@@ -2330,7 +2330,7 @@ Local Lemma iscan_note_label :
           (oemit (mk (FootnoteReference
             (normalize_label
               (acc ++ (if esc then one bslash else EmptyString) ++ label))))
-            (ospan_bang image o))).
+            (ospan_bang image open o))).
 Proof.
   induction label as [|c label IH]; intros tail esc image acc open sh o Hsafe.
   - cbn [note_label_safe_from] in Hsafe. destruct esc; [discriminate|].

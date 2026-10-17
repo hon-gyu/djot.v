@@ -535,6 +535,10 @@ Definition opush_at
 Definition previous_spot (p : spot) : spot :=
   Spot (spot_line p) (S (spot_rem p)).
 
+(* The byte after [p], on its line. *)
+Definition next_spot (p : spot) : spot :=
+  Spot (spot_line p) (pred (spot_rem p)).
+
 (* How much source a string covers, as (line breaks, bytes before the
    first of them, bytes in all). *)
 Local Fixpoint source_shape (s : string) : nat * nat * nat :=
@@ -1530,13 +1534,20 @@ Definition ibrace_step `{PosPolicy} `{InlineCursor}
    by a span.  The `!` was never flushed -- the bracket frame records it
    and `fr_src` puts it back on the literal path -- so the span path
    has to emit it here, and it merges with any `Str` already at the tip
-   the same way, since `flush_text` alone would leave two adjacent. *)
+   the same way, since `flush_text` alone would leave two adjacent.  The
+   text ends after the `!`, where the bracket opened with `open` begins
+   (`bracket_start`). *)
 Definition ospan_bang `{PosPolicy} `{InlineCursor}
-  (image : bool) (o : ostate) : ostate :=
+  (image : bool) (open : span) (o : ostate) : ostate :=
   if image
   then let '(pre, o1) := opop_str o in
-       flush_text_at (pre ++ one bang)%string o1
+       flush_text_to_at (next_spot (span_start open)) (pre ++ one bang)%string o1
   else o.
+
+(* Where a span or a footnote reference taken from a bracket begins: its
+   `[`, after the `!` of an image's bracket. *)
+Definition bracket_start (image : bool) (open : span) : spot :=
+  if image then next_spot (span_start open) else span_start open.
 
 (* One byte into an open span's spec.  `ADone` arrives on the `}`, so the
    node is built here with no byte left over.  `sh` has already consumed
@@ -1554,9 +1565,9 @@ Definition ispan_feed `{PosPolicy} `{InlineCursor}
        IText false tnil (Some rbrace)
          (oemit
            (add_inline_role RAttrSpec spec
-             (Node (mkpos (inline_prov (span_start open) spec_start))
+             (Node (mkpos (inline_prov (bracket_start image open) spec_start))
                (ap_attrs p') (Span EmptyString kids)))
-           (ospan_bang image o))
+           (ospan_bang image open o))
   else ISpan kids image open p' (tpush src (one c)) sh o.
 
 (* One byte of a footnote label.  The `]` is the only byte with a role,
@@ -1570,9 +1581,9 @@ Definition inote_step `{PosPolicy} `{InlineCursor}
   else if is_bslash c then INote true image label open sh' o
   else if Ascii.eqb c rbrack
   then IText false tnil (Some rbrack)
-         (oemit (imk (span_start open) cursor_stop
+         (oemit (imk (bracket_start image open) cursor_stop
                     (FootnoteReference (normalize_label (tval label))))
-            (ospan_bang image o))
+            (ospan_bang image open o))
   else INote false image (tpush label (one c)) open sh' o.
 
 (* One byte of an autolink candidate.  Three bytes end it: the `>` that

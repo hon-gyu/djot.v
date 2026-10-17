@@ -282,6 +282,11 @@ let opush_at k m cm open0 o =
 let previous_spot p =
   { spot_line = p.spot_line; spot_rem = (Stdlib.succ p.spot_rem) }
 
+(** val next_spot : spot -> spot **)
+
+let next_spot p =
+  { spot_line = p.spot_line; spot_rem = (pred p.spot_rem) }
+
 (** val source_shape : string -> (int * int) * int **)
 
 let rec source_shape = (fun s ->
@@ -892,13 +897,19 @@ let ibrace_step_at t x h h0 attrs_enabled c txt prev o =
          ilead t x h h0 c t0 (blit_prev (one lbrace)) o'
 
 (** val ospan_bang :
-    coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate **)
+    coq_PosPolicy -> coq_InlineCursor -> bool -> span -> ostate -> ostate **)
 
-let ospan_bang h h0 image o =
+let ospan_bang h h0 image open0 o =
   if image
   then let (pre, o1) = opop_str o in
-       flush_text_at h h0 ((^) pre (one bang)) o1
+       flush_text_to_at h h0 (next_spot open0.span_start) ((^) pre (one bang))
+         o1
   else o
+
+(** val bracket_start : bool -> span -> spot **)
+
+let bracket_start image open0 =
+  if image then next_spot open0.span_start else open0.span_start
 
 (** val ispan_feed :
     'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> inlines ->
@@ -921,9 +932,10 @@ let ispan_feed x h h0 c kids image open0 p src sh o =
             IText (false, x.tnil, (Some rbrace),
             (oemit
               (add_inline_role h RAttrSpec spec (Node
-                ((h.mkpos (inline_prov open0.span_start spec_start)),
+                ((h.mkpos
+                   (inline_prov (bracket_start image open0) spec_start)),
                 p'.ap_attrs, (Span ("", kids)))))
-              (ospan_bang h h0 image o)))
+              (ospan_bang h h0 image open0 o)))
        else ISpan (kids, image, open0, p', (x.tpush src (one c)), sh, o)
 
 (** val inote_step :
@@ -939,9 +951,9 @@ let inote_step x h h0 c esc image label open0 o sh' =
        else if (=) c rbrack
             then IText (false, x.tnil, (Some rbrack),
                    (oemit
-                     (imk h open0.span_start h0.cursor_stop (FootnoteReference
-                       (normalize_label (x.tval label))))
-                     (ospan_bang h h0 image o)))
+                     (imk h (bracket_start image open0) h0.cursor_stop
+                       (FootnoteReference (normalize_label (x.tval label))))
+                     (ospan_bang h h0 image open0 o)))
             else INote (false, image, (x.tpush label (one c)), open0, sh', o)
 
 (** val iauto_step :

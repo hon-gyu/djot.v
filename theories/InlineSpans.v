@@ -1099,12 +1099,12 @@ Proof.
   pose proof (opop_str_ok W o h Ho) as H1. destruct (opop_str o) as [pre o1]. exact H1.
 Qed.
 
-Lemma ospan_bang_ok : forall W (CU : InlineCursor) image o h,
-  oinv W o true h -> oinv W (ospan_bang image o) true h.
+Lemma ospan_bang_ok : forall W (CU : InlineCursor) image open o h,
+  oinv W o true h -> oinv W (ospan_bang image open o) true h.
 Proof.
-  intros W CU image o h Ho. unfold ospan_bang. destruct image; [|exact Ho].
+  intros W CU image open o h Ho. unfold ospan_bang. destruct image; [|exact Ho].
   pose proof (opop_str_ok W o h Ho) as H1. destruct (opop_str o) as [pre o1].
-  apply flush_text_at_touched, H1.
+  apply flush_text_to_at_touched, H1.
 Qed.
 
 Lemma iesc_hard_ok : forall W (CU : InlineCursor) ws txt o h,

@@ -3976,12 +3976,14 @@ Qed.
    text. *)
 Local Lemma ospan_bang_view : forall im v,
   normal (top_of v) -> clean (top_of v) ->
-  ospan_bang im (oview v) = oview (if im then pv_add (Str (one bang)) v else v).
+  ospan_bang im null_span (oview v) = oview (if im then pv_add (Str (one bang)) v else v).
 Proof.
   intros [|] v Hn Hc; [|reflexivity].
   destruct (opop_sim v Hn Hc) as (pre & o1 & Ep & S1).
   destruct (sim_text _ _ _ (one bang) S1 eq_refl) as (v0 & -> & Ht & Ev).
-  unfold ospan_bang. rewrite Ep, Ev. apply flush_view, Ht.
+  unfold ospan_bang. rewrite Ep.
+  change (@flush_text_to_at semantic_pos semantic_inline_cursor ?st ?t ?o) with (flush_text t o).
+  rewrite Ev. apply flush_view, Ht.
 Qed.
 
 Local Lemma sim_finish : forall v txt prev o,
@@ -5325,7 +5327,7 @@ Definition with_esc (e : bool) (s : string) : string :=
 Definition note_in (ps : string) (n : nat) (v : pview) (x : vitem) (e : nat) (core : iscan)
   : Prop :=
   exists esc im lab sh o r,
-    core = INote esc im lab null_span sh o /\ ospan_bang im o = oview v
+    core = INote esc im lab null_span sh o /\ ospan_bang im null_span o = oview v
     /\ note_go esc (sdrop n ps) = Some r /\ e = n + String.length r
     /\ x = FootnoteReference (normalize_label (lab ++ with_esc esc r)).
 
@@ -6131,7 +6133,7 @@ Proof.
     destruct (oemit_vof node vb eq_refl ltac:(intros q s0 E; discriminate E)) as [Eo Et].
     assert (Pb : pbyte n rbrace v = pv_add (vof node) vb)
       by (unfold pbyte; rewrite Em, Nat.eqb_refl; reflexivity).
-    apply (A (IText false "" (Some rbrace) (oemit node (ospan_bang im (oview v)))));
+    apply (A (IText false "" (Some rbrace) (oemit node (ospan_bang im null_span (oview v)))));
       rewrite ?Pb.
     + unfold alpha_ok. rewrite (proj2 (pv_add_live _ _)), EmB. exact Ha'.
     + left. exact Hp'.
@@ -7317,7 +7319,7 @@ Qed.
 
 (* The `!` an image's bracket put back, against the `!` read as text. *)
 Local Lemma bang_flush : forall v txt o, sim v txt o -> tidy v ->
-  ospan_bang true (flush_text txt o) = flush_text (txt ++ one bang) o.
+  ospan_bang true null_span (flush_text txt o) = flush_text (txt ++ one bang) o.
 Proof.
   intros v txt o Hsim Ti. destruct (tidy_top v Ti) as [Hn Hc].
   pose proof Hsim as (v0 & Eo & Ht0 & Ev).
@@ -7339,7 +7341,7 @@ Local Lemma scan_note : forall ps after len, scan_ih ps after len ->
     pruns ps n false v (n + String.length pre) false w ->
     vinv ps (n + String.length pre) false w -> pv_mode w = PMNormal ->
     tok_at ps (n + String.length pre) = Some (TNote lab, S (S (S (String.length lab)))) ->
-    ospan_bang im o = oview w ->
+    ospan_bang im null_span o = oview w ->
     iscan_str (pre ++ String lbrack (one hat)) core = INote false im "" null_span sh o ->
     scanned ps n false v ws core (pre ++ String lbrack (String hat s'')).
 Proof.
