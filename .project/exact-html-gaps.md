@@ -246,11 +246,11 @@ single quote upstream: djot.js drops the attributes. Eight documents in
 the sweep above -- both quotes, and `#id` as well as `.class` -- which is
 all of its residue but one.
 
-Not diagnosed. `oattach` takes the run below the spec, and upstream
-attaches to the preceding *match*, where an unmatched quote's default
-match is apparently not a thing attributes may land on. Found
-2026-09-09; the mechanism has not been pinned against `inline.ts`, so it
-is listed here as an open question rather than a boundary.
+Diagnosed 2026-10-17: djot.js attaches the spec to the quote's
+`smart_punctuation` node alone, and its HTML renderer writes that node
+without attributes; ours attaches it to the last word of the `Str`, quote
+included.  The divergences log has the entry, *2026-10-17 -- open: a spec
+after smart punctuation*.
 
 ## Diagnosis is not closure
 

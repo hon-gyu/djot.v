@@ -2855,3 +2855,42 @@ The 2026-10-03 entry, done.
 pending words now go before the block's own.  The order of the keys is
 unchanged: with `{#i .a}` djot.js writes `id` first and ours `class`.
 Pinned by `parse_attr_div_class_word` in `dev/ParserExamples.v`.
+
+## 2026-10-17 -- djotjs-bug: a failed attribute spec lets a bare `=` open a highlight
+
+| Input | djot.js (`3b3a9f5`) | Ours |
+| --- | --- | --- |
+| `{a=}=` | `{a<mark>}</mark>` | `{a=}=` |
+| `a=}=` | `a=}=` | the same |
+| `{a b=}=` | `{a b=}=` | the same |
+
+Highlight is written only with braces.  The spec `{a=}` fails on its
+empty value, and `reparseAttributes` (`inline.ts:691`) re-reads the
+bytes before the `}` as the slice the attribute parser was fed, which
+ends at the `=`.  The `=` matcher's open test, `hasBrace`
+(`inline.ts:141`), passes when the next byte is `}`; the check that
+makes such an `=` a closer instead (`has_close_marker`, `inline.ts:162`)
+needs the `}` inside the slice, so the `=` opens and the bare `=` after
+the `}` closes it.  Ours reads all three rows as text, as the reference's
+braced highlight says.
+
+## 2026-10-17 -- open: a spec after smart punctuation
+
+| Input | djot.js (`3b3a9f5`) | Ours |
+| --- | --- | --- |
+| `'{.a}` | `’` | `<span class="a">’</span>` |
+| `a'{.a}` | `a’` | `<span class="a">a’</span>` |
+| `a...{.a}` | `a…` | `<span class="a">a…</span>` |
+| `a--{.a}` | `a–` | `<span class="a">a–</span>` |
+
+Diagnoses the gap left open in `exact-html-gaps.md` (*A spec that
+attaches to a decayed quote*).  djot.js has a `smart_punctuation` node
+for a quote that matched nothing, an ellipsis and a dash; the spec
+attaches to that node alone (`"attributes": {"class": "a"}` on it in the
+AST), and the HTML renderer writes a `smart_punctuation` node without its
+attributes.  Ours writes the punctuation into the `Str` around it, so
+the spec attaches to the last word, punctuation included.  The
+reference attaches a spec after text to its last word and does not say
+whether smart punctuation is a word of its own.  Waits on a
+smart-punctuation node in our AST, which the alt-text and identifier
+work also needs.
