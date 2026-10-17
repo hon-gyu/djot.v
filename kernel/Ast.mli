@@ -26,6 +26,8 @@ module Attr :
 
   val merge : attr -> attr -> attr
 
+  val prepend_class : string -> attr -> attr
+
   val apply_pending : attr -> attr -> attr
  end
 
