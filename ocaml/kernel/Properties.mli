@@ -77,4 +77,6 @@ val p_inline_precedence : property
 
 val p_inline_grammar : property
 
+val p_inline_no_trace : property
+
 val all : property list

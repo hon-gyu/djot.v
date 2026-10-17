@@ -22,7 +22,7 @@ From Stdlib Require Import String List Ascii Bool.
 From DjotV Require Import Ast Strings Line InlineTable Inline InlineScan Step
   Uniformity ListUniformity OrderedList Tightness Render Roundtrip Reparse
   Document Html Invariants BlockShape InlinePrecedence Precedence
-  PrecedenceGrammar PrecedenceGrammarFacts Profile ProfileChecks.
+  PrecedenceGrammar PrecedenceGrammarFacts PrecedenceNoTrace Profile ProfileChecks.
 Import ListNotations.
 Local Open Scope string_scope.
 
@@ -264,6 +264,14 @@ Definition inline_precedence_lines : Prop :=
 
 Definition inline_grammar : Prop :=
   forall s r, parses s r <-> r = ref_read s.
+
+Definition inline_no_trace : Prop :=
+  forall pre c post, text_byte c = true ->
+    read_as_text (pre ++ String c post) (fst (ref_read (pre ++ String c post)))
+      (String.length pre) ->
+    tree_of (pre ++ String Attributes.bslash (String c post))
+      (fst (ref_read (pre ++ String Attributes.bslash (String c post))))
+    = tree_of (pre ++ String c post) (fst (ref_read (pre ++ String c post))).
 
 End Statements.
 
@@ -704,6 +712,17 @@ Program Definition p_inline_grammar : property := {|
 |}.
 Next Obligation. exact (@parses_ref_read _). Qed.
 
+Program Definition p_inline_no_trace : property := {|
+  p_id := "inline-no-trace";
+  p_group := precedence;
+  p_statement := "A `<`, `[`, `]` or `!` that is read as text gives the same reading when escaped: a link, image, span or autolink that does not form leaves nothing behind.";
+  p_implication := "Text that only looks like the start of a link or an autolink does not change how the rest of the paragraph is read.";
+  p_theorems := ["escape_no_trace"];
+  p_status := always Proved;
+  p_holds := fun o => inline_no_trace (o_inline o)
+|}.
+Next Obligation. exact (@escape_no_trace _). Qed.
+
 Definition all : list property :=
   [ p_block_no_backtracking; p_inline_no_backtracking; p_incremental_reparse;
     p_block_replace; p_positions; p_linear_time;
@@ -713,4 +732,4 @@ Definition all : list property :=
     p_reference_locality; p_reference_shape;
     p_hard_wrap_paragraph; p_hard_wrap_heading;
     p_block_structure_first;
-    p_inline_precedence; p_inline_grammar ].
+    p_inline_precedence; p_inline_grammar; p_inline_no_trace ].

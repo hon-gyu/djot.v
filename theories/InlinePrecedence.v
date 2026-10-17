@@ -4758,39 +4758,8 @@ Proof.
   apply Ascii.eqb_eq in Ec. subst c. cbn [chars append sdrop]. f_equal. exact IH.
 Qed.
 
-(* The bytes a raw spec's format may hold. *)
-Fixpoint fmt_ok (f : string) : bool :=
-  match f with
-  | EmptyString => true
-  | String c r =>
-      (negb (Ascii.eqb c rbrace) && negb (raw_stop c || Ascii.eqb c nl_char) && fmt_ok r)%bool
-  end.
 
-Local Lemma fmt_go_split : forall x f, fmt_go x = Some f ->
-  fmt_ok f = true /\ exists rest, x = (f ++ String rbrace rest)%string.
-Proof.
-  induction x as [|c x IH]; intros f H; [discriminate|]. cbn [fmt_go] in H.
-  destruct (Ascii.eqb c rbrace) eqn:Eb.
-  { injection H as <-. apply Ascii.eqb_eq in Eb. subst c. split; [reflexivity|]. exists x.
-    reflexivity. }
-  destruct (raw_stop c || Ascii.eqb c nl_char)%bool eqn:Es; [discriminate|].
-  destruct (fmt_go x) as [f'|] eqn:E; [|discriminate]. injection H as <-.
-  destruct (IH f' eq_refl) as [Ok [rest ->]]. split.
-  - cbn [fmt_ok]. rewrite Eb, Es, Ok. reflexivity.
-  - exists rest. reflexivity.
-Qed.
 
-Local Lemma raw_spec_split : forall x f, raw_spec x = Some f ->
-  f <> EmptyString /\ fmt_ok f = true
-  /\ exists rest, x = String lbrace (String eqchar (f ++ String rbrace rest)).
-Proof.
-  intros [|b [|e r]] f H; try discriminate. cbn [raw_spec] in H.
-  destruct (Ascii.eqb b lbrace && Ascii.eqb e eqchar)%bool eqn:Ebe; [|discriminate].
-  apply andb_true_iff in Ebe as [Eb Ee]. apply Ascii.eqb_eq in Eb, Ee. subst b e.
-  destruct (fmt_go r) as [[|c f']|] eqn:E; try discriminate. injection H as <-.
-  destruct (fmt_go_split r _ E) as [Ok [rest ->]].
-  split; [discriminate|]. split; [exact Ok|]. exists rest. reflexivity.
-Qed.
 
 Local Lemma iscan_raw_fmt : forall f spec t o, fmt_ok f = true -> spec <> EmptyString ->
   forall j sh, iscan_str (substring 0 j f) (IRaw spec t sh o)
@@ -5723,25 +5692,6 @@ Qed.
 
 (* Where a region closes does not depend on where its bytes are counted
    from. *)
-Local Lemma dest_close_shift : forall s esc d i k,
-  dest_close esc d (i + k) s = option_map (fun e => e + k) (dest_close esc d i s).
-Proof.
-  induction s as [|c s IH]; intros esc d i k; [reflexivity|]. cbn [dest_close].
-  replace (S (i + k)) with (S i + k) by lia.
-  destruct esc; [apply IH|]. destruct (is_bslash c); [apply IH|].
-  destruct (Ascii.eqb c lparen); [apply IH|]. destruct (Ascii.eqb c rparen); [|apply IH].
-  destruct d; [reflexivity|apply IH].
-Qed.
-
-Local Lemma label_close_shift : forall s esc i k,
-  label_close esc (i + k) s = option_map (fun e => e + k) (label_close esc i s).
-Proof.
-  induction s as [|c s IH]; intros esc i k; [reflexivity|]. cbn [label_close].
-  replace (S (i + k)) with (S i + k) by lia.
-  destruct esc; [apply IH|]. destruct (is_bslash c); [apply IH|].
-  destruct (Ascii.eqb c rbrack); [reflexivity|apply IH].
-Qed.
-
 (* A reference label that never closes is read as a footnote label is. *)
 Local Lemma label_close_note_go : forall s esc i,
   label_close esc i s = None -> note_go esc s = None.
@@ -6814,24 +6764,7 @@ Autolinks
 ---------
 *)
 
-(* Whether a candidate's region so far has no byte that ends it. *)
-Fixpoint auto_free (s : string) : bool :=
-  match s with EmptyString => true | String c r => (negb (auto_stop c) && auto_free r)%bool end.
 
-Local Lemma auto_go_split : forall s src stop, auto_go s = (src, stop) ->
-  auto_free src = true /\ exists rest, s = (src ++ rest)%string
-    /\ ((stop = None /\ rest = EmptyString)
-        \/ exists c r, stop = Some c /\ rest = String c r /\ auto_stop c = true).
-Proof.
-  induction s as [|c s IH]; intros src stop H; cbn [auto_go] in H.
-  - injection H as <- <-. split; [reflexivity|]. exists "". split; [reflexivity|]. left. auto.
-  - destruct (auto_stop c) eqn:Ec.
-    + injection H as <- <-. split; [reflexivity|]. exists (String c s). split; [reflexivity|].
-      right. exists c, s. auto.
-    + destruct (auto_go s) as [src' stop'] eqn:E. injection H as <- <-.
-      destruct (IH _ _ eq_refl) as [Fr (rest & -> & Hr)].
-      split; [cbn; rewrite Ec, Fr; reflexivity|]. exists rest. split; [reflexivity|exact Hr].
-Qed.
 
 (* The byte that ends a candidate's region is drawn on the alphabet
    whether or not a backslash at the region's end escapes it, so the
