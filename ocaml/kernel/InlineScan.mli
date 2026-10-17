@@ -29,15 +29,12 @@ type oitems = oitem list
 type frame_kind =
 | FKDelim of dstyle * bool
 | FKBracket of bool
-| FKDest of bool
 | FKTag of string
 
 type frame = { fr_kind : frame_kind; fr_marked : bool; fr_open : span;
                fr_out : oitems }
 
 val fr_src : dtable -> frame -> string
-
-val fr_barrier : frame -> bool
 
 type ostate = { os_out : oitems; os_stk : frame list;
                 os_word_start : spot option }
@@ -111,8 +108,6 @@ val opush :
 
 val bpush : coq_PosPolicy -> coq_InlineCursor -> bool -> ostate -> ostate
 
-val dpush : bool -> span -> ostate -> ostate
-
 val tag_push :
   coq_PosPolicy -> coq_InlineCursor -> string -> spot -> ostate -> ostate
 
@@ -128,10 +123,6 @@ val oresolve : coq_PosPolicy -> oitems -> inlines
 val oclose_go :
   dtable -> coq_PosPolicy -> dstyle -> bool -> oitems -> frame list ->
   ((oitems * span) * frame list) option
-
-val oclose_barred_go : dstyle -> bool -> bool -> frame list -> bool
-
-val oclose_barred : dstyle -> bool -> ostate -> bool
 
 val oclose :
   dtable -> coq_PosPolicy -> dstyle -> bool -> spot -> ostate -> ostate option
@@ -158,16 +149,8 @@ val bunpush : ostate -> ((bool * span) * ostate) option
 
 val opop_str : ostate -> string * ostate
 
-val bflat :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> 'a1 ->
-  ostate -> 'a1 * ostate
-
 val bsplit_nl :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> string -> 'a1 ->
-  ostate -> 'a1 * ostate
-
-val bclosed_lit :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
   ostate -> 'a1 * ostate
 
 val battr_lit :
@@ -175,10 +158,6 @@ val battr_lit :
   ostate -> 'a1 * ostate
 
 val blit_prev : string -> char option
-
-val bref_lit :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
-  string -> ostate -> 'a1 * ostate
 
 val drop_nl : string -> string
 
@@ -218,11 +197,11 @@ type 'buf iscan_g =
 | IClosed of 'buf * ostate
 | ISpan of inlines * bool * span * aparser * 'buf * 'buf iscan_g * ostate
 | IAttr of aparser * 'buf * 'buf * char option * 'buf iscan_g * ostate
-| IReference of inlines * bool * span * bool * 'buf * ostate
+| IReference of inlines * bool * span * bool * 'buf * 'buf iscan_g * ostate
 | INote of bool * bool * 'buf * span * 'buf iscan_g * ostate
 | IWiki of bool * bool * bool * 'buf * span * ostate
 | IDest of inlines * bool * span * bool * int * 'buf * 'buf iscan_g * ostate
-| IAuto of 'buf * 'buf * ostate
+| IAuto of 'buf * 'buf * 'buf iscan_g * ostate
 | ISymbol of 'buf * 'buf * 'buf iscan_g * ostate
 | IRaw of 'buf * string * 'buf iscan_g * ostate
 | IPercent of 'buf * char option * ostate
@@ -237,15 +216,9 @@ val ilead :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   'a1 -> char option -> ostate -> 'a1 iscan_g
 
-val idest_open :
-  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> inlines -> bool ->
-  span -> ostate -> 'a1 iscan_g
-
 val null : 'a1 list -> bool
 
 val dollars : bool -> string
-
-val auto_lit : 'a1 coq_TextOps -> string -> 'a1 -> 'a1
 
 val iattr_mark :
   'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> 'a1 -> attr -> 'a1
@@ -282,8 +255,12 @@ val inote_step :
   -> 'a1 -> span -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
 val iauto_step :
-  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
-  'a1 -> 'a1 -> ostate -> 'a1 iscan_g
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> 'a1 -> 'a1
+  -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
+
+val iref_step :
+  'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char -> inlines ->
+  bool -> span -> bool -> 'a1 -> ostate -> 'a1 iscan_g -> 'a1 iscan_g
 
 val isymbol_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->

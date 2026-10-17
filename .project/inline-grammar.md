@@ -44,9 +44,10 @@ lexer has already settled what each token *may* do:
   and its kind is its style and whether it is braced (P4), so `{_` and
   `_` never pair;
 - `[` may open, and so may `![`, an image's bracket of the same kind;
-  `]` may close when `(` or `[` follows it, or a `{` and an attribute
-  spec that closes (a span, whose region is the spec); any other `]` is
-  text, and so is any other `!`;
+  `]` may close when a region follows it that closes: `(` and a
+  destination to its first `)` that closes no `(` inside it, `[` and a
+  label to the next `]` not escaped, or `{` and an attribute spec (a
+  span).  Any other `]` is text, and so is any other `!`;
 - a verbatim, a backtick run and the bytes to the next run of its
   length or to the paragraph's end, is one token, with any dollars
   before it (math) and a raw spec after it; so is an autolink candidate,
@@ -59,47 +60,46 @@ The grammar decides what each token does.
 
 ## The rules
 
-A level of the paragraph is `Seq(S, F, p, B)`:
+A level of the paragraph is `Seq(S, F, p)`:
 
 | | Meaning |
 | --- | --- |
 | `S` | kinds with a live opener; a closer of one must close |
 | `F` | the kind of the pair this is the content of; empty at the top |
 | `p` | the kind of a live opener right before, if any |
-| `B` | kinds barred by a destination that does not close |
 
 ```
-paragraph ::= Seq(∅, ∅, -, ∅)
+paragraph ::= Seq(∅, ∅, -)
 
-Seq(S, F, p, B) ::=
-  R0  ε                                           at the paragraph's end, or at a closer of F
-  R1  text                                        Seq(S, F, -, B)
-  R2  close_k                                     Seq(S, F, -, B)      k ∉ S, or p = k for a delimiter
-  R2' close_k                                     Seq(S, F, -, B)      k ∉ S, k ∈ B: text, does not open
-  R3  open_k                                      Seq(S+k, F, k, B)    k ≠ F
-  R4  open_k  Seq(S+k, k, k, B)  close_k          Seq(S, F, -, B)      a delimiter: content non-empty
-  R5  [  Seq(S+[, [, [, B)  ]  region             Seq(S, F, -, B)      region: ( ... the balancing ), or [ ... the next ]
-  R6  [  Seq(S+[, [, [, B)  ](  Seq(∅, F, -, B∪S)                      no balancing ) ahead; to the paragraph's end
-  R7  [  Seq(S+[, [, [, B)  ][  source                                 no ] ahead; the rest is the label
+Seq(S, F, p) ::=
+  R0  ε                                     at the paragraph's end, or at a closer of F
+  R1  text                                  Seq(S, F, -)
+  R2  close_k                               Seq(S, F, -)    k ∉ S, or p = k for a delimiter
+  R3  open_k                                Seq(S+k, F, k)  k ≠ F
+  R4  open_k  Seq(S+k, k, k)  close_k       Seq(S, F, -)    a delimiter: content non-empty
+  R5  [  Seq(S+[, [, [)  ]  region          Seq(S, F, -)    the region the `]` was lexed with
 ```
 
-A token that may both open and close is a closer first: in R2 or R2' it
-closes nothing and is then read as an opener (R3 to R7), except that a
-barred one is text.  A closer of a kind in `S` that is not right after
-its opener fits no rule at its level: only R4 to R7 consume it, as the
-end of a pair's content.  A region is source: nothing in it opens or
-closes, and it ends where `region_end` says.
+A token that may both open and close is a closer first: in R2 it closes
+nothing and is then read as an opener (R3 to R5).  A closer of a kind in
+`S` that is not right after its opener fits no rule at its level: only
+R4 and R5 consume it, as the end of a pair's content.  A region is
+source: nothing in it opens or closes.
+
+A `](`, `][` or `]{` whose region never closes is text (R1), so a
+delimiter after it may close one opened before the `[`, and a later `]`
+may close the `[`.  This is the reference's precedence rule applied to
+the `(` or `[` as an opener that is never closed, not a rule of its
+own.
 
 ## As stated in Rocq
 
 | Rule | Constructor of `seq` |
 | --- | --- |
 | R0 | `seq_end` at the paragraph's end, `seq_stop` at a closer of `F` |
-| R1, R2, R2' | `seq_text` |
+| R1, R2 | `seq_text` |
 | R3 | `seq_open` |
 | R4, R5 | `seq_pair`; `past` says where the level goes on |
-| R6 | `seq_dest` |
-| R7 | `seq_label` |
 
 `free` is R2's condition: the token closes nothing, so it is read as an
 opener if it may open and as text if not.  A parse lists its pairs and
@@ -109,7 +109,7 @@ lists.
 Both directions of the proof go through `ref_read`.  A derivation is a
 run: the machine follows each rule (`seq_run`).  A run is a derivation:
 each opener on the stack heads a level whose tokens so far are settled,
-and whether it is R3 or R4 to R7 is decided when a closer takes it or
+and whether it is R3, R4 or R5 is decided when a closer takes it or
 the paragraph ends (`base`, `ginv_step`).  What makes the second
 direction work is that a level's tokens between two unmatched openers
 are text or whole pairs, and their rules do not mention `F`
@@ -119,29 +119,25 @@ are text or whole pairs, and their rules do not mention `F`
 
 | Reference (syntax.md, "Precedence") | Grammar |
 | --- | --- |
-| "the first opener that gets closed takes precedence ... openers between the opener and the closer get marked as regular text" | R4 to R7 continue with the `S` from before the pair: an opener left unmatched inside it is no longer live |
+| "the first opener that gets closed takes precedence ... openers between the opener and the closer get marked as regular text" | R4 and R5 continue with the `S` from before the pair: an opener left unmatched inside it is no longer live |
 | "Containers can't overlap" | `S` passes into content, so a closer inside cannot be left over while an opener outside is live, and one of the two readings fails |
 | "the closest one is used" | `F` in content: no opener of the pair's kind is left unmatched between its ends |
 | "some characters besides the delimiter character between the opener and the closer" (M3) | R4's non-empty content, and `p` in R2 |
 | `{_` and `_}` (P3), marked with marked (P4) | in the lexer: the token's capabilities and its kind |
 | a destination or label after `](`, `][` is part of the link | R5's region |
-| a destination with no `)` (djot.js, `inline.ts:150-158`) | R6: the rest of the paragraph, where a closer of a kind live before it is text |
+| a destination or label that never closes | in the lexer: its `]` is text |
 
 `S` passes down and `F` does not: an opener left unmatched outside is
 still live inside, but one left unmatched in deeper content dies when
 that content's pair closes, before this level's closer.
-
-After R6 no enclosing pair can close, since its closer would be barred;
-in the grammar, R6 runs to the paragraph's end, so an enclosing R4
-finds no closer.
 
 ## Worked examples
 
 `_This is *regular_ not strong* emphasis`, with tokens `_₁ *₂ _₃ *₄`:
 
 ```
-Seq(∅,∅,-,∅)
-├─ R4  _₁ ... _₃             content Seq({_},{_},_,∅): "This is ", R3 *₂, "regular"
+Seq(∅,∅,-)
+├─ R4  _₁ ... _₃             content Seq({_},{_},_): "This is ", R3 *₂, "regular"
 ├─ R1  " not strong"
 └─ R2  *₄                    S is ∅ again: it closes nothing
 ```
@@ -158,17 +154,15 @@ unmatched, and pairing it leaves `*₀` no closer.
 only live opener is right before it (`p`), so it closes nothing and
 opens: by R4, since `F` forbids R3.
 
-`*a [b](c *d*`: `*₀` by R3; `[b](` by R6, the destination never closing;
-after it `B` is `{*}` and `S` is empty, so `*d*` pairs within itself and
-`*₀` stays text.
+`*x [u](a* b`: the destination never closes, so the `]` is text.  `*₀`
+by R4 with `*₁`, and the content is `x `, `[` by R3, then text.
 
 ## Is it a context-free grammar
 
-R0 to R5 and R7, yes: `F`, `p` and `B` range over finitely many values
-and `S` over the subsets of finitely many kinds, so `Seq(S, F, p, B)` is
-finitely many nonterminals with ordinary productions.  R6's condition,
-no balancing `)` ahead, is a lookahead the productions do not express;
-it is the one side condition.  Neither matters for its use here.
+Over the tokens, yes: `F` and `p` range over finitely many values and
+`S` over the subsets of finitely many kinds, so `Seq(S, F, p)` is
+finitely many nonterminals with ordinary productions.  Whether a region
+closes is decided in the lexer, by a lookahead over bytes.
 
 ## How it relates to the other two
 
@@ -177,6 +171,5 @@ it is the one side condition.  Neither matters for its use here.
 | the kinds on the stack | `live`, `closest_live` | `S` |
 | an opener above another of its kind | `closest_live` | `F` |
 | the check `tok_end s p < i` | `needs_content`, clause 2 | `p` |
-| cutting the stack to `below` on a pair | `dead` | R4 to R7 restoring `S` |
-| `LBar`, `PBarred` | `behind`, `barred` | R6, `B` |
-| `rgo` stepping by `chain_next` | `chain` | R5's region, R7 |
+| cutting the stack to `below` on a pair | `dead` | R4 and R5 restoring `S` |
+| `rgo` stepping by `chain_next` | `chain` | R5's region |

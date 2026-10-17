@@ -123,14 +123,6 @@ Proof.
   rewrite <- tval_push. apply bsplit_nl_map.
 Qed.
 
-Lemma bref_lit_map : forall kids image label o,
-  map_fst (bref_lit kids image label o) = bref_lit kids image label o.
-Proof.
-  intros kids image label o. unfold bref_lit. tred.
-  rewrite <- bclosed_lit_map. destruct (bclosed_lit kids image o) as [t o'].
-  unfold map_fst; cbn [fst snd]. laws. reflexivity.
-Qed.
-
 Lemma note_pos_map : forall t prev, note_pos t prev = note_pos (tval t) prev.
 Proof. intros t prev. unfold note_pos. tred. laws. reflexivity. Qed.
 
@@ -146,16 +138,7 @@ Proof.
   end; cbn [map_text]; laws; reflexivity.
 Qed.
 
-Lemma idest_open_map : forall kids image open o,
-  map_text (idest_open kids image open o) = idest_open kids image open o.
-Proof.
-  intros kids image open o. unfold idest_open. tred.
-  rewrite <- tval_nil at 2. rewrite <- bflat_map.
-  destruct (bflat kids tnil _) as [t o']. unfold map_fst; cbn [fst snd map_text].
-  laws. reflexivity.
-Qed.
-
-Hint Rewrite ilead_map idest_open_map : map_text.
+Hint Rewrite ilead_map : map_text.
 
 (* Split both sides on the conditions they share, then read the text
    fields through the laws and the lemmas proved so far. *)
@@ -168,10 +151,6 @@ Ltac crush :=
           | |- context [match ?n with O => _ | S _ => _ end] => destruct n
           end; tred; laws; autorewrite with map_text);
   cbn [map_text]; laws; autorewrite with map_text; try reflexivity.
-
-Lemma auto_lit_map : forall src t,
-  tval (InlineScan.auto_lit src t) = InlineScan.auto_lit src (tval t).
-Proof. intros src t. unfold InlineScan.auto_lit. tred. laws. reflexivity. Qed.
 
 Lemma iattr_mark_map : forall src a t o,
   map_text (iattr_mark src a t o) = iattr_mark (tval src) a (tval t) o.
@@ -213,9 +192,14 @@ Lemma inote_step_map : forall c esc image label open o sh,
   = inote_step c esc image (tval label) open o (map_text sh).
 Proof. intros. unfold inote_step. crush. Qed.
 
-Lemma iauto_step_map : forall c src t o,
-  map_text (iauto_step c src t o) = iauto_step c (tval src) (tval t) o.
-Proof. intros. unfold iauto_step. crush; rewrite ?auto_lit_map; crush. Qed.
+Lemma iauto_step_map : forall c src t o sh,
+  map_text (iauto_step c src t o sh) = iauto_step c (tval src) (tval t) o (map_text sh).
+Proof. intros. unfold iauto_step. crush. Qed.
+
+Lemma iref_step_map : forall c kids image open esc label o sh,
+  map_text (iref_step c kids image open esc label o sh)
+  = iref_step c kids image open esc (tval label) o (map_text sh).
+Proof. intros. unfold iref_step. crush. Qed.
 
 Lemma isymbol_step_map : forall c alias t o sh,
   map_text (isymbol_step c alias t o sh) = isymbol_step c (tval alias) (tval t) o (map_text sh).
@@ -288,7 +272,7 @@ Lemma ipercent_step_map : forall c t prev o,
   map_text (ipercent_step c t prev o) = ipercent_step c (tval t) prev o.
 Proof. intros. unfold ipercent_step. crush; laws; reflexivity. Qed.
 
-Hint Rewrite ispan_feed_map inote_step_map iauto_step_map isymbol_step_map
+Hint Rewrite ispan_feed_map inote_step_map iauto_step_map iref_step_map isymbol_step_map
   iraw_step_map iraw_open_map iwiki_step_map ibang_step_map idollar_step_map
   iperiod_step_map idash_step_map ipercent_step_map : map_text.
 
@@ -319,14 +303,14 @@ Proof.
   - crush.
   - crush.
   - crush.
-  - crush.
+  - (* IClosed *) crush; laws; reflexivity.
   - (* ISpan *) rewrite <- !IHst. crush.
   - (* IAttr *) rewrite <- !IHst. crush.
-  - crush.
+  - (* IReference *) rewrite <- IHst. crush.
   - (* INote *) rewrite <- IHst. crush.
   - crush.
   - (* IDest *) destruct esc; rewrite <- ?IHst; crush.
-  - crush.
+  - (* IAuto *) rewrite <- IHst. crush.
   - (* ISymbol *) rewrite <- IHst. crush.
   - (* IRaw *) rewrite <- IHst. crush.
   - (* IPercent *) crush.
@@ -345,8 +329,8 @@ Lemma ifinish_ostate_flat_map : forall st,
 Proof.
   intros []; cbn [ifinish_ostate_flat map_text]; tred; try destruct esc;
     try rewrite iesc_hard_map; try rewrite tval_nil;
-    try solve [crush; rewrite ?auto_lit_map; reflexivity];
-    try first [through bref_lit_map | through battr_lit_map];
+    try solve [crush];
+    try through battr_lit_map;
     crush.
 Qed.
 
@@ -368,7 +352,7 @@ Lemma ibreak_flat_map : forall st,
 Proof.
   induction st; cbn [ibreak_flat map_text]; tred; try destruct esc;
     try rewrite iesc_hard_map; try rewrite tval_nil;
-    try solve [crush; rewrite ?auto_lit_map; reflexivity];
+    try solve [crush];
     try assumption;
     try first [ apply ispan_feed_map | apply iattr_feed_map
           | destruct (bwiki_lit _ _ _ _ _); crush ]; crush.
@@ -399,8 +383,10 @@ Proof.
       |apply IHst].
   - rewrite ispan_feed_map, IHst. reflexivity.
   - rewrite iattr_feed_map, IHst. reflexivity.
-  - rewrite IHst. crush.
-  - rewrite IHst. crush.
+  - (* IReference *) rewrite IHst. crush.
+  - (* INote *) rewrite IHst. crush.
+  - (* IDest *) rewrite IHst. crush.
+  - (* IAuto *) apply IHst.
   - apply IHst.
   - apply IHst.
 Qed.

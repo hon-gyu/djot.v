@@ -533,25 +533,33 @@ Example bracket_literal_keeps_children :
   = [mk (Str "["); mk (Emph [mk (Str "a")]); mk (Str "]x")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* An unterminated destination is not literal source: the region turns
-   literal only at the balanced `)`, so a region that never gets one
-   keeps what the ordinary scan made of it.  The `[` and the `](` come
-   back out of the `FKDest` scope the state opened. *)
+(* A destination that never closes leaves no trace: its `](` is text, so
+   the bytes after it are read as usual and the `[` stays open. *)
 Example dest_unterminated_is_scanned :
   para_inlines ["[unclosed](hello *a"; "b*"]
   = [mk (Str "[unclosed](hello ");
      mk (Strong [mk (Str "a"); mk SoftBreak; mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The scope is a barrier as well as a container: a closer inside a
-   destination may not reach an opener from before the `[`
-   (`fr_barrier`). *)
-Example dest_bars_an_outer_opener :
-  parse_inline_line "*x [u](a* b" = [mk (Str "*x [u](a* b")].
+(* So a closer after it reaches an opener before the `[`... *)
+Example dest_unterminated_is_no_barrier :
+  parse_inline_line "*x [u](a* b"
+  = [mk (Strong [mk (Str "x [u](a")]); mk (Str " b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* ...and only that: a delimiter opened *inside* the region closes there,
-   around a link that closed inside it. *)
+(* ...and a later `](` closes the `[`. *)
+Example dest_unterminated_reopens_bracket :
+  parse_inline_line "[u](a ](b) c"
+  = [mk (Link [mk (Str "u](a ")] (Direct "b")); mk (Str " c")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A destination that closes is literal, a `](` inside it included. *)
+Example dest_bracket_inside_is_literal :
+  parse_inline_line "[u](a ](b))" = [mk (Link [mk (Str "u")] (Direct "a ](b)"))].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A delimiter opened inside the region closes there, around a link that
+   closed inside it. *)
 Example dest_inner_matching_is_ordinary :
   parse_inline_line "[u](a *b* c"
   = [mk (Str "[u](a "); mk (Strong [mk (Str "b")]); mk (Str " c")].
@@ -659,6 +667,12 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example unclosed_reference_is_literal :
   parse_inline_line "[link][open" = [mk (Str "[link][open")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A label that never closes leaves no trace: the delimiters on either
+   side of it pair. *)
+Example unclosed_reference_is_read_through :
+  parse_inline_line "_[][_" = [mk (Emph [mk (Str "[][")])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example canonical_link_escapes_destination :
@@ -952,8 +966,7 @@ Proof. apply parse_inline_line_ci; vm_compute; reflexivity. Qed.
 Autolinks
 =========
 
-`<...>` with no whitespace inside: a link to its own text.  One example
-below is a divergence, logged in `.project/djotjs-divergences.md`.
+`<...>` with no whitespace inside: a link to its own text.
 *)
 
 Example auto_url :
@@ -1006,24 +1019,26 @@ Example auto_region_is_literal :
   parse_inline_line "<a:b`c>" = [mk (UrlLink "a:b`c")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A candidate that never closes decays to the text it ate, and the scan
-   resumes -- so the `<` is not a mode the rest of the line is stuck in. *)
+(* A candidate that never closes leaves its `<` as text, so the `<` is
+   not a mode the rest of the line is stuck in. *)
 Example auto_unclosed_decays :
   parse_inline_line "x <a:b" = [mk (Str "x <a:b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The open divergence.  djot.js decides with a regex lookahead and, when
-   it fails, scans the region as ordinary inline content: `<_a_>` is
-   `&lt;<em>a</em>&gt;` there and `&lt;_a_&gt;` here.  The current state
-   does not keep that interpretation, but a shadow can do so
-   without replay.  The canonical view cannot produce the shape because
-   `escape_str` claims the `<`; see `.project/no-backtracking.md`. *)
-Example auto_failed_region_is_flat :
-  parse_inline_line "<_a_>" = [mk (Str "<_a_>")].
+(* A candidate that fails leaves no trace: the `<` is text and its region
+   is read as usual, as djot.js reads it.  The scanner reads the region
+   both ways and keeps the ordinary reading when the candidate fails. *)
+Example auto_failed_region_is_ordinary :
+  parse_inline_line "<_a_>" = [mk (Str "<"); mk (Emph [mk (Str "a")]); mk (Str ">")].
 Proof. vm_compute. reflexivity. Qed.
 
-Example auto_failed_region_keeps_escapes :
-  parse_inline_line "<a\*b>" = [mk (Str "<a\*b>")].
+Example auto_failed_region_decodes_escapes :
+  parse_inline_line "<a\*b>" = [mk (Str "<a*b>")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A delimiter opened in the region may close past it. *)
+Example auto_failed_region_reaches_past :
+  parse_inline_line "<_a>b_" = [mk (Str "<"); mk (Emph [mk (Str "a>b")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* Canonical text escapes the `<`, so a `Str` can never spell one. *)

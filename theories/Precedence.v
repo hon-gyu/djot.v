@@ -139,6 +139,31 @@ Definition note_at (s : string) : option string :=
   | EmptyString => None
   end.
 
+(* The `)` that balances an open `(`, `i` being the offset of the first
+   byte of `s`.  An escaped byte counts no paren. *)
+Fixpoint dest_close (esc : bool) (depth i : nat) (s : string) : option nat :=
+  match s with
+  | EmptyString => None
+  | String c rest =>
+      if esc then dest_close false depth (S i) rest
+      else if is_bslash c then dest_close true depth (S i) rest
+      else if Ascii.eqb c lparen then dest_close false (S depth) (S i) rest
+      else if Ascii.eqb c rparen
+      then match depth with O => Some i | S d => dest_close false d (S i) rest end
+      else dest_close false depth (S i) rest
+  end.
+
+(* The first `]` not escaped. *)
+Fixpoint label_close (esc : bool) (i : nat) (s : string) : option nat :=
+  match s with
+  | EmptyString => None
+  | String c rest =>
+      if esc then label_close false (S i) rest
+      else if is_bslash c then label_close true (S i) rest
+      else if Ascii.eqb c rbrack then Some i
+      else label_close false (S i) rest
+  end.
+
 (* The run of `c` a string begins with. *)
 Fixpoint run_of (c : ascii) (s : string) : nat :=
   match s with
@@ -172,8 +197,9 @@ Fixpoint over_alphabet (s : string) : bool :=
    either side of it.  `TOpen` is a `[`, or a `!` and a `[`, which opens
    an image's bracket (I1); a `!` before anything else is text.
    `TClose` is a `]` followed by
-   `(`, which begins a destination (`dest`), or by `[`, which begins a
-   reference label; a `]` before anything else is text.
+   `(` and a destination that closes (`dest`), or by `[` and a reference
+   label that closes, with the region's bytes between; a `]` before
+   anything else is text.
 
    A backslash and what follows it are an escape (O2 to O5): before
    whitespace that runs to the end of the line, a hard break (`THard`,
@@ -192,10 +218,8 @@ Fixpoint over_alphabet (s : string) : bool :=
    (`TDollars`).  A closed verbatim with no dollars before it takes the
    raw spec right after it, while raw inline is on (`raw`, R1).
 
-   A `<` begins an autolink candidate (A1 to A3), which runs to the byte
-   that ends it (`auto_stop`).  It is a link when that byte is a `>` and
-   the region is an address (`ok`); otherwise the `<` and the region are
-   text and the byte that ended it is read on its own.
+   A `<`, an address and a `>` are an autolink (A1 to A3); any other `<`
+   is text.
 
    A `:`, a nonempty run of symbol characters and a `:` are a symbol
    (`TSymbol`, Y1); any other `:` is text.
@@ -218,13 +242,13 @@ Inductive token : Type :=
   | TBreak
   | TDelim (k : dstyle) (marked opens closes : bool)
   | TOpen (image : bool)
-  | TClose (dest : bool)
+  | TClose (dest : bool) (region : string)
   | TEsc (c : ascii)
   | TEscWs (ws : string)
   | THard (ws : string)
   | TVerb (pre n : nat) (body : string) (closed : bool) (raw : option string)
   | TDollars (k : nat)
-  | TAuto (src : string) (ok : bool)
+  | TAuto (src : string)
   | TSymbol (alias : string)
   | TAttr (body : string) (a : attr)
   | TSpan (body : string) (a : attr)
@@ -286,8 +310,8 @@ Definition auto_tok (s : string) : token * nat :=
   let '(src, stop) := auto_go s in
   if (match stop with Some c => Ascii.eqb c gt | None => false end
       && auto_body_ok src && auto_kind_ok src)%bool
-  then (TAuto src true, S (S (String.length src)))
-  else (TAuto src false, S (String.length src)).
+  then (TAuto src, S (S (String.length src)))
+  else (TText lt, 1).
 
 (* A symbol that `s` begins with, past its `:`, or the `:` as text. *)
 Definition sym_tok (s : string) : token * nat :=
@@ -358,15 +382,22 @@ Definition lbrack_tok (s : string) : token * nat :=
   end.
 
 (* What a `]` is, from what `s` has after it: a closer before a
-   destination's `(` or a label's `[`, a span's closer before a spec that
-   closes (N1), or text. *)
+   destination or a reference label that closes (L1, L4), a span's closer
+   before a spec that closes (N1), or text. *)
 Definition rbrack_tok (s : string) : token * nat :=
-  (if starts_with lparen s then TClose true
-   else if starts_with lbrack s then TClose false
-   else match (if starts_with lbrace s then spec_at (sdrop 1 s) else None) with
-        | Some (b, a) => TSpan b a
-        | None => TText rbrack
-        end, 1).
+  (match s with
+   | String c r =>
+       let region dest e := match e with
+                            | Some e => TClose dest (substring 0 e r)
+                            | None => TText rbrack
+                            end in
+       if Ascii.eqb c lparen then region true (dest_close false 0 0 r)
+       else if Ascii.eqb c lbrack then region false (label_close false 0 r)
+       else if Ascii.eqb c lbrace
+       then match spec_at r with Some (b, a) => TSpan b a | None => TText rbrack end
+       else TText rbrack
+   | EmptyString => TText rbrack
+   end, 1).
 
 (* What a `{` begins, from what `s` has after it: a marked opener before
    a row's token (P3), an attribute spec that closes before any other
@@ -464,14 +495,12 @@ P4), or the bracket.
 
 A `]` that pairs closes its bracket, and what follows is a region of
 the link syntax: a destination runs to the `)` that balances its `(`,
-a reference label to the next `]`, and a span's spec to its `}`.  A region is source, and so is
-a label that no `]` ends: the reading's tokens are a chain from the
-first byte, each followed by the next or, after a `]` that pairs, by
-the byte after its region.  A destination with no balancing `)` is not
-a region: the rest of the paragraph is read as usual, except that a
-closer there may not reach an opener from before the destination, and
-a closer that would reach one but for that is text (djot.js,
-`inline.ts:150-158`). *)
+a reference label to the next `]`, and a span's spec to its `}`.  A
+region is source: the reading's tokens are a chain from the first byte,
+each followed by the next or, after a `]` that pairs, by the byte after
+its region.  A `]` whose region does not close is text (`rbrack_tok`),
+so a destination or a label that never ends leaves no trace: its `[`
+stays open and the bytes after it are read as usual. *)
 
 Definition matching : Type := list (nat * nat).
 
@@ -498,7 +527,7 @@ Definition opens_as (t : token) : option key :=
 Definition closes_as (t : token) : option key :=
   match t with
   | TDelim k mr _ true => Some (KDelim k mr)
-  | TClose _ | TSpan _ _ => Some KBracket
+  | TClose _ _ | TSpan _ _ => Some KBracket
   | _ => None
   end.
 
@@ -512,56 +541,18 @@ Definition close_key (s : string) (j : nat) : option key :=
 Definition tok_end (s : string) (p : nat) : nat :=
   match tok_at s p with Some (_, l) => p + l | None => p end.
 
-(* The `)` that balances an open `(`, `i` being the offset of the first
-   byte of `s`.  An escaped byte counts no paren. *)
-Fixpoint dest_close (esc : bool) (depth i : nat) (s : string) : option nat :=
-  match s with
-  | EmptyString => None
-  | String c rest =>
-      if esc then dest_close false depth (S i) rest
-      else if is_bslash c then dest_close true depth (S i) rest
-      else if Ascii.eqb c lparen then dest_close false (S depth) (S i) rest
-      else if Ascii.eqb c rparen
-      then match depth with O => Some i | S d => dest_close false d (S i) rest end
-      else dest_close false depth (S i) rest
-  end.
-
-(* The first `]` not escaped. *)
-Fixpoint label_close (esc : bool) (i : nat) (s : string) : option nat :=
-  match s with
-  | EmptyString => None
-  | String c rest =>
-      if esc then label_close false (S i) rest
-      else if is_bslash c then label_close true (S i) rest
-      else if Ascii.eqb c rbrack then Some i
-      else label_close false (S i) rest
-  end.
-
-(* Where the region after a closing `]` at `d` ends.  The byte after the
-   `]` is the region's `(` or `[`, so its text begins two bytes on. *)
-Definition region_end (s : string) (d : nat) (dest : bool) : option nat :=
-  if dest then dest_close false 0 (S (S d)) (sdrop (S (S d)) s)
-  else label_close false (S (S d)) (sdrop (S (S d)) s).
-
 Definition is_opener (m : matching) (i : nat) : bool :=
   existsb (fun e => Nat.eqb (fst e) i) m.
 
 Definition is_closer (m : matching) (j : nat) : bool :=
   existsb (fun e => Nat.eqb (snd e) j) m.
 
-(* Where a reading goes after a `]` that pairs: past its region; past
-   the `]` when a destination does not close; nowhere when a label does
-   not. *)
-Definition resume (s : string) (d : nat) (dest : bool) : option nat :=
-  match region_end s d dest with
-  | Some e => Some (S e)
-  | None => if dest then Some (S d) else None
-  end.
-
+(* A `]` that pairs is followed by its region, which the chain jumps
+   past: the byte that opens the region, its text, and the byte that
+   closes it. *)
 Definition chain_next (s : string) (m : matching) (p : nat) : option nat :=
   match tok_at s p with
-  | Some (TClose b, l) => if is_closer m p then resume s p b else Some (p + l)
-  | Some (TSpan b _, l) =>
+  | Some ((TClose _ b | TSpan b _), l) =>
       if is_closer m p then Some (p + S (S (S (String.length b)))) else Some (p + l)
   | Some (_, l) => Some (p + l)
   | None => None
@@ -583,21 +574,12 @@ Definition dead (m : matching) (j p : nat) : Prop :=
   (exists j', j' < j /\ In (p, j') m)
   \/ (exists i' j', j' < j /\ In (i', j') m /\ i' < p < j').
 
-(* Before a destination that does not close, seen from after it. *)
-Definition behind (s : string) (m : matching) (j q : nat) : Prop :=
-  exists p d, In (p, d) m /\ tok_of s d = Some (TClose true)
-    /\ region_end s d true = None /\ q < d < j.
-
 Definition reading : Type := (matching * list nat)%type.
 
-(* An opener still open at `j`, the destinations aside. *)
-Definition cand (s : string) (m : matching) (os : list nat)
-  (j q : nat) (k : key) : Prop :=
-  In q os /\ q < j /\ open_key s q = Some k /\ ~ closes m q /\ ~ dead m j q.
-
+(* An opener still open at `j`. *)
 Definition live (s : string) (m : matching) (os : list nat)
   (j q : nat) (k : key) : Prop :=
-  cand s m os j q k /\ ~ behind s m j q.
+  In q os /\ q < j /\ open_key s q = Some k /\ ~ closes m q /\ ~ dead m j q.
 
 (* "When there are multiple openers that might be matched with a given
    closer, the closest one is used." *)
@@ -605,18 +587,13 @@ Definition closest_live (s : string) (m : matching) (os : list nat)
   (j : nat) (k : key) (p : nat) : Prop :=
   live s m os j p k /\ forall q, live s m os j q k -> q <= p.
 
-(* A closer that only a destination keeps from its opener. *)
-Definition barred (s : string) (m : matching) (os : list nat)
-  (j : nat) (k : key) : Prop :=
-  (forall q, ~ live s m os j q k) /\ exists q, cand s m os j q k.
-
 (* The readings the rules allow.  A pair is a closer on the chain and the
    closest live opener of its key, with something between them for a
    delimiter.  A closer on the chain left unmatched has no live opener
    of its key but a delimiter right before it, with nothing to enclose:
    `__a` pairs nothing, and the second `_` opens in its turn.  A token
-   acts as an opener when it may open, is on the chain, does not close,
-   and is not barred. *)
+   acts as an opener when it may open, is on the chain and does not
+   close. *)
 Definition valid (s : string) (r : reading) : Prop :=
   let '(m, os) := r in
   (forall i j, In (i, j) m ->
@@ -625,8 +602,7 @@ Definition valid (s : string) (r : reading) : Prop :=
   /\ (forall j k, close_key s j = Some k -> chain s m j -> ~ closes m j ->
         forall p, closest_live s m os j k p -> needs_content k = true /\ tok_end s p = j)
   /\ (forall q, In q os <->
-        (exists k, open_key s q = Some k) /\ chain s m q /\ ~ closes m q
-        /\ forall k, close_key s q = Some k -> ~ barred s m os q k).
+        (exists k, open_key s q = Some k) /\ chain s m q /\ ~ closes m q).
 
 (*
 The tree
@@ -669,7 +645,7 @@ Definition tok_text (t : token) : string :=
   | TDelim k true true _ => (one lbrace ++ dtoken k)%string
   | TDelim k true false _ => (dtoken k ++ one rbrace)%string
   | TOpen im => bracket_open im
-  | TClose _ => one rbrack
+  | TClose _ _ => one rbrack
   | TEsc c => String bslash (one c)
   | TEscWs ws => String bslash ws
   | THard ws => String bslash ws
@@ -677,7 +653,7 @@ Definition tok_text (t : token) : string :=
       (chars dollar pre ++ ticks n ++ body ++ (if closed then ticks n else EmptyString)
        ++ raw_text raw)%string
   | TDollars k => chars dollar k
-  | TAuto src ok => (String lt src ++ if ok then one gt else EmptyString)%string
+  | TAuto src => (String lt src ++ one gt)%string
   | TSymbol a => (String ":"%char a ++ one ":"%char)%string
   | TAttr b _ => (String lbrace b ++ one rbrace)%string
   | TSpan _ _ => one rbrack
@@ -711,10 +687,8 @@ Fixpoint dest_text (esc : bool) (s : string) : string :=
       else String c (dest_text false rest)
   end.
 
-(* The text of the region after a `]` at `d` that ends at `e`, its `(` or
-   `[` aside. *)
-Definition region_text (s : string) (d e : nat) (dest : bool) : string :=
-  let txt := substring (S (S d)) (e - S (S d)) s in
+(* The text of a region: a destination's with its escapes decoded. *)
+Definition region_text (dest : bool) (txt : string) : string :=
   if dest then dest_text false txt else txt.
 
 (* The link a bracket pair and its region make, an image when the
@@ -827,16 +801,6 @@ Definition tmark (a : attr) (fs : tframes) (top : list titem) : tframes * list t
   | (k, acc) :: rest => ((k, TMark a :: acc) :: rest, top)
   end.
 
-(* Nodes in order, plain text merging at the seams. *)
-Fixpoint temit_all (ns : inlines) (fs : tframes) (top : list titem)
-  : tframes * list titem :=
-  match ns with
-  | [] => (fs, top)
-  | Node _ [] (Str s) :: rest =>
-      let '(fs', top') := temit_str s fs top in temit_all rest fs' top'
-  | n :: rest => let '(fs', top') := temit n fs top in temit_all rest fs' top'
-  end.
-
 Definition is_hard (t : token) : bool := match t with THard _ => true | _ => false end.
 
 (* The node of a verbatim with `pre` dollars before it and its raw
@@ -863,9 +827,7 @@ Definition dots (n : nat) : string :=
   (srep typography_ellipsis (Nat.div n 3) ++ chars period (Nat.modulo n 3))%string.
 
 (* One token of the chain; `hard` says the token before it was a hard
-   break, which a break right after is part of.  A reference label that
-   never ends is text, brackets and all, to the paragraph's end.  A span
-   is no image: the `!` of its bracket is text before it. *)
+   break, which a break right after is part of.  A span is no image: the `!` of its bracket is text before it. *)
 Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   (fs : tframes) (top : list titem) : tframes * list titem :=
   match t with
@@ -884,7 +846,7 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
                           else (fs, top) in
       temit (mk (verb_node pre raw body)) fs' top'
   | TDollars _ => temit_str (tok_text t) fs top
-  | TAuto src ok => if ok then temit (mk (auto_node src)) fs top else temit_str (tok_text t) fs top
+  | TAuto src => temit (mk (auto_node src)) fs top
   | TSymbol a => temit (mk (Symbol a)) fs top
   | TAttr _ a => tmark a fs top
   | TNote l => temit (mk (FootnoteReference (normalize_label l))) fs top
@@ -901,18 +863,10 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   | TOpen im =>
       if is_opener m i then ((TKBracket im, []) :: fs, top)
       else temit_str (tok_text t) fs top
-  | TClose b =>
+  | TClose b r =>
       match is_closer m i, fs with
       | true, (k, acc) :: fs0 =>
-          let kids := resolve acc in
-          match region_end s i b with
-          | Some e =>
-              temit (mk (region_node b (tk_image k) kids (region_text s i e b))) fs0 top
-          | None =>
-              temit_all (mk (Str (bracket_open (tk_image k))) :: kids
-                         ++ [mk (Str (one rbrack ++ if b then EmptyString else sdrop (S i) s))])%list
-                fs0 top
-          end
+          temit (mk (region_node b (tk_image k) (resolve acc) (region_text b r))) fs0 top
       | _, _ => temit_str (tok_text t) fs top
       end
   | TSpan _ a =>
@@ -954,32 +908,20 @@ Not part of the specification: `valid` determines the reading
 (`valid_unique`), and `ref_read` is a way to compute it
 (`ref_read_valid`).
 
-Along the chain, with the openers still open innermost first and a
-marker for each destination that does not close.  A closer takes the
-closest open opener of its key above every marker; with none there and
-one below a marker it is barred. *)
+Along the chain, with the openers still open innermost first.  A closer
+takes the closest open opener of its key. *)
 
-Inductive litem : Type := LOpen (p : nat) (k : key) | LBar (d : nat).
-
-Definition lpos (x : litem) : nat := match x with LOpen p _ => p | LBar d => d end.
+Definition litem : Type := (nat * key)%type.
 
 Definition ldesc (lv : list litem) : Prop :=
-  StronglySorted (fun a b => lpos b < lpos a) lv.
+  StronglySorted (fun a b => fst b < fst a) lv.
 
-Fixpoint has_key (k : key) (lv : list litem) : bool :=
-  match lv with
-  | [] => false
-  | LOpen _ k' :: rest => (key_eq k k' || has_key k rest)%bool
-  | LBar _ :: rest => has_key k rest
-  end.
-
-Inductive pick_res : Type := PFound (p : nat) (below : list litem) | PBarred | PNone.
+Inductive pick_res : Type := PFound (p : nat) (below : list litem) | PNone.
 
 Fixpoint pick (k : key) (lv : list litem) : pick_res :=
   match lv with
   | [] => PNone
-  | LBar _ :: rest => if has_key k rest then PBarred else PNone
-  | LOpen p k' :: rest => if key_eq k k' then PFound p rest else pick k rest
+  | (p, k') :: rest => if key_eq k k' then PFound p rest else pick k rest
   end.
 
 Record rstate : Type := RState {
@@ -989,11 +931,11 @@ Record rstate : Type := RState {
 }.
 
 Definition ropen (i : nat) (k : key) (op : bool) (st : rstate) : rstate :=
-  if op then RState (LOpen i k :: rs_live st) (rs_pairs st) (i :: rs_os st) else st.
+  if op then RState ((i, k) :: rs_live st) (rs_pairs st) (i :: rs_os st) else st.
 
 Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
   match t with
-  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ _ | TDollars _ | TAuto _ _
+  | TText _ | TBreak | TEsc _ | TEscWs _ | THard _ | TVerb _ _ _ _ _ | TDollars _ | TAuto _
   | TSymbol _ | TAttr _ _ | TNote _ | TDots _ | TDash _ => st
   | TOpen _ => ropen i KBracket true st
   | TDelim k mr op cl =>
@@ -1002,23 +944,12 @@ Definition rstep (s : string) (i : nat) (t : token) (st : rstate) : rstate :=
           if Nat.ltb (tok_end s p) i
           then RState below ((p, i) :: rs_pairs st) (rs_os st)
           else ropen i (KDelim k mr) op st
-      | PBarred => st
       | PNone => ropen i (KDelim k mr) op st
       end
-  | TClose b =>
-      match pick KBracket (rs_live st) with
-      | PFound p below =>
-          let pairs := (p, i) :: rs_pairs st in
-          match region_end s i b, b with
-          | None, true => RState (LBar i :: below) pairs (rs_os st)
-          | _, _ => RState below pairs (rs_os st)
-          end
-      | _ => st
-      end
-  | TSpan _ _ =>
+  | TClose _ _ | TSpan _ _ =>
       match pick KBracket (rs_live st) with
       | PFound p below => RState below ((p, i) :: rs_pairs st) (rs_os st)
-      | _ => st
+      | PNone => st
       end
   end.
 

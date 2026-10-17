@@ -231,33 +231,13 @@ too* at the end of the file.
 
 ## The residue of the destination gap
 
-`links_and_images.test:220` is closed: an unterminated destination now
-keeps the reading the ordinary scan gave it, because the `](` pushes the
-bracket's opener back as an `FKDest` scope and scans the region inside
-it. The scope decays to the `[` when the paragraph ends, so the label
-and the `](` come back as the text they are.
-
-What is not matched is one rule inside that scope, and it is worth
-stating precisely because six documents in a 260k sweep still turn on
-it:
-
-**A `]` inside a destination re-enters the bracket.** Upstream's `]`
-handler finds the same `[` opener it always does, so `[u](a ](b) c` is a
-link whose *label* is `u](a `, and `[u](a ]{.c} b` is a span of it. The
-re-entry also clears every opener between the `[` and the new `]`, which
-is why `(_[](*](***[` is literal upstream and emphasised here. Our
-`bclose_go` stops at an `FKDest` frame instead of offering it back.
-
-Matching it needs two things the current shape does not have: `bclose_go`
-treating the frame as a bracket, and a rule retiring the `IDest` state
-when its shadow consumes the frame -- otherwise the outer candidate and
-the re-entered one both stay live and a later `)` has two answers.
-
-**And one upstream quirk the barrier does not reproduce.** The
-`inline.ts:150` check applies only when the *top* `[` opener is the
-explicit link, so a plain `[` opened inside the destination switches the
-barrier off: `_[]([!a*[*_` closes the outer `_` upstream. `fr_barrier`
-bars unconditionally.
+Closed (2026-10-17).  A `](` whose destination never closes is text, as
+is a `][` whose label never closes, so the bytes after it are read as
+usual and the `[` stays open.  `[u](a ](b) c` is a link whose label is
+`u](a `, `[u](a ]{.c} b` is a span of it, and `_[]([!a*[*_` closes the
+outer `_`, as upstream.  The
+divergences log has the entry, *2026-10-17 -- OURS, to do: a failed
+destination is read as if its `](` were text*.
 
 ## A spec that attaches to a decayed quote
 

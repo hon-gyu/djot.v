@@ -2808,3 +2808,36 @@ The fix is in the reading `IDest` keeps: no barrier, and the `[` left
 open.  This replaces the residue recorded in `exact-html-gaps.md`
 (*The residue of the destination gap*), which followed djot.js on both
 points.
+
+## 2026-10-17 -- OURS: a failed autolink, destination or reference label leaves no trace
+
+The two entries above, done, and the same for a reference label.
+
+| Input | djot.js (`3b3a9f5`) | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `<_a_>` | `&lt;<em>a</em>&gt;` | `&lt;_a_&gt;` | as djot.js |
+| `<_a>b_` | `&lt;<em>a&gt;b</em>` | `&lt;_a&gt;b_` | as djot.js |
+| `[u](a ](b) c` | a link `u](a ` to `b` | all text | as djot.js |
+| `_[](a_` | all text | all text | `<em>[](a</em>` |
+| `*x [u](a* b` | all text | all text | `<strong>x [u](a</strong> b` |
+| `_[]([a_` | `<em>[]([a</em>` | all text | as djot.js |
+| `[u](a ](b))` | a link `u](a ` to `b`, then `)` | a link `u` to `a ](b)` | the same |
+| `_[][_` | `<em>[][</em>` | all text | as djot.js |
+
+A token never fails.  The lexer reads `](`, `][` or `]{` as a closer
+only when its region closes (`rbrack_tok` in `Precedence.v`), and `<`
+as an autolink only when its candidate is one (`auto_tok`); otherwise
+it is text.  The grammar lost its barrier (`B`) and the rules for a
+destination or label that never closes, and `valid` lost its barred
+clause.
+
+In the scanner, `IDest`, `IReference` and `IAuto` carry the ordinary
+reading of the bytes after the `]` or `<` read as text, and select it
+when the region does not close.  The `FKDest` frame and the helpers
+that rebuilt a failed region as text are gone.
+
+Pinned in `dev/InlineExamples.v` by `dest_unterminated_is_no_barrier`,
+`dest_unterminated_reopens_bracket`, `dest_bracket_inside_is_literal`,
+`unclosed_reference_is_read_through`, `auto_failed_region_is_ordinary`,
+`auto_failed_region_decodes_escapes` and
+`auto_failed_region_reaches_past`.

@@ -232,10 +232,11 @@ Proof.
   - lia.
 Qed.
 
-Lemma auto_tok_shape : forall r, exists src ok l, auto_tok r = (TAuto src ok, l).
+Lemma auto_tok_shape : forall r,
+  (exists src l, auto_tok r = (TAuto src, l)) \/ auto_tok r = (TText lt, 1).
 Proof.
   intros r. unfold auto_tok. destruct (auto_go r) as [src stop].
-  destruct (_ && _)%bool; do 3 eexists; reflexivity.
+  destruct (_ && _)%bool; [left; eauto|right; reflexivity].
 Qed.
 
 Lemma symbol_run_le : forall s, symbol_run s <= String.length s.
@@ -401,34 +402,83 @@ Proof.
   destruct (Ascii.eqb c rbrack); [injection H as <-; lia|apply IH in H; lia].
 Qed.
 
-Lemma region_end_bound : forall s d b e,
-  region_end s d b = Some e -> S (S d) <= e < String.length s.
+Lemma dest_close_split : forall s esc depth i e,
+  dest_close esc depth i s = Some e ->
+  exists r, s = (substring 0 (e - i) s ++ String rparen r)%string.
 Proof.
-  intros s d [|] e H; unfold region_end in H;
-    [apply dest_close_bound in H|apply label_close_bound in H];
-    rewrite sdrop_length in H; lia.
+  induction s as [|c s IH]; intros esc depth i e H; [discriminate|].
+  pose proof (dest_close_bound _ _ _ _ _ H) as B. cbn [dest_close] in H.
+  assert (K : forall esc' depth', dest_close esc' depth' (S i) s = Some e ->
+              exists r, String c s = (substring 0 (e - i) (String c s) ++ String rparen r)%string).
+  { intros esc' depth' He. pose proof (dest_close_bound _ _ _ _ _ He) as B'.
+    destruct (IH _ _ _ _ He) as [r Er]. exists r.
+    replace (e - i) with (S (e - S i)) by lia. cbn [substring append].
+    rewrite <- Er. reflexivity. }
+  destruct esc; [exact (K _ _ H)|]. destruct (is_bslash c); [exact (K _ _ H)|].
+  destruct (Ascii.eqb c lparen); [exact (K _ _ H)|].
+  destruct (Ascii.eqb c rparen) eqn:Er; [|exact (K _ _ H)].
+  destruct depth; [|exact (K _ _ H)].
+  injection H as <-. apply Ascii.eqb_eq in Er. subst c.
+  exists s. rewrite Nat.sub_diag. reflexivity.
 Qed.
 
-Lemma tok_at_close : forall s p b l, tok_at s p = Some (TClose b, l) -> l = 1.
+Lemma label_close_split : forall s esc i e,
+  label_close esc i s = Some e ->
+  exists r, s = (substring 0 (e - i) s ++ String rbrack r)%string.
 Proof.
-  intros s p b l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
+  induction s as [|c s IH]; intros esc i e H; [discriminate|].
+  pose proof (label_close_bound _ _ _ _ H) as B. cbn [label_close] in H.
+  assert (K : forall esc', label_close esc' (S i) s = Some e ->
+              exists r, String c s = (substring 0 (e - i) (String c s) ++ String rbrack r)%string).
+  { intros esc' He. pose proof (label_close_bound _ _ _ _ He) as B'.
+    destruct (IH _ _ _ He) as [r Er]. exists r.
+    replace (e - i) with (S (e - S i)) by lia. cbn [substring append].
+    rewrite <- Er. reflexivity. }
+  destruct esc; [exact (K _ H)|]. destruct (is_bslash c); [exact (K _ H)|].
+  destruct (Ascii.eqb c rbrack) eqn:Er; [|exact (K _ H)].
+  injection H as <-. apply Ascii.eqb_eq in Er. subst c.
+  exists s. rewrite Nat.sub_diag. reflexivity.
+Qed.
+
+(* The byte that opens a region after a `]`, and the byte that closes
+   it. *)
+Definition region_open (dest : bool) : ascii := if dest then lparen else lbrack.
+Definition region_close (dest : bool) : ascii := if dest then rparen else rbrack.
+
+(* A closing `]` is followed by its region: the byte that opens it, its
+   bytes, and the byte that closes it. *)
+Lemma tok_at_close : forall s p b reg l,
+  tok_at s p = Some (TClose b reg, l) ->
+  l = 1 /\ exists r, sdrop p s
+                     = String rbrack (String (region_open b) (reg ++ String (region_close b) r)).
+Proof.
+  intros s p b reg l H. unfold tok_at, next_tok, esc_tok, dots_tok, dash_tok, bang_tok, lbrack_tok, rbrack_tok, lbrace_tok, delim_tok, dollar_tok in H.
   destruct (sdrop p s) as [|c rest]; [discriminate|]. injection H as H.
   repeat match type of H with
   | context [sym_tok ?a] =>
       let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [auto_tok ?a] =>
-      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      let E := fresh in destruct (auto_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [verb_tok ?a ?b] =>
       let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
       cbn iota beta in H
-  | (if ?b then _ else _) = _ => destruct b
-  | (match ?x with _ => _ end) = _ => destruct x
-  | context [if ?b then _ else _] => destruct b
-  | context [match ?x with Some _ => _ | None => _ end] => destruct x
-  | context [match ?x with pair _ _ => _ end] => destruct x
-  end; congruence.
+  | (if ?b then _ else _) = _ => destruct b eqn:?
+  | (match ?x with _ => _ end) = _ => destruct x eqn:?
+  | context [if ?b then _ else _] => destruct b eqn:?
+  | context [match ?x with Some _ => _ | None => _ end] => destruct x eqn:?
+  | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x eqn:?
+  | context [match ?x with pair _ _ => _ end] => destruct x eqn:?
+  end; try congruence.
+  all: injection H as <- <- <-; split; [reflexivity|].
+  all: repeat match goal with E : (?x =? ?y)%char = true |- _ => apply Ascii.eqb_eq in E; subst x end.
+  all: first
+    [ match goal with E : dest_close _ _ _ _ = Some _ |- _ =>
+        destruct (dest_close_split _ _ _ _ _ E) as [r Er] end
+    | match goal with E : label_close _ _ _ = Some _ |- _ =>
+        destruct (label_close_split _ _ _ _ E) as [r Er] end ];
+    exists r; cbn [region_open region_close]; rewrite Nat.sub_0_r in Er; rewrite <- Er; reflexivity.
 Qed.
 
 (* A span's closer is the `]`, and its spec is right after it. *)
@@ -443,7 +493,7 @@ Proof.
       let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [auto_tok ?a] =>
-      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      let E := fresh in destruct (auto_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [verb_tok ?a ?b] =>
       let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
@@ -452,13 +502,11 @@ Proof.
   | (match ?x with _ => _ end) = _ => destruct x eqn:?
   | context [if ?b then _ else _] => destruct b eqn:?
   | context [match ?x with Some _ => _ | None => _ end] => destruct x eqn:?
+  | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x eqn:?
   | context [match ?x with pair _ _ => _ end] => destruct x eqn:?
   end; try congruence.
   all: injection H as <- <- <-; split; [reflexivity|];
-    match goal with E : (?x =? rbrack)%char = true |- _ => apply Ascii.eqb_eq in E; subst x end;
-    match goal with E : starts_with lbrace ?rr = true |- _ =>
-      destruct rr as [|d r0]; [discriminate E|]; cbn [starts_with] in E;
-      apply Ascii.eqb_eq in E; subst d end;
+    repeat match goal with E : (?x =? ?y)%char = true |- _ => apply Ascii.eqb_eq in E; subst x end;
     match goal with E : spec_at _ = Some _ |- _ =>
       destruct (spec_at_split _ _ _ E) as [r ->] end;
     exists r; reflexivity.
@@ -479,7 +527,7 @@ Proof.
       let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [auto_tok ?a] =>
-      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      let E := fresh in destruct (auto_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [verb_tok ?a ?b] =>
       let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
@@ -488,6 +536,7 @@ Proof.
   | (match ?x with _ => _ end) = _ => destruct x eqn:?
   | context [if ?b then _ else _] => destruct b eqn:?
   | context [match ?x with Some _ => _ | None => _ end] => destruct x eqn:?
+  | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x eqn:?
   | context [match ?x with pair _ _ => _ end] => destruct x eqn:?
   end; try congruence.
   all: injection H as <- <- <-; split; [reflexivity|].
@@ -511,7 +560,7 @@ Proof.
       let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [auto_tok ?a] =>
-      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      let E := fresh in destruct (auto_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [verb_tok ?a ?b] =>
       let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
@@ -520,6 +569,7 @@ Proof.
   | (match ?x with _ => _ end) = _ => destruct x eqn:?
   | context [if ?b then _ else _] => destruct b eqn:?
   | context [match ?x with Some _ => _ | None => _ end] => destruct x eqn:?
+  | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x eqn:?
   | context [match ?x with pair _ _ => _ end] => destruct x eqn:?
   end; try congruence.
   all: injection H as <- <-; split; [reflexivity|].
@@ -540,7 +590,7 @@ Proof.
       let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [auto_tok ?a] =>
-      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      let E := fresh in destruct (auto_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [verb_tok ?a ?b] =>
       let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
@@ -549,6 +599,7 @@ Proof.
   | (match ?x with _ => _ end) = _ => destruct x
   | context [if ?b then _ else _] => destruct b
   | context [match ?x with Some _ => _ | None => _ end] => destruct x
+  | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x
   | context [match ?x with pair _ _ => _ end] => destruct x
   end; congruence.
 Qed.
@@ -562,7 +613,7 @@ Proof.
       let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [auto_tok ?a] =>
-      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      let E := fresh in destruct (auto_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [verb_tok ?a ?b] =>
       let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
@@ -571,6 +622,7 @@ Proof.
   | (match ?x with _ => _ end) = _ => destruct x
   | context [if ?b then _ else _] => destruct b
   | context [match ?x with Some _ => _ | None => _ end] => destruct x
+  | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x
   | context [match ?x with pair _ _ => _ end] => destruct x
   end; congruence.
 Qed.
@@ -584,7 +636,7 @@ Proof.
       let E := fresh in destruct (sym_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [auto_tok ?a] =>
-      let E := fresh in destruct (auto_tok_shape a) as (? & ? & ? & E); rewrite E in H;
+      let E := fresh in destruct (auto_tok_shape a) as [(? & ? & E)|E]; rewrite E in H;
       cbn iota beta in H
   | context [verb_tok ?a ?b] =>
       let E := fresh in destruct (verb_tok_shape a b) as (? & ? & ? & ? & ? & E); rewrite E in H;
@@ -593,6 +645,7 @@ Proof.
   | (match ?x with _ => _ end) = _ => destruct x
   | context [if ?b then _ else _] => destruct b
   | context [match ?x with Some _ => _ | None => _ end] => destruct x
+  | context [match ?x with EmptyString => _ | String _ _ => _ end] => destruct x
   | context [match ?x with pair _ _ => _ end] => destruct x
   end; congruence.
 Qed.
@@ -604,11 +657,10 @@ Proof.
   destruct (tok_at s p) as [[t l]|] eqn:E; [|discriminate].
   pose proof (tok_at_len s p t l E) as Hl.
   destruct t; try (injection H as <-; lia).
-  - destruct (is_closer m p); [|injection H as <-; lia].
-    unfold resume in H. destruct (region_end s p dest) as [e|] eqn:R.
-    + injection H as <-. apply region_end_bound in R. lia.
-    + pose proof (tok_at_close s p dest l E) as ->.
-      destruct dest; [injection H as <-; lia|discriminate].
+  - destruct (is_closer m p); [|injection H as <-; lia]. injection H as <-.
+    destruct (tok_at_close s p dest region l E) as [_ [r Er]].
+    pose proof (sdrop_length p s) as L. rewrite Er in L. cbn [String.length] in L.
+    rewrite length_append in L. cbn [String.length] in L. lia.
   - destruct (is_closer m p); [|injection H as <-; lia]. injection H as <-.
     destruct (tok_at_span s p body a l E) as [_ [r Er]].
     pose proof (sdrop_length p s) as L. rewrite Er in L. cbn [String.length] in L.
@@ -658,13 +710,6 @@ Proof.
   - right. exists i', j'. split; [exact Hj'|]. split; [apply Hm; [lia|exact H]|exact Hb].
 Qed.
 
-Lemma behind_agree : forall j q, j <= n -> behind s m1 j q -> behind s m2 j q.
-Proof.
-  destruct A as [Hm _]. intros j q Hj (p & d & H & Hd & He & Hlt).
-  exists p, d. split; [apply Hm; [lia|exact H]|]. split; [exact Hd|].
-  split; [exact He|exact Hlt].
-Qed.
-
 Lemma closes_agree : forall q, q < n -> closes m1 q -> closes m2 q.
 Proof.
   destruct A as [Hm _]. intros q Hq [i H]. exists i. apply Hm; [exact Hq|exact H].
@@ -690,9 +735,9 @@ Proof.
   rewrite (closer_agree m1 os1 m2 os2 n p A ltac:(lia)). reflexivity.
 Qed.
 
-Lemma cand_agree : forall s m1 os1 m2 os2 n j q k,
+Lemma live_agree : forall s m1 os1 m2 os2 n j q k,
   agree m1 os1 m2 os2 n -> j <= n ->
-  cand s m1 os1 j q k -> cand s m2 os2 j q k.
+  live s m1 os1 j q k -> live s m2 os2 j q k.
 Proof.
   intros s m1 os1 m2 os2 n j q k A Hj (Hin & Hq & Ho & Hc & Hd).
   pose proof (agree_sym _ _ _ _ _ A) as A'.
@@ -700,16 +745,6 @@ Proof.
   split; [exact Ho|]. split.
   - intros H. apply Hc. apply (closes_agree m2 m1 os2 os1 n A'); [lia|exact H].
   - intros H. apply Hd. apply (dead_agree m2 m1 os2 os1 n A' j q Hj H).
-Qed.
-
-Lemma live_agree : forall s m1 os1 m2 os2 n j q k,
-  agree m1 os1 m2 os2 n -> j <= n ->
-  live s m1 os1 j q k -> live s m2 os2 j q k.
-Proof.
-  intros s m1 os1 m2 os2 n j q k A Hj [Hc Hb].
-  pose proof (agree_sym _ _ _ _ _ A) as A'.
-  split; [exact (cand_agree s m1 os1 m2 os2 n j q k A Hj Hc)|].
-  intros H. apply Hb. exact (behind_agree s m2 m1 os2 os1 n A' j q Hj H).
 Qed.
 
 Lemma closest_live_agree : forall s m1 os1 m2 os2 n j k p,
@@ -720,17 +755,6 @@ Proof.
   pose proof (agree_sym _ _ _ _ _ A) as A'.
   split; [exact (live_agree s m1 os1 m2 os2 n j p k A Hj Hp)|].
   intros q Hq. apply Mp. exact (live_agree s m2 os2 m1 os1 n j q k A' Hj Hq).
-Qed.
-
-Lemma barred_agree : forall s m1 os1 m2 os2 n j k,
-  agree m1 os1 m2 os2 n -> j <= n ->
-  barred s m1 os1 j k -> barred s m2 os2 j k.
-Proof.
-  intros s m1 os1 m2 os2 n j k A Hj [Hn (q & Hq)].
-  pose proof (agree_sym _ _ _ _ _ A) as A'.
-  split.
-  - intros q' Hq'. apply (Hn q'). exact (live_agree s m2 os2 m1 os1 n j q' k A' Hj Hq').
-  - exists q. exact (cand_agree s m1 os1 m2 os2 n j q k A Hj Hq).
 Qed.
 
 Local Lemma valid_pairs_at : forall s m1 os1 m2 os2 n,
@@ -755,13 +779,10 @@ Local Lemma valid_os_at : forall s m1 os1 m2 os2 n,
   In n os1 -> In n os2.
 Proof.
   intros s m1 os1 m2 os2 n [_ [_ O1]] [_ [_ O2]] A Hn H.
-  pose proof (agree_sym _ _ _ _ _ A) as A'.
-  apply O1 in H as (Ho & Hch & Hc & Hb). apply O2.
-  split; [exact Ho|]. split; [|split].
+  apply O1 in H as (Ho & Hch & Hc). apply O2.
+  split; [exact Ho|]. split.
   - exact (chain_agree s m1 os1 m2 os2 n n A (le_n n) Hch).
   - intros [i Hi]. apply Hc. exists i. apply Hn, Hi.
-  - intros k Hk Hbar. apply (Hb k Hk).
-    exact (barred_agree s m2 os2 m1 os1 n n k A' (le_n n) Hbar).
 Qed.
 
 Theorem valid_unique : forall s m1 os1 m2 os2,
@@ -803,7 +824,7 @@ Proof.
   destruct (lt_eq_lt_dec j' j) as [[Hlt|Heq]|Hgt]; [exact Hlt| |].
   - subst j'. pose proof (close_key_fun s j k k' Hk Hk') as <-.
     pose proof (closest_live_fun s m os j k i i' Hcl Hcl'). lia.
-  - exfalso. destruct Hcl' as [((_ & _ & _ & _ & Hd) & _) _].
+  - exfalso. destruct Hcl' as [(_ & _ & _ & _ & Hd) _].
     apply Hd. right. exists i, j. split; [exact Hgt|]. split; [exact H|exact Hb].
 Qed.
 
@@ -811,100 +832,48 @@ Qed.
 The computed reading is valid
 =============================
 
-At a byte `n` the stack holds exactly the openers still open at `n`
-and a marker for each destination that does not close, innermost
-first, and every role before `n` obeys the rules.  A token's role reads
-only what came before it, so extending the reading past `n` keeps the
-rules for the tokens before `n` (`agree`). *)
-
-(* Above every marker. *)
-Definition clear (lv : list litem) (q : nat) : Prop :=
-  forall d, In (LBar d) lv -> d <= q.
-
-Lemma has_key_spec : forall k lv,
-  has_key k lv = true <-> exists q, In (LOpen q k) lv.
-Proof.
-  intros k lv. induction lv as [|[q k'|d] rest IH]; cbn [has_key In].
-  - split; [discriminate|intros [q []]].
-  - rewrite orb_true_iff, IH, key_eq_iff. split.
-    + intros [->|[q' H]]; [exists q; left; reflexivity|exists q'; right; exact H].
-    + intros [q' [E|H]]; [injection E as _ ->; left; reflexivity|right; exists q'; exact H].
-  - rewrite IH. split; intros [q0 H]; exists q0;
-      [right; exact H|destruct H as [E|H]; [discriminate|exact H]].
-Qed.
+At a byte `n` the stack holds exactly the openers still open at `n`,
+innermost first, and every role before `n` obeys the rules.  A token's
+role reads only what came before it, so extending the reading past `n`
+keeps the rules for the tokens before `n` (`agree`). *)
 
 Lemma pick_found : forall k lv p below,
   ldesc lv -> pick k lv = PFound p below ->
-  In (LOpen p k) lv /\ clear lv p
-  /\ (forall q, In (LOpen q k) lv -> clear lv q -> q <= p)
-  /\ (forall x, In x below <-> In x lv /\ lpos x < p)
-  /\ ldesc below
-  /\ (forall x, In x lv -> p < lpos x -> exists q k', x = LOpen q k').
+  In (p, k) lv
+  /\ (forall q, In (q, k) lv -> q <= p)
+  /\ (forall x, In x below <-> In x lv /\ fst x < p)
+  /\ ldesc below.
 Proof.
-  intros k lv. induction lv as [|x rest IH]; intros p below D H; [discriminate|].
+  intros k lv. induction lv as [|[q k'] rest IH]; intros p below D H; [discriminate|].
   apply StronglySorted_inv in D as [D F]. rewrite Forall_forall in F.
-  destruct x as [q k'|d]; cbn [pick] in H.
-  - destruct (key_eq k k') eqn:E.
-    + injection H as <- <-. apply key_eq_iff in E. subst k'.
-      split; [left; reflexivity|]. split; [|split; [|split; [|split]]].
-      * intros d [Hd|Hd]; [discriminate|]. specialize (F _ Hd). cbn in F. lia.
-      * intros q0 [Hq|Hq] _; [injection Hq as ->; lia|]. specialize (F _ Hq).
-        cbn in F. lia.
-      * intros x. split.
-        -- intros Hx. split; [right; exact Hx|]. exact (F x Hx).
-        -- intros [[<-|Hx] Hlt]; [cbn in Hlt; lia|exact Hx].
-      * exact D.
-      * intros x [<-|Hx] Hlt; [cbn in Hlt; lia|]. specialize (F x Hx).
-        cbn in F. lia.
-    + destruct (IH p below D H) as (Hin & Hc & Hmax & Hb & Db & Ha).
-      assert (Hqp : p < q) by (exact (F _ Hin)).
-      split; [right; exact Hin|]. split; [|split; [|split; [|split]]].
-      * intros d [Hd|Hd]; [discriminate|exact (Hc d Hd)].
-      * intros q' [Hq'|Hq'] Hcl.
-        -- injection Hq' as <- E'. subst k'. rewrite key_eq_refl in E. discriminate.
-        -- apply Hmax; [exact Hq'|]. intros d Hd. apply Hcl. right. exact Hd.
-      * intros x. rewrite Hb. split.
-        -- intros [Hx Hlt]. split; [right; exact Hx|exact Hlt].
-        -- intros [[<-|Hx] Hlt]; [cbn in Hlt; lia|]. split; [exact Hx|exact Hlt].
-      * exact Db.
-      * intros x [<-|Hx] Hlt; [exists q, k'; reflexivity|]. exact (Ha x Hx Hlt).
-  - destruct (has_key k rest); discriminate.
-Qed.
-
-Lemma pick_barred : forall k lv,
-  ldesc lv -> pick k lv = PBarred ->
-  (forall q, In (LOpen q k) lv -> ~ clear lv q) /\ exists q, In (LOpen q k) lv.
-Proof.
-  intros k lv. induction lv as [|x rest IH]; intros D H; [discriminate|].
-  apply StronglySorted_inv in D as [D F]. rewrite Forall_forall in F.
-  destruct x as [q k'|d]; cbn [pick] in H.
-  - destruct (key_eq k k') eqn:E; [discriminate|].
-    destruct (IH D H) as [Hn [q' Hq']]. split; [|exists q'; right; exact Hq'].
-    intros q0 [Hq0|Hq0] Hcl.
-    + injection Hq0 as <- E'. subst k'. rewrite key_eq_refl in E. discriminate.
-    + apply (Hn q0 Hq0). intros d Hd. apply Hcl. right. exact Hd.
-  - destruct (has_key k rest) eqn:Hk; [|discriminate].
-    apply has_key_spec in Hk as [q Hq]. split; [|exists q; right; exact Hq].
-    intros q0 [Hq0|Hq0] Hcl; [discriminate|].
-    specialize (Hcl d (or_introl eq_refl)). specialize (F _ Hq0). cbn in F. lia.
+  cbn [pick] in H. destruct (key_eq k k') eqn:E.
+  - injection H as <- <-. apply key_eq_iff in E. subst k'.
+    split; [left; reflexivity|]. split; [|split].
+    + intros q0 [Hq|Hq]; [injection Hq as ->; lia|]. specialize (F _ Hq). cbn in F. lia.
+    + intros x. split.
+      * intros Hx. split; [right; exact Hx|]. exact (F x Hx).
+      * intros [[<-|Hx] Hlt]; [cbn in Hlt; lia|exact Hx].
+    + exact D.
+  - destruct (IH p below D H) as (Hin & Hmax & Hb & Db).
+    split; [right; exact Hin|]. split; [|split].
+    + intros q' [Hq'|Hq'].
+      * injection Hq' as <- E'. subst k'. rewrite key_eq_refl in E. discriminate.
+      * exact (Hmax q' Hq').
+    + intros x. rewrite Hb. split.
+      * intros [Hx Hlt]. split; [right; exact Hx|exact Hlt].
+      * intros [[<-|Hx] Hlt]; [|split; [exact Hx|exact Hlt]].
+        specialize (F _ Hin). cbn in F, Hlt. lia.
+    + exact Db.
 Qed.
 
 Lemma pick_none : forall k lv,
-  pick k lv = PNone -> forall q, ~ In (LOpen q k) lv.
+  pick k lv = PNone -> forall q, ~ In (q, k) lv.
 Proof.
-  intros k lv. induction lv as [|x rest IH]; intros H q Hq; [exact Hq|].
-  destruct x as [q' k'|d]; cbn [pick] in H.
-  - destruct (key_eq k k') eqn:E; [discriminate|].
-    destruct Hq as [Hq|Hq]; [|exact (IH H q Hq)].
-    injection Hq as <- E'. subst k'. rewrite key_eq_refl in E. discriminate.
-  - destruct (has_key k rest) eqn:Hk; [discriminate|].
-    destruct Hq as [Hq|Hq]; [discriminate|].
-    assert (has_key k rest = true) by (apply has_key_spec; exists q; exact Hq).
-    congruence.
+  intros k lv. induction lv as [|[q' k'] rest IH]; intros H q Hq; [exact Hq|].
+  cbn [pick] in H. destruct (key_eq k k') eqn:E; [discriminate|].
+  destruct Hq as [Hq|Hq]; [|exact (IH H q Hq)].
+  injection Hq as <- E'. subst k'. rewrite key_eq_refl in E. discriminate.
 Qed.
-
-Definition bar (s : string) (m : matching) (d : nat) : Prop :=
-  exists p, In (p, d) m /\ tok_of s d = Some (TClose true) /\ region_end s d true = None.
 
 (* The three rules of `valid`, one token at a time. *)
 Definition pair_ok (s : string) (m : matching) (os : list nat) (i j : nat) : Prop :=
@@ -916,16 +885,13 @@ Definition unmatched_ok (s : string) (m : matching) (os : list nat) (j : nat) : 
     forall p, closest_live s m os j k p -> needs_content k = true /\ tok_end s p = j.
 
 Definition opener_ok (s : string) (m : matching) (os : list nat) (q : nat) : Prop :=
-  In q os <->
-    (exists k, open_key s q = Some k) /\ chain s m q /\ ~ closes m q
-    /\ forall k, close_key s q = Some k -> ~ barred s m os q k.
+  In q os <-> (exists k, open_key s q = Some k) /\ chain s m q /\ ~ closes m q.
 
 Record rinv (s : string) (n : nat) (st : rstate) : Prop := RInv {
   ri_bound_pairs : forall i j, In (i, j) (rs_pairs st) -> j < n;
   ri_bound_os : forall q, In q (rs_os st) -> q < n;
-  ri_cand : forall q k,
-    In (LOpen q k) (rs_live st) <-> cand s (rs_pairs st) (rs_os st) n q k;
-  ri_bar : forall d, In (LBar d) (rs_live st) <-> bar s (rs_pairs st) d;
+  ri_live : forall q k,
+    In (q, k) (rs_live st) <-> live s (rs_pairs st) (rs_os st) n q k;
   ri_desc : ldesc (rs_live st);
   ri_pairs : forall i j, In (i, j) (rs_pairs st) -> pair_ok s (rs_pairs st) (rs_os st) i j;
   ri_unmatched : forall j, j < n -> unmatched_ok s (rs_pairs st) (rs_os st) j;
@@ -959,41 +925,20 @@ Proof.
   intros s m os m' os' n q A Hq O.
   pose proof (agree_sym _ _ _ _ _ A) as A'.
   unfold opener_ok in *. split.
-  - intros H. apply (proj2 A q Hq) in H. apply O in H as (Ho & Hc & Hnc & Hb).
-    split; [exact Ho|]. split; [|split].
+  - intros H. apply (proj2 A q Hq) in H. apply O in H as (Ho & Hc & Hnc).
+    split; [exact Ho|]. split.
     + exact (chain_agree s m os m' os' n q A ltac:(lia) Hc).
     + intros H. apply Hnc. exact (closes_agree m' m os' os n A' q Hq H).
-    + intros k Hk H. apply (Hb k Hk).
-      exact (barred_agree s m' os' m os n q k A' ltac:(lia) H).
-  - intros (Ho & Hc & Hnc & Hb). apply (proj2 A q Hq). apply O.
-    split; [exact Ho|]. split; [|split].
+  - intros (Ho & Hc & Hnc). apply (proj2 A q Hq). apply O.
+    split; [exact Ho|]. split.
     + exact (chain_agree s m' os' m os n q A' ltac:(lia) Hc).
     + intros H. apply Hnc. exact (closes_agree m m' os os' n A q Hq H).
-    + intros k Hk H. apply (Hb k Hk).
-      exact (barred_agree s m os m' os' n q k A ltac:(lia) H).
-Qed.
-
-(* Under the invariant, liveness is read off the stack. *)
-Lemma live_stack : forall s n st q k,
-  rinv s n st ->
-  live s (rs_pairs st) (rs_os st) n q k <-> In (LOpen q k) (rs_live st) /\ clear (rs_live st) q.
-Proof.
-  intros s n st q k I. unfold live. rewrite (ri_cand s n st I). split.
-  - intros [Hc Hb]. split; [exact Hc|]. intros d Hd.
-    destruct (le_lt_dec d q) as [Hle|Hlt]; [exact Hle|]. exfalso. apply Hb.
-    apply (ri_bar s n st I) in Hd as (p & Hp & Ht & He).
-    exists p, d. split; [exact Hp|]. split; [exact Ht|]. split; [exact He|].
-    split; [exact Hlt|exact (ri_bound_pairs s n st I p d Hp)].
-  - intros [Hc Hcl]. split; [exact Hc|]. intros (p & d & Hp & Ht & He & Hq & _).
-    assert (In (LBar d) (rs_live st)) as Hd
-      by (apply (ri_bar s n st I); exists p; auto).
-    specialize (Hcl d Hd). lia.
 Qed.
 
 Local Lemma pairs_lt : forall s n st i j,
   rinv s n st -> In (i, j) (rs_pairs st) -> i < j.
 Proof.
-  intros s n st i j I H. destruct (ri_pairs s n st I i j H) as (_ & _ & _ & [[(_ & Hq & _) _] _] & _).
+  intros s n st i j I H. destruct (ri_pairs s n st I i j H) as (_ & _ & _ & [(_ & Hq & _) _] & _).
   exact Hq.
 Qed.
 
@@ -1010,10 +955,10 @@ Proof.
 Qed.
 
 (* No pair closes at `n`. *)
-Local Lemma cand_succ : forall s n st os' q k,
+Local Lemma live_succ : forall s n st os' q k,
   rinv s n st -> (forall q', q' < n -> In q' os' <-> In q' (rs_os st)) ->
-  cand s (rs_pairs st) os' (S n) q k
-  <-> cand s (rs_pairs st) (rs_os st) n q k
+  live s (rs_pairs st) os' (S n) q k
+  <-> live s (rs_pairs st) (rs_os st) n q k
       \/ (q = n /\ In n os' /\ open_key s n = Some k).
 Proof.
   intros s n st os' q k I Hos.
@@ -1033,10 +978,10 @@ Proof.
 Qed.
 
 (* A pair closes at `n` with its opener `p` live. *)
-Local Lemma cand_pair : forall s n st p q k,
+Local Lemma live_pair : forall s n st p q k,
   rinv s n st -> p < n ->
-  cand s ((p, n) :: rs_pairs st) (rs_os st) (S n) q k
-  <-> cand s (rs_pairs st) (rs_os st) n q k /\ q < p.
+  live s ((p, n) :: rs_pairs st) (rs_os st) (S n) q k
+  <-> live s (rs_pairs st) (rs_os st) n q k /\ q < p.
 Proof.
   intros s n st p q k I Hpn.
   pose proof (ri_bound_pairs s n st I) as B. pose proof (ri_bound_os s n st I) as Bo.
@@ -1072,13 +1017,12 @@ Local Lemma rinv_skip : forall s n st,
   rinv s n st -> ~ chain s (rs_pairs st) n -> rinv s (S n) st.
 Proof.
   intros s n st I Hc.
-  assert (Hno : ~ In n (rs_os st)) by (intros H; specialize (ri_bound_os s n st I n H); lia).
   constructor.
   - intros i j H. specialize (ri_bound_pairs s n st I i j H). lia.
   - intros q H. specialize (ri_bound_os s n st I q H). lia.
-  - intros q k. rewrite (ri_cand s n st I), (cand_succ s n st (rs_os st) q k I (fun _ _ => iff_refl _)).
-    split; [intros H; left; exact H|intros [H|(_ & H & _)]; [exact H|contradiction]].
-  - exact (ri_bar s n st I).
+  - intros q k. rewrite (ri_live s n st I), (live_succ s n st (rs_os st) q k I (fun _ _ => iff_refl _)).
+    split; [intros H; left; exact H|intros [H|(_ & H & _)]; [exact H|]].
+    specialize (ri_bound_os s n st I n H). lia.
   - exact (ri_desc s n st I).
   - exact (ri_pairs s n st I).
   - intros j Hj. destruct (Nat.eq_dec j n) as [->|Hne];
@@ -1086,7 +1030,7 @@ Proof.
     intros k _ Hch. contradiction.
   - intros q Hq. destruct (Nat.eq_dec q n) as [->|Hne];
       [|apply (ri_os s n st I); lia].
-    split; [contradiction|intros (_ & Hch & _); contradiction].
+    split; [intros H; specialize (ri_bound_os s n st I n H); lia|intros (_ & Hch & _); contradiction].
 Qed.
 
 Local Lemma rinv_skip_to : forall s a b st,
@@ -1104,7 +1048,7 @@ Local Lemma rinv_noclose : forall s n st op K,
   opener_ok s (rs_pairs st) (if op then n :: rs_os st else rs_os st) n ->
   unmatched_ok s (rs_pairs st) (if op then n :: rs_os st else rs_os st) n ->
   rinv s (S n)
-    (RState (if op then LOpen n K :: rs_live st else rs_live st) (rs_pairs st)
+    (RState (if op then (n, K) :: rs_live st else rs_live st) (rs_pairs st)
        (if op then n :: rs_os st else rs_os st)).
 Proof.
   intros s n st op K I HK Ho Hu.
@@ -1118,7 +1062,7 @@ Proof.
   - intros i j H. specialize (ri_bound_pairs s n st I i j H). lia.
   - intros q H. unfold os' in H. destruct op; [destruct H as [<-|H]; [lia|]|];
       specialize (ri_bound_os s n st I q H); lia.
-  - intros q k. rewrite (cand_succ s n st os' q k I Hos), <- (ri_cand s n st I).
+  - intros q k. rewrite (live_succ s n st os' q k I Hos), <- (ri_live s n st I).
     unfold os'. destruct op.
     + specialize (HK eq_refl). cbn. split.
       * intros [E|H]; [injection E as <- <-; right; auto|left; exact H].
@@ -1127,13 +1071,9 @@ Proof.
     + split; [intros H; left; exact H|].
       intros [H|(-> & Hin & _)]; [exact H|].
       exfalso. specialize (ri_bound_os s n st I n Hin). lia.
-  - intros d. destruct op; cbn; [|exact (ri_bar s n st I d)].
-    rewrite <- (ri_bar s n st I d). split; [intros [E|H]; [discriminate|exact H]|].
-    intros H; right; exact H.
   - destruct op; [|exact (ri_desc s n st I)]. constructor; [exact (ri_desc s n st I)|].
-    apply Forall_forall. intros [q k|d] Hx; cbn.
-    + apply (ri_cand s n st I) in Hx as (_ & Hq & _). exact Hq.
-    + apply (ri_bar s n st I) in Hx as (p & H & _). exact (ri_bound_pairs s n st I p d H).
+    apply Forall_forall. intros [q k] Hx; cbn.
+    apply (ri_live s n st I) in Hx as (_ & Hq & _). exact Hq.
   - intros i j H. apply (pair_ok_agree s (rs_pairs st) (rs_os st) _ os' n i j A).
     + exact (Nat.lt_le_incl _ _ (ri_bound_pairs s n st I i j H)).
     + exact (ri_pairs s n st I i j H).
@@ -1151,17 +1091,14 @@ Local Lemma rinv_pair : forall s n st p K lv',
   close_key s n = Some K ->
   closest_live s (rs_pairs st) (rs_os st) n K p ->
   (needs_content K = true -> tok_end s p < n) ->
-  (forall q k, In (LOpen q k) lv' <-> In (LOpen q k) (rs_live st) /\ q < p) ->
-  (forall d, In (LBar d) lv' <->
-     In (LBar d) (rs_live st)
-     \/ (d = n /\ tok_of s n = Some (TClose true) /\ region_end s n true = None)) ->
+  (forall q k, In (q, k) lv' <-> In (q, k) (rs_live st) /\ q < p) ->
   ldesc lv' ->
   rinv s (S n) (RState lv' ((p, n) :: rs_pairs st) (rs_os st)).
 Proof.
-  intros s n st p K lv' I Hch HK Hcl Hne Hlv Hbar Hdesc.
+  intros s n st p K lv' I Hch HK Hcl Hne Hlv Hdesc.
   set (m' := (p, n) :: rs_pairs st).
   pose proof (ri_bound_pairs s n st I) as B.
-  assert (Hpn : p < n) by (destruct Hcl as [((_ & Hp & _) & _) _]; exact Hp).
+  assert (Hpn : p < n) by (destruct Hcl as [(_ & Hp & _) _]; exact Hp).
   assert (A : agree (rs_pairs st) (rs_os st) m' (rs_os st) n).
   { split; [|intros; reflexivity]. intros i j Hj. unfold m'. cbn. split.
     - intros H. right. exact H.
@@ -1169,15 +1106,8 @@ Proof.
   constructor; cbn [rs_live rs_pairs rs_os]; fold m'.
   - intros i j [E|H]; [injection E as _ <-; lia|specialize (B i j H); lia].
   - intros q H. specialize (ri_bound_os s n st I q H). lia.
-  - intros q k. unfold m'. rewrite Hlv, (cand_pair s n st p q k I Hpn), (ri_cand s n st I).
+  - intros q k. unfold m'. rewrite Hlv, (live_pair s n st p q k I Hpn), (ri_live s n st I).
     reflexivity.
-  - intros d. rewrite Hbar, (ri_bar s n st I d). unfold bar. split.
-    + intros [(p' & H & Hd & He)|(-> & Hd & He)].
-      * exists p'. split; [right; exact H|]. split; assumption.
-      * exists p. split; [left; reflexivity|]. split; assumption.
-    + intros (p' & [E|H] & Hd & He).
-      * injection E as -> ->. right. auto.
-      * left. exists p'. auto.
   - exact Hdesc.
   - intros i j [E|H].
     + injection E as <- <-. exists K. split; [exact HK|]. split.
@@ -1194,53 +1124,32 @@ Proof.
   - intros q Hq. destruct (Nat.eq_dec q n) as [->|Hne'].
     + split.
       * intros H. specialize (ri_bound_os s n st I n H). lia.
-      * intros (_ & _ & Hc & _). exfalso. apply Hc. exists p. left. reflexivity.
+      * intros (_ & _ & Hc). exfalso. apply Hc. exists p. left. reflexivity.
     + apply (opener_ok_agree s (rs_pairs st) (rs_os st) m' (rs_os st) n q A); [lia|].
       apply (ri_os s n st I). lia.
-Qed.
-
-Local Lemma ldesc_pos_inj : forall lv x y,
-  ldesc lv -> In x lv -> In y lv -> lpos x = lpos y -> x = y.
-Proof.
-  induction lv as [|z lv IH]; intros x y D Hx Hy E; [destruct Hx|].
-  apply StronglySorted_inv in D as [D F]. rewrite Forall_forall in F.
-  destruct Hx as [<-|Hx]; destruct Hy as [<-|Hy]; [reflexivity| | |exact (IH x y D Hx Hy E)].
-  - specialize (F y Hy). lia.
-  - specialize (F x Hx). lia.
 Qed.
 
 (* What a found opener leaves below it. *)
 Local Lemma pick_below : forall s n st K p below,
   rinv s n st -> pick K (rs_live st) = PFound p below ->
   closest_live s (rs_pairs st) (rs_os st) n K p
-  /\ (forall q k, In (LOpen q k) below <-> In (LOpen q k) (rs_live st) /\ q < p)
-  /\ (forall d, In (LBar d) below <-> In (LBar d) (rs_live st))
-  /\ ldesc below
-  /\ (forall x, In x below -> lpos x < p).
+  /\ (forall q k, In (q, k) below <-> In (q, k) (rs_live st) /\ q < p)
+  /\ ldesc below.
 Proof.
   intros s n st K p below I P.
-  pose proof (ri_desc s n st I) as D.
-  destruct (pick_found K _ p below D P) as (Hin & Hcl & Hmax & Hb & Db & Ha).
-  split; [|split; [|split; [|split]]].
-  - split; [apply (live_stack s n st p K I); split; assumption|].
-    intros q Hq. apply (live_stack s n st q K I) in Hq as [Hq Hc]. exact (Hmax q Hq Hc).
+  destruct (pick_found K _ p below (ri_desc s n st I) P) as (Hin & Hmax & Hb & Db).
+  split; [|split; [|exact Db]].
+  - split; [apply (ri_live s n st I); exact Hin|].
+    intros q Hq. apply (ri_live s n st I) in Hq. exact (Hmax q Hq).
   - intros q k. rewrite Hb. reflexivity.
-  - intros d. rewrite Hb. split; [intros [H _]; exact H|]. intros H. split; [exact H|].
-    cbn. specialize (Hcl d H).
-    destruct (Nat.eq_dec d p) as [->|Hne]; [|lia].
-    pose proof (ldesc_pos_inj _ _ _ D H Hin eq_refl). discriminate.
-  - exact Db.
-  - intros x Hx. apply Hb in Hx as [_ Hx]. exact Hx.
 Qed.
 
 Local Lemma pick_not_live : forall s n st K p,
-  rinv s n st -> pick K (rs_live st) = PBarred \/ pick K (rs_live st) = PNone ->
+  rinv s n st -> pick K (rs_live st) = PNone ->
   ~ closest_live s (rs_pairs st) (rs_os st) n K p.
 Proof.
-  intros s n st K p I P [Hp _]. apply (live_stack s n st p K I) in Hp as [Hin Hc].
-  destruct P as [P|P].
-  - destruct (pick_barred K _ (ri_desc s n st I) P) as [Hn _]. exact (Hn p Hin Hc).
-  - exact (pick_none K _ P p Hin).
+  intros s n st K p I P [Hp _]. apply (ri_live s n st I) in Hp.
+  exact (pick_none K _ P p Hp).
 Qed.
 
 Lemma rinv_step : forall s n st t,
@@ -1252,7 +1161,6 @@ Proof.
   assert (Hck : close_key s n = closes_as t) by (unfold close_key; rewrite Hn; reflexivity).
   assert (Hnc : ~ closes m n)
     by (intros [i Hi]; specialize (ri_bound_pairs s n _ I i n Hi); cbn in *; lia).
-  assert (Hnos : ~ In n os) by (intros H; specialize (ri_bound_os s n _ I n H); cbn in *; lia).
   cbn [rs_pairs] in Hch.
   unfold rstep; cbn [rs_live rs_pairs rs_os].
   pose (st := RState lv m os).
@@ -1260,135 +1168,85 @@ Proof.
             (op = true -> open_key s n = Some K) ->
             opener_ok s m (if op then n :: os else os) n ->
             unmatched_ok s m (if op then n :: os else os) n ->
-            rinv s (S n) (RState (if op then LOpen n K :: lv else lv) m
+            rinv s (S n) (RState (if op then (n, K) :: lv else lv) m
                              (if op then n :: os else os)))
     by (intros op K; exact (rinv_noclose s n st op K I)).
   assert (Aos : forall op : bool, agree m os m (if op then n :: os else os) n).
   { intros op. split; [intros; reflexivity|]. intros q Hq. destruct op; [|reflexivity]. cbn.
     split; [intros H; right; exact H|intros [E|H]; [lia|exact H]]. }
   assert (OO : forall (op : bool) (K : key), open_key s n = (if op then Some K else None) ->
-            (forall k, close_key s n = Some k -> op = true -> ~ barred s m os n k) ->
             opener_ok s m (if op then n :: os else os) n).
-  { intros [|] K Ho Hb.
+  { intros [|] K Ho.
     - split; [intros _|intros _; left; reflexivity].
-      split; [exists K; exact Ho|]. split; [exact Hch|]. split; [exact Hnc|].
-      intros k Hk Hbar. apply (Hb k Hk eq_refl).
-      exact (barred_agree s m (n :: os) m os n n k (agree_sym _ _ _ _ _ (Aos true))
-               (le_n n) Hbar).
-    - split; [intros H; contradiction|intros [[k Hk] _]; congruence]. }
+      split; [exists K; exact Ho|]. split; [exact Hch|exact Hnc].
+    - split; [intros H; specialize (ri_bound_os s n _ I n H); cbn in *; lia|].
+      intros [[k Hk] _]; congruence. }
   assert (UN : forall (op : bool) K,
             (forall p, ~ closest_live s m os n K p) -> close_key s n = Some K ->
             unmatched_ok s m (if op then n :: os else os) n).
   { intros op K Hn' HK k Hk _ _ p Hp. rewrite HK in Hk. injection Hk as <-.
     exfalso. apply (Hn' p).
     exact (closest_live_agree s m _ m os n n K p (agree_sym _ _ _ _ _ (Aos op)) (le_n n) Hp). }
-  assert (Nolive : forall K, pick K lv = PBarred \/ pick K lv = PNone ->
-            forall p, ~ closest_live s m os n K p)
-    by (intros K P p; exact (pick_not_live s n st K p I P)).
   assert (Text : opens_as t = None -> closes_as t = None -> rinv s (S n) st).
   { intros Ho Hc. apply (NC false KBracket); [discriminate| |].
-    - apply (OO false KBracket); [rewrite Hok; exact Ho|intros k Hk; congruence].
+    - apply (OO false KBracket). rewrite Hok. exact Ho.
     - intros k Hk. congruence. }
+  (* a `]` that may close a link or a span: it pairs with the closest
+     open bracket, or is text *)
+  assert (Close : close_key s n = Some KBracket -> open_key s n = None ->
+            rinv s (S n)
+              (match pick KBracket lv with
+               | PFound p below => RState below ((p, n) :: m) os
+               | PNone => st
+               end)).
+  { intros HK Ho. destruct (pick KBracket lv) as [p below|] eqn:P.
+    - destruct (pick_below s n st KBracket p below I P) as (Hcl & Hlv & Db).
+      exact (rinv_pair s n st p KBracket below I Hch HK Hcl
+               (fun H => ltac:(discriminate H)) Hlv Db).
+    - apply (NC false KBracket); [discriminate|apply (OO false KBracket Ho)|].
+      exact (UN false KBracket (fun p => pick_not_live s n st KBracket p I P) HK). }
   (* text, a break and the escapes neither open nor close *)
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa'|nl|dn|hn]; try (apply Text; reflexivity).
+  destruct t as [c| |k mr op cl| |b rg|c|ws|ws|vp vn vb vc vr|dk|asrc|sa|ab aa|sb sa'|nl|dn|hn]; try (apply Text; reflexivity).
   - (* a delimiter *)
     set (K := KDelim k mr).
     assert (Hop : open_key s n = if op then Some K else None)
       by (rewrite Hok; destruct op; reflexivity).
-    assert (Ropen : (forall k', close_key s n = Some k' -> ~ barred s m os n k') ->
-              (forall op' : bool, unmatched_ok s m (if op' then n :: os else os) n) ->
+    assert (Ropen : (forall op' : bool, unmatched_ok s m (if op' then n :: os else os) n) ->
               rinv s (S n) (ropen n K op st)).
-    { intros Hnb Hu. unfold ropen. destruct op; cbn [rs_live rs_pairs rs_os].
+    { intros Hu. unfold ropen. destruct op; cbn [rs_live rs_pairs rs_os].
       - apply (NC true K); [intros _; exact Hop|apply (OO true K Hop)|apply (Hu true)].
-        intros k' Hk' _. exact (Hnb k' Hk').
-      - apply (NC false K); [discriminate|apply (OO false K Hop)|apply (Hu false)].
-        intros k' _ E. discriminate E. }
+      - apply (NC false K); [discriminate|apply (OO false K Hop)|apply (Hu false)]. }
     destruct cl.
-    2: { cbn. apply Ropen.
-         - intros k' Hk'. rewrite Hck in Hk'. discriminate.
-         - intros op' k' Hk'. rewrite Hck in Hk'. discriminate. }
+    2: { cbn. apply Ropen. intros op' k' Hk'. rewrite Hck in Hk'. discriminate. }
     assert (HK : close_key s n = Some K) by (rewrite Hck; reflexivity).
-    destruct (pick K lv) as [p below| |] eqn:P.
-    + destruct (pick_below s n st K p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
-      unfold st in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
+    destruct (pick K lv) as [p below|] eqn:P.
+    + destruct (pick_below s n st K p below I P) as (Hcl & Hlv & Db).
+      unfold st in Hcl, Hlv; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv.
       destruct (Nat.ltb (tok_end s p) n) eqn:L.
       * apply Nat.ltb_lt in L.
-        apply (rinv_pair s n st p K below I Hch HK Hcl (fun _ => L) Hlv).
-        -- intros d. rewrite Hbar. split; [intros H; left; exact H|].
-           intros [H|(_ & E & _)]; [exact H|congruence].
-        -- exact Db.
+        exact (rinv_pair s n st p K below I Hch HK Hcl (fun _ => L) Hlv Db).
       * apply Nat.ltb_ge in L. apply Ropen.
-        -- intros k' Hk' [Hn' _]. rewrite HK in Hk'. injection Hk' as <-.
-           exact (Hn' p (proj1 Hcl)).
-        -- intros op' k' Hk' _ _ p' Hp'. rewrite HK in Hk'. injection Hk' as <-.
-           pose proof (closest_live_agree s m _ m os n n K p'
-                         (agree_sym _ _ _ _ _ (Aos op')) (le_n n) Hp') as Hp''.
-           rewrite <- (closest_live_fun s m os n K p p' Hcl Hp'').
-           split; [reflexivity|].
-           destruct Hcl as [[(Hin & Hpn & Hop' & _) _] _].
-           pose proof (proj1 (ri_os s n st I p Hpn) Hin) as (_ & Hchp & _).
-           destruct (chain_between s m n p Hchp Hch Hpn) as (q & Hq & Hqn).
-           unfold open_key, tok_of in Hop'. unfold tok_end in *. unfold chain_next in Hq.
-           destruct (tok_at s p) as [[tp lp]|]; [|discriminate].
-           destruct tp; try (injection Hq as <-; lia); discriminate Hop'.
-    + (* barred: text *)
-      destruct (pick_barred K lv (ri_desc s n st I) P) as [Hnl [q Hq]].
-      apply (NC false K); [discriminate| |apply (UN false K (Nolive K (or_introl P)) HK)].
-      split; [intros H; contradiction|]. intros ([k' Hk'] & _ & _ & Hb).
-      exfalso. apply (Hb K HK). split.
-      * intros q' Hq'. apply (live_stack s n st q' K I) in Hq' as [Hin Hc].
-        exact (Hnl q' Hin Hc).
-      * exists q. apply (ri_cand s n st I). exact Hq.
-    + apply Ropen.
-      * intros k' Hk' [_ (q & Hq)]. rewrite HK in Hk'. injection Hk' as <-.
-        apply (ri_cand s n st I) in Hq. exact (pick_none K lv P q Hq).
-      * intros op'. apply (UN op' K (Nolive K (or_intror P)) HK).
+        intros op' k' Hk' _ _ p' Hp'. rewrite HK in Hk'. injection Hk' as <-.
+        pose proof (closest_live_agree s m _ m os n n K p'
+                      (agree_sym _ _ _ _ _ (Aos op')) (le_n n) Hp') as Hp''.
+        rewrite <- (closest_live_fun s m os n K p p' Hcl Hp'').
+        split; [reflexivity|].
+        destruct Hcl as [(Hin & Hpn & Hop' & _) _].
+        pose proof (proj1 (ri_os s n st I p Hpn) Hin) as (_ & Hchp & _).
+        destruct (chain_between s m n p Hchp Hch Hpn) as (q & Hq & Hqn).
+        unfold open_key, tok_of in Hop'. unfold tok_end in *. unfold chain_next in Hq.
+        destruct (tok_at s p) as [[tp lp]|]; [|discriminate].
+        destruct tp; try (injection Hq as <-; lia); discriminate Hop'.
+    + apply Ropen. intros op'.
+      exact (UN op' K (fun p => pick_not_live s n st K p I P) HK).
   - (* a `[` *)
     apply (NC true KBracket); [intros _; rewrite Hok; reflexivity|apply (OO true KBracket)|].
     + rewrite Hok. reflexivity.
     + intros k Hk. rewrite Hck in Hk. discriminate.
-    + intros k Hk. rewrite Hck in Hk. discriminate.
-  - (* a `]` that may close *)
-    assert (HK : close_key s n = Some KBracket) by (rewrite Hck; reflexivity).
-    destruct (pick KBracket lv) as [p below| |] eqn:P.
-    2,3: apply (NC false KBracket); [discriminate| |];
-         [ split; [intros H; contradiction|intros ([k' Hk'] & _); rewrite Hok in Hk'; discriminate]
-         | apply (UN false KBracket (Nolive KBracket ltac:(auto)) HK) ].
-    destruct (pick_below s n st KBracket p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
-    unfold st in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
-    destruct (region_end s n b) as [e|] eqn:R; [|destruct b].
-    + apply (rinv_pair s n st p KBracket below I Hch HK Hcl
-               (fun H => ltac:(discriminate H)) Hlv).
-      * intros d. rewrite Hbar. split; [intros H; left; exact H|].
-        intros [H|(_ & E1 & E)]; [exact H|]. rewrite Hn in E1. injection E1 as ->. congruence.
-      * exact Db.
-    + apply (rinv_pair s n st p KBracket (LBar n :: below) I Hch HK Hcl
-               (fun H => ltac:(discriminate H))).
-      * intros q k. cbn. rewrite <- Hlv. split; [intros [E|H]; [discriminate|exact H]|].
-        intros H. right. exact H.
-      * intros d. cbn. rewrite Hbar. split.
-        -- intros [E|H]; [injection E as <-; right; auto|left; exact H].
-        -- intros [H|(-> & _ & _)]; [right; exact H|left; reflexivity].
-      * constructor; [exact Db|]. apply Forall_forall. intros x Hx.
-        specialize (Hlt x Hx). cbn. destruct Hcl as [[(_ & Hp & _) _] _]. lia.
-    + apply (rinv_pair s n st p KBracket below I Hch HK Hcl
-               (fun H => ltac:(discriminate H)) Hlv).
-      * intros d. rewrite Hbar. split; [intros H; left; exact H|].
-        intros [H|(_ & E & _)]; [exact H|congruence].
-      * exact Db.
+  - (* a `]` before a region that closes *)
+    exact (Close ltac:(rewrite Hck; reflexivity) ltac:(rewrite Hok; reflexivity)).
   - (* a `]` that may close a span *)
-    assert (HK : close_key s n = Some KBracket) by (rewrite Hck; reflexivity).
-    destruct (pick KBracket lv) as [p below| |] eqn:P.
-    2,3: apply (NC false KBracket); [discriminate| |];
-         [ split; [intros H; contradiction|intros ([k' Hk'] & _); rewrite Hok in Hk'; discriminate]
-         | apply (UN false KBracket (Nolive KBracket ltac:(auto)) HK) ].
-    destruct (pick_below s n st KBracket p below I P) as (Hcl & Hlv & Hbar & Db & Hlt).
-    unfold st in Hcl, Hlv, Hbar; cbn [rs_live rs_pairs rs_os] in Hcl, Hlv, Hbar.
-    apply (rinv_pair s n st p KBracket below I Hch HK Hcl
-             (fun H => ltac:(discriminate H)) Hlv).
-    + intros d. rewrite Hbar. split; [intros H; left; exact H|].
-      intros [H|(_ & E & _)]; [exact H|congruence].
-    + exact Db.
+    exact (Close ltac:(rewrite Hck; reflexivity) ltac:(rewrite Hok; reflexivity)).
 Qed.
 
 (* A step adds at most a pair closing at the token and the token as an
@@ -1406,16 +1264,15 @@ Proof.
             /\ (rs_os (ropen i k op st') = os \/ rs_os (ropen i k op st') = i :: os)).
   { intros k [|] st' E1 E2; unfold ropen; cbn [rs_pairs rs_os]; rewrite E1, E2;
       split; [left|right|left|left]; reflexivity. }
-  destruct t as [c| |k mr op cl| |b|c|ws|ws|vp vn vb vc vr|dk|asrc aok|sa|ab aa|sb sa'|nl|dn|hn]; try (split; left; reflexivity).
-  - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below| |];
-      [destruct (Nat.ltb (tok_end s p) i)| |];
-      try (apply Ro; reflexivity); try (split; left; reflexivity).
+  destruct t as [c| |k mr op cl| |b rg|c|ws|ws|vp vn vb vc vr|dk|asrc|sa|ab aa|sb sa'|nl|dn|hn]; try (split; left; reflexivity).
+  - destruct (if cl then pick (KDelim k mr) lv else PNone) as [p below|];
+      [destruct (Nat.ltb (tok_end s p) i)|];
+      try (apply Ro; reflexivity).
     cbn. split; [right; exists p; reflexivity|left; reflexivity].
   - apply Ro; reflexivity.
-  - destruct (pick KBracket lv) as [p below| |]; try (split; left; reflexivity).
-    destruct (region_end s i b), b; cbn;
-      (split; [right; exists p; reflexivity|left; reflexivity]).
-  - destruct (pick KBracket lv) as [p below| |]; try (split; left; reflexivity).
+  - destruct (pick KBracket lv) as [p below|]; try (split; left; reflexivity).
+    cbn. split; [right; exists p; reflexivity|left; reflexivity].
+  - destruct (pick KBracket lv) as [p below|]; try (split; left; reflexivity).
     cbn. split; [right; exists p; reflexivity|left; reflexivity].
 Qed.
 
@@ -1500,7 +1357,6 @@ Proof.
   - intros i j [].
   - intros q [].
   - intros q k. split; [intros []|intros ([] & _)].
-  - intros d. split; [intros []|intros (p & [] & _)].
   - constructor.
   - intros i j [].
   - intros j H. lia.
