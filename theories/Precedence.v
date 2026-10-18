@@ -849,10 +849,30 @@ Definition verb_node (pre : nat) (raw : option string) (body : string) : inline 
 Definition delim_lit (k : dstyle) (mr op cm : bool) : string :=
   if (mr && op)%bool then ddecay_str k true cm else ddecay_str k false mr.
 
-(* A run of periods as text: an ellipsis for every three, left to right,
-   and the one or two left over (Q4). *)
-Definition dots (n : nat) : string :=
-  (srep typography_ellipsis (Nat.div n 3) ++ chars period (Nat.modulo n 3))%string.
+(* A run of periods (Q4): an ellipsis for every three, left to right,
+   and the one or two left over as text.  With smart typography off the
+   run is text. *)
+Definition dots_items (n : nat) : list inline :=
+  if smart_typography
+  then (repeat ellipsis_node (Nat.div n 3)
+        ++ (if Nat.eqb (Nat.modulo n 3) 0 then []
+            else [Str (chars period (Nat.modulo n 3))]))%list
+  else [Str (chars period n)].
+
+(* Nodes after the nodes before them, text merging with text. *)
+Definition temit_item (x : inline) (fs : tframes) (top : list titem)
+  : tframes * list titem :=
+  match x with
+  | Str s => temit_str s fs top
+  | _ => temit (mk x) fs top
+  end.
+
+Fixpoint temit_items (xs : list inline) (fs : tframes) (top : list titem)
+  : tframes * list titem :=
+  match xs with
+  | [] => (fs, top)
+  | x :: rest => let '(fs', top') := temit_item x fs top in temit_items rest fs' top'
+  end.
 
 (* One token of the chain; `hard` says the token before it was a hard
    break, which a break right after is part of.  A span is no image: the `!` of its bracket is text before it. *)
@@ -878,7 +898,7 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   | TSymbol a => temit (mk (Symbol a)) fs top
   | TAttr _ a => tmark a fs top
   | TNote l => temit (mk (FootnoteReference (normalize_label l))) fs top
-  | TDots n => temit_str (dots n) fs top
+  | TDots n => temit_items (dots_items n) fs top
   | TDash n => temit_str (typography_dashes n) fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
   | TDelim k mr op _ =>

@@ -293,13 +293,12 @@ Example empty_span_is_text :
 Proof. vm_compute. reflexivity. Qed.
 
 (* Smart punctuation on the two characters that are not delimiters.
-   Three periods are one ellipsis and a fourth is itself; a run of
-   hyphens is cut by `dashes`; and both are text, so they merge with the
-   text around them rather than becoming nodes. *)
+   Three periods are one ellipsis, a node of its own, and a fourth is
+   text; a run of hyphens is cut by `dashes`, and is text. *)
 Example ellipsis_and_remainder :
   (parse_inline_line "a...b", parse_inline_line "a....b")
-  = ([mk (Str ("a" ++ ellipsis ++ "b"))],
-     [mk (Str ("a" ++ ellipsis ++ ".b"))]).
+  = ([mk (Str "a"); mk ellipsis_node; mk (Str "b")],
+     [mk (Str "a"); mk ellipsis_node; mk (Str ".b")]).
 Proof. vm_compute. reflexivity. Qed.
 
 Example two_periods_are_text :

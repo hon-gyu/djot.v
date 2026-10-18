@@ -678,12 +678,11 @@ let periods = function
     (period, (one period))
 | false -> one period
 
-(** val typography_ellipsis : dtable -> string **)
+(** val ellipsis_node : inline **)
 
-let typography_ellipsis t =
-  if smart_typography t
-  then ellipsis
-  else chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))
+let ellipsis_node =
+  SmartPunctuation
+    ((chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))), ellipsis)
 
 (** val srep : string -> int -> string **)
 

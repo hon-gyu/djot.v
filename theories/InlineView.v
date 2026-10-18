@@ -809,6 +809,9 @@ Definition periods (two : bool) : string :=
 Definition typography_ellipsis : string :=
   if smart_typography then ellipsis else chars period 3.
 
+(* The node an ellipsis is, with smart typography on. *)
+Definition ellipsis_node : inline := SmartPunctuation (chars period 3) ellipsis.
+
 Fixpoint srep (s : string) (n : nat) : string :=
   match n with O => EmptyString | S m => (s ++ srep s m)%string end.
 

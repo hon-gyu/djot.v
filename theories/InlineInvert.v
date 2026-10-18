@@ -624,7 +624,9 @@ Proof.
     all: rewrite ?flush_text_app, ?oemit_app; try apply ilead_app; reflexivity.
   - (* a pending `.` either grows, completes an ellipsis, or is text *)
     unfold iperiod_step. destruct (Ascii.eqb c period);
-      [destruct ptwo; reflexivity|].
+      [destruct ptwo; [destruct smart_typography; cbn [iout_app];
+                       rewrite ?imk_semantic, ?flush_text_app, ?oemit_app|];
+       reflexivity|].
     apply ilead_app.
   - (* a hyphen run either grows, gives its last back to a close marker,
        or is cut into dashes *)

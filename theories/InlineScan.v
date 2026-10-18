@@ -1843,9 +1843,13 @@ Definition iperiod_step `{PosPolicy} `{InlineCursor}
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c period
   then (if two then
-          IText false
-            (tpush txt (typography_ellipsis))
-            (Some c) o
+          if smart_typography
+          then
+            let start := spot_before cursor_start (periods true) in
+            IText false tnil (Some c)
+              (oemit (imk start cursor_stop ellipsis_node)
+                 (flush_text_to_at start (tval txt) o))
+          else IText false (tpush txt (chars period 3)) (Some c) o
         else IPeriod true txt prev o)
   else ilead c (tpush txt (periods two)) (Some period) o.
 

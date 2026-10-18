@@ -904,7 +904,9 @@ Local Lemma of_iperiod_step : forall `{P : PosPolicy} `{C : InlineCursor}
     (of_ostate o).
 Proof.
   intros P C c two txt prev o. unfold iperiod_step.
-  destruct (Ascii.eqb c period); [destruct two; reflexivity|apply of_ilead].
+  destruct (Ascii.eqb c period); [|apply of_ilead].
+  destruct two; [|reflexivity]. destruct smart_typography; [|reflexivity].
+  cbn [of_iscan]. rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
 Qed.
 
 Local Lemma of_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}

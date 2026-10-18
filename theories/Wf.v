@@ -1997,12 +1997,17 @@ Proof.
           |reflexivity|reflexivity].
       * rewrite ocur_emit. reflexivity.
   - (* and the periods either grow, complete an ellipsis, or become text;
-       the ellipsis goes into the buffer, so the head condition is the
-       one the state already carried *)
-    unfold iperiod_step. destruct (Ascii.eqb c period);
-      [destruct ptwo;
-         (cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity)
-      |apply ilead_wf; assumption].
+       a smart ellipsis is a node after the flushed text, and otherwise
+       it goes into the buffer, so the head condition is the one the
+       state already carried *)
+    unfold iperiod_step. destruct (Ascii.eqb c period); [|apply ilead_wf; assumption].
+    destruct ptwo;
+      [destruct smart_typography|];
+      try (cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity).
+    cbn [iscan_wf]. apply andb_true_iff. split.
+    + apply oscope_ok_emit;
+        [sem_flush; apply iscan_wf_flush; [exact Ho|exact Hs]|reflexivity|reflexivity].
+    + rewrite ocur_emit. reflexivity.
   - (* a hyphen run keeps its buffer, and the close it may hand to the
        delete row is `idelim_resolve`'s business *)
     unfold idash_step. destruct (Ascii.eqb c hyphen);

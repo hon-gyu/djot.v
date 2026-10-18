@@ -1824,7 +1824,9 @@ Proof.
   pose proof nx_back as Hback. unfold iperiod_step.
   destruct (Ascii.eqb c period) eqn:E.
   - destruct two.
-    + apply text_next, Ht.
+    + destruct smart_typography; apply text_next; [|exact Ht].
+      apply oinv_any, oemit_ok; [apply dn_imk_plain; [reflexivity|constructor]|].
+      apply flush_text_to_at_touched, Ht.
     + apply Ascii.eqb_eq in E. cbn [st_inv].
       split; [eapply held_step; [exact Ho|exact nx_lt]|].
       rewrite Hback, <- E; exact (byte_at_sfx _ _ _ _ Hcur).
