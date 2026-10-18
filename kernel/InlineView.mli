@@ -144,7 +144,7 @@ val emdash : string
 
 val periods : bool -> string
 
-val typography_ellipsis : dtable -> string
+val ellipsis_node : inline
 
 val srep : string -> int -> string
 

@@ -1254,7 +1254,16 @@ let idollar_step t x h h0 c two txt prev o =
 let iperiod_step t x h h0 c two txt prev o =
   if (=) c period
   then if two
-       then IText (false, (x.tpush txt (typography_ellipsis t)), (Some c), o)
+       then if smart_typography t
+            then let start = spot_before h0.cursor_start (periods true) in
+                 IText (false, x.tnil, (Some c),
+                 (oemit (imk h start h0.cursor_stop ellipsis_node)
+                   (flush_text_to_at h h0 start (x.tval txt) o)))
+            else IText (false,
+                   (x.tpush txt
+                     (chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                       0))))),
+                   (Some c), o)
        else IPeriod (true, txt, prev, o)
   else ilead t x h h0 c (x.tpush txt (periods two)) (Some period) o
 

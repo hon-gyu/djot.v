@@ -86,8 +86,9 @@
               "text": "n"
             },
             {
-              "tag": "str",
-              "text": "…"
+              "tag": "smart_punctuation",
+              "type": "ellipses",
+              "text": "..."
             }
           ]
         }
