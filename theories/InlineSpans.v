@@ -864,7 +864,12 @@ Proof.
 Qed.
 
 Lemma fr_lit_ok : forall W f, item_ok W (OIn (fr_lit f)).
-Proof. intros W f. apply dn_imk_plain; [reflexivity|constructor]. Qed.
+Proof.
+  intros W f. destruct f as [[k cm|im|nm] fm fo fout];
+    unfold fr_lit; cbn [fr_node fr_kind];
+    [unfold decay_node; destruct (dc_decay cfg k)|..];
+    apply dn_imk_plain; first [reflexivity|constructor].
+Qed.
 
 Lemma oclose_go_ok : forall W k m stk pend hp cs content open rest,
   Forall (item_ok W) pend -> Forall (frame_ok W) stk ->
@@ -1442,6 +1447,21 @@ Proof.
     + exact prev_dchar.
 Qed.
 
+Lemma odecay_ok : forall txt marker o,
+  oinv W o (nonempty_str txt) ts ->
+  oinv W (snd (odecay k txt marker o)) (nonempty_str (fst (odecay k txt marker o)))
+    (dafter marker).
+Proof.
+  intros txt marker o Ho.
+  assert (Hlt : oinv W o true (dafter marker)).
+  { eapply oinv_strict; [|exact Ho].
+    eapply spot_lt_le_trans; [apply ts_lt|]. unfold dafter.
+    destruct marker; [apply spot_le_sright|apply spot_le_refl]. }
+  unfold odecay. destruct (dc_decay cfg k) eqn:Ed; cbn [fst snd]; [apply oinv_any, Hlt|].
+  apply oinv_any, oemit_ok; [|apply flush_text_to_at_touched, Hlt].
+  apply dn_imk_plain; unfold decay_node; rewrite Ed; [reflexivity|constructor].
+Qed.
+
 Lemma idelim_done_ok : forall txt before marker next o,
   oinv W o (nonempty_str txt) ts ->
   (marker = true -> byte_at W cur = Some rbrace) ->
@@ -1465,7 +1485,9 @@ Proof.
       intros _. exists x. split; [|exact Enx]. rewrite otok_after. exact Hx.
     + symmetry. apply otok_after.
     + apply ts_lt.
-  - destruct (delim_lit_ok txt marker o Ho Hm) as [A B].
+  - destruct (delim_lit_ok txt marker o Ho Hm) as [_ B].
+    pose proof (odecay_ok txt marker o Ho) as A.
+    destruct (odecay k txt marker o) as [t o']. cbn [fst snd] in A.
     do 3 eexists. split; [reflexivity|]. split; eassumption.
 Qed.
 
@@ -2380,6 +2402,7 @@ Proof.
   repeat match goal with
          | |- context [match ?x with Some _ => _ | None => _ end] => destruct x
          | |- context [if ?b then _ else _] => destruct b
+         | |- context [odecay ?a ?b ?c ?d] => destruct (odecay a b c d)
          end; eauto.
 Qed.
 

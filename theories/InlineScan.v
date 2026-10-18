@@ -301,14 +301,22 @@ Proof. reflexivity. Qed.
 Definition imk_here `{PosPolicy} `{InlineCursor} (x : inline) : node inline :=
   imk cursor_start cursor_stop x.
 
-(* An abandoned opener, put back as text.  It covers the source the
-   opener was written in, which is not the length of what the decay
-   spells: a smart quote is written `'` and decays to a curly quote. *)
+(* What an abandoned opener is put back as: its source text, or for a
+   quote a smart-punctuation node (`decay_node`). *)
+Definition fr_node (f : frame) : inline :=
+  match fr_kind f with
+  | FKDelim k _ => decay_node k (fr_src f)
+  | FKBracket _ | FKTag _ => Str (fr_src f)
+  end.
+
+(* An abandoned opener, put back.  It covers the source the opener was
+   written in, which is not the length of what the decay spells: a smart
+   quote is written `'` and decays to a curly quote. *)
 Definition fr_lit `{PosPolicy} (f : frame) : node inline :=
-  imk (span_start (fr_open f)) (span_stop (fr_open f)) (Str (fr_src f)).
+  imk (span_start (fr_open f)) (span_stop (fr_open f)) (fr_node f).
 
 Local Lemma fr_lit_semantic : forall f,
-  @fr_lit semantic_pos f = mk (Str (fr_src f)).
+  @fr_lit semantic_pos f = mk (fr_node f).
 Proof. reflexivity. Qed.
 
 Lemma imk_here_semantic : forall x,
@@ -1781,6 +1789,20 @@ Local Definition idelim_lit (k : dstyle) (txt : Buf) (marker : bool) : Buf :=
 Local Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
   Some (if marker then rbrace else dchar k).
 
+(* An unmatched token after the pending text: a quote is a node after the
+   text flushed (`decay_node`), covering the token and the `}` that marks
+   it; any other row's token joins the text. *)
+Definition odecay `{PosPolicy} `{InlineCursor}
+  (k : dstyle) (txt : Buf) (marker : bool) (o : ostate) : Buf * ostate :=
+  match dc_decay cfg k with
+  | DDPair _ _ _ =>
+      let start := span_start (dtoken_span k false) in
+      (tnil, oemit (imk start (if marker then cursor_stop else cursor_start)
+                     (decay_node k (ddecay_str k false marker)))
+               (flush_text_to_at start (tval txt) o))
+  | DDSelf => (idelim_lit k txt marker, o)
+  end.
+
 Definition idelim_done `{PosPolicy} `{InlineCursor}
   (k : dstyle) (txt : Buf) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
@@ -1788,7 +1810,8 @@ Definition idelim_done `{PosPolicy} `{InlineCursor}
   then IText false tnil (Some (dchar k))
          (opush k false
             (flush_text_to_at (span_start (dtoken_span k false)) (tval txt) o))
-  else IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o.
+  else let '(t, o') := odecay k txt marker o in
+       IText false t (idelim_lit_prev k marker) o'.
 
 Definition idelim_resolve `{PosPolicy} `{InlineCursor}
   (k : dstyle) (txt : Buf) (before : option ascii)

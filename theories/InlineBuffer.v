@@ -234,7 +234,10 @@ Proof. intros. unfold ibang_step. crush. Qed.
 
 Lemma idelim_done_map : forall k t before marker next o,
   map_text (idelim_done k t before marker next o) = idelim_done k (tval t) before marker next o.
-Proof. intros. unfold idelim_done, InlineScan.idelim_lit. crush. Qed.
+Proof.
+  intros. unfold idelim_done, odecay, InlineScan.idelim_lit.
+  destruct (dc_decay cfg k); crush.
+Qed.
 
 Hint Rewrite idelim_done_map : map_text.
 

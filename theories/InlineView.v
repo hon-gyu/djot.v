@@ -94,6 +94,16 @@ Definition ddecay_str (k : dstyle) (openmark closemark : bool) : string :=
       else (if openmark then l else r)
   end.
 
+(* What an unmatched token of row `k` is in the tree, given what it
+   decays to (`ddecay_str`): a curly quote is a smart-punctuation node
+   recording the token without its braces, and any other row's token is
+   text. *)
+Definition decay_node (k : dstyle) (s : string) : inline :=
+  match dc_decay cfg k with
+  | DDPair _ _ _ => SmartPunctuation (dtoken k) s
+  | DDSelf => Str s
+  end.
+
 (* Whether an unbraced delimiter may open a span here.  Closing never
    asks this, so a quote may close wherever its neighbour is nonspace. *)
 Definition dbare (k : dstyle) (before : option ascii) : bool :=

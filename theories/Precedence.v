@@ -914,7 +914,8 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
       else match is_closer m i, fs with
            | true, (TKDelim k', acc) :: fs0 => temit (mk (dnode k' (resolve acc))) fs0 top
            | _, _ =>
-               temit_str (delim_lit k mr op (at_rbrace (get (tok_end s i) s))) fs top
+               temit_item (decay_node k (delim_lit k mr op (at_rbrace (get (tok_end s i) s))))
+                 fs top
            end
   | TOpen im =>
       if is_opener m i then ((TKBracket im, []) :: fs, top)

@@ -1268,11 +1268,14 @@ Proof.
   - destruct name; reflexivity.
 Qed.
 
-Local Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (Str (fr_src f)))] = true.
+Local Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (fr_node f))] = true.
 Proof.
   intros f. unfold ilist_ok.
-  cbn [forallb oitem_ok node_contents mk List.rev].
-  cbn [wf_inline no_adjacent_item]. rewrite (fr_src_nonempty f). reflexivity.
+  cbn [forallb oitem_ok node_contents mk List.rev no_adjacent_item].
+  pose proof (fr_src_nonempty f) as Hn.
+  destruct f as [[k cm|im|nm] fm fo fout]; cbn [fr_node fr_kind] in *;
+    [unfold decay_node; destruct (dc_decay cfg k)|..];
+    cbn [wf_inline]; rewrite ?Hn; reflexivity.
 Qed.
 
 Local Lemma oclose_go_ok :
@@ -1288,7 +1291,7 @@ Proof.
   { destruct (nonempty (oapp pend (fr_out f))); [|discriminate].
     injection E as <- <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
     apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]. }
-  apply (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  apply (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
            content open rest (frames_ok_tail f stk Hs)); [|exact E].
   apply ilist_ok_oapp;
     [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -1306,7 +1309,7 @@ Proof.
   destruct (dmatch k m f) eqn:Em.
   { destruct (nonempty (oapp pend (fr_out f))) eqn:En; [|discriminate].
     injection E as <- <- <-. exact En. }
-  exact (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  exact (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
            content open rest E).
 Qed.
 
@@ -1404,7 +1407,7 @@ Proof.
   induction stk as [|f stk IH]; intros pend content image open rest Hs Hp E;
     [discriminate|].
   cbn [bclose_go] in E. destruct (fr_kind f).
-  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
             content image open rest (frames_ok_tail f stk Hs)); [|exact E].
     apply ilist_ok_oapp;
       [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -1424,7 +1427,7 @@ Proof.
   induction stk as [|f stk IH]; intros pend content name open rest Hs Hp E;
     [discriminate|].
   cbn [tag_close_go] in E. destruct (fr_kind f).
-  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
             content name open rest (frames_ok_tail f stk Hs)); [|exact E].
     apply ilist_ok_oapp;
       [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -1793,16 +1796,33 @@ Proof.
   all: apply itable_wf; assumption.
 Qed.
 
+(* A quote that decays is a node after the flushed text, which is no
+   plain `Str`; any other token joins the text. *)
+Local Lemma odecay_wf :
+  forall k txt marker o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oscope_ok (snd (odecay k txt marker o)) = true
+    /\ starts_str (ocur (snd (odecay k txt marker o))) = false.
+Proof.
+  intros k txt marker o Ho Hs. unfold odecay.
+  destruct (dc_decay cfg k) eqn:Ed; cbn [fst snd]; [split; assumption|].
+  sem_flush. pose proof (iscan_wf_flush (tval txt) o Ho Hs) as Hf.
+  unfold decay_node. rewrite Ed. split.
+  - apply oscope_ok_emit; [exact Hf|reflexivity|reflexivity].
+  - rewrite ocur_emit. reflexivity.
+Qed.
+
 Local Lemma idelim_done_wf :
   forall k txt bef marker next o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_done k txt bef marker next o) = true.
 Proof.
   intros k txt bef marker next o Ho Hs. unfold idelim_done.
-  destruct (dbare k bef && negb marker && nonspace_at next)%bool;
-    [|apply iscan_wf_text; assumption].
-  pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
-  apply iscan_wf_text; [apply oscope_ok_push, Hf | reflexivity].
+  destruct (dbare k bef && negb marker && nonspace_at next)%bool.
+  - pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
+    apply iscan_wf_text; [apply oscope_ok_push, Hf | reflexivity].
+  - destruct (odecay_wf k txt marker o Ho Hs) as [A B].
+    destruct (odecay k txt marker o). apply iscan_wf_text; assumption.
 Qed.
 
 Local Lemma idelim_resolve_wf :

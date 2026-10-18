@@ -506,6 +506,17 @@ Proof.
   rewrite oemit_app. reflexivity.
 Qed.
 
+Local Lemma odecay_app :
+  forall k txt marker o base,
+    @odecay T _ _ semantic_pos semantic_inline_cursor k txt marker (oout_app base o)
+    = (fst (@odecay T _ _ semantic_pos semantic_inline_cursor k txt marker o),
+       oout_app base (snd (@odecay T _ _ semantic_pos semantic_inline_cursor k txt marker o))).
+Proof.
+  intros k txt marker o base. unfold odecay.
+  destruct (dc_decay cfg k); [reflexivity|]. cbn [fst snd].
+  sem_flush. rewrite flush_text_app, oemit_app. reflexivity.
+Qed.
+
 Local Lemma idelim_resolve_app :
   forall k txt bef marker next o base,
     @idelim_resolve T _ _ semantic_pos semantic_inline_cursor
@@ -523,7 +534,8 @@ Proof.
           k txt bef marker next o')).
   { intros o'. unfold idelim_done.
     destruct (dbare k bef && negb marker && nonspace_at next)%bool;
-      [cbn [iout_app]; rewrite flush_text_app, opush_app|]; reflexivity. }
+      [cbn [iout_app]; rewrite flush_text_app, opush_app; reflexivity|].
+    rewrite odecay_app. destruct (odecay k txt marker o'). reflexivity. }
   unfold idelim_resolve; rewrite !oclose_guard; tred.
   destruct (nonspace_at bef || marker)%bool; [|apply Hdone].
   sem_flush. rewrite flush_text_app, sclose_app.
@@ -1217,7 +1229,7 @@ Proof.
   apply Nat.eqb_eq in Halone. rewrite Halone. cbn [Nat.ltb Nat.leb].
   rewrite Hdr. unfold idelim_resolve, idelim_done.
   cbn [nonspace_at]. rewrite H0, H. cbn [negb orb]. rewrite andb_false_r.
-  unfold InlineScan.idelim_lit, InlineScan.idelim_lit_prev, ddecay_str, dtoken.
+  unfold odecay, InlineScan.idelim_lit, InlineScan.idelim_lit_prev, ddecay_str, dtoken.
   destruct (dc_decay cfg k); [|discriminate]. rewrite Halone. tred.
   reflexivity.
 Qed.
@@ -4098,7 +4110,8 @@ Local Lemma idelim_done_text :
       idelim_done k txt bef marker next o = IText false txt' prev' o'.
 Proof.
   intros k txt bef marker next o. unfold idelim_done.
-  destruct (dbare k bef && negb marker && nonspace_at next)%bool; eauto.
+  destruct (dbare k bef && negb marker && nonspace_at next)%bool; [eauto|].
+  destruct (odecay k txt marker o). eauto.
 Qed.
 
 Lemma idelim_resolve_text :

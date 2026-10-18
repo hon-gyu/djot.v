@@ -384,7 +384,9 @@ Proof. intros [k m open out]; destruct k; reflexivity. Qed.
 Local Lemma of_fr_lit : forall `{P : PosPolicy} f,
   @fr_lit T semantic_pos (of_frame f) = Erase.inode (@fr_lit T P f).
 Proof.
-  intros P f. unfold fr_lit. rewrite of_imk, of_fr_src. reflexivity.
+  intros P [k m open out]. unfold fr_lit. rewrite of_imk.
+  destruct k; cbn [fr_node fr_src of_frame fr_kind fr_marked];
+    [unfold decay_node; destruct (dc_decay cfg style)|..]; reflexivity.
 Qed.
 
 Local Lemma of_nonempty : forall l, nonempty (of_oitems l) = nonempty l.
@@ -847,6 +849,16 @@ Proof.
   cbn [of_iscan]. rewrite of_bpush, of_flush_text_to_at. reflexivity.
 Qed.
 
+Local Lemma of_odecay : forall `{P : PosPolicy} `{C : InlineCursor} k txt marker o,
+  @odecay T _ _ semantic_pos semantic_inline_cursor k txt marker (of_ostate o)
+  = (fst (@odecay T _ _ P C k txt marker o), of_ostate (snd (@odecay T _ _ P C k txt marker o))).
+Proof.
+  intros P C k txt marker o. unfold odecay.
+  destruct (dc_decay cfg k) eqn:Ed; [reflexivity|]. cbn [fst snd].
+  rewrite of_oemit, of_imk, of_flush_text_to_at.
+  unfold decay_node. rewrite Ed. reflexivity.
+Qed.
+
 Local Lemma of_idelim_done : forall `{P : PosPolicy} `{C : InlineCursor}
   k txt before marker next o,
   of_iscan (@idelim_done T _ _ P C k txt before marker next o) =
@@ -854,9 +866,9 @@ Local Lemma of_idelim_done : forall `{P : PosPolicy} `{C : InlineCursor}
     (of_ostate o).
 Proof.
   intros P C k txt before marker next o. unfold idelim_done.
-  destruct (dbare k before && negb marker && nonspace_at next)%bool;
-    [|reflexivity].
-  cbn [of_iscan]. rewrite of_opush, of_flush_text_to_at. reflexivity.
+  destruct (dbare k before && negb marker && nonspace_at next)%bool.
+  - cbn [of_iscan]. rewrite of_opush, of_flush_text_to_at. reflexivity.
+  - rewrite of_odecay. destruct (@odecay T _ _ P C k txt marker o). reflexivity.
 Qed.
 
 Local Lemma of_idelim_resolve : forall `{P : PosPolicy} `{C : InlineCursor}

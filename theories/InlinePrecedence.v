@@ -81,12 +81,20 @@ Fixpoint xapp (cur out : list vitem) : list vitem :=
    with `{`, which chooses the side a quote decays to. *)
 Definition fkey : Type := (key * bool)%type.
 
-(* An opener's text, which it reads as once it is not an opener. *)
+(* A token that is not an opener, as a node: a quote's is smart
+   punctuation (`decay_node`), any other its text. *)
+Definition kdecay (k : fkey) (txt : string) : inline :=
+  match fst k with
+  | KDelim k' _ => decay_node k' txt
+  | KBracket => Str txt
+  end.
+
+(* An opener's node, which it reads as once it is not an opener. *)
 Definition lit (k : fkey) : inline :=
-  Str (match fst k with
-       | KDelim k' mr => ddecay_str k' mr (snd k)
-       | KBracket => bracket_open (snd k)
-       end).
+  kdecay k (match fst k with
+            | KDelim k' mr => ddecay_str k' mr (snd k)
+            | KBracket => bracket_open (snd k)
+            end).
 
 (* An opener's frame: where it is, its key, and its content. *)
 Inductive pframe : Type := PF (p : nat) (k : fkey) (c : list vitem).
@@ -172,11 +180,18 @@ Definition pv_trim (v : pview) : pview :=
   | f :: rest => PView (fset f (xtrim (fcontent f)) :: rest) (pv_out v) (pv_mode v)
   end.
 
+Local Lemma kdecay_ne : forall k txt, txt <> "" -> VIn (kdecay k txt) <> VIn (Str "").
+Proof.
+  intros [[k mr|] im] txt H E; cbn [kdecay fst] in E;
+    [unfold decay_node in E; destruct (dc_decay cfg k)|];
+    injection E as E; try discriminate E; contradiction.
+Qed.
+
 (* A token that does not close opens if it may, or is its own text. *)
 Definition popen (i : nat) (k : fkey) (op : bool) (txt : string) (v : pview)
   : pview :=
   if op then PView (PF i k [] :: pv_stk v) (pv_out v) (pv_mode v)
-  else pv_add (Str txt) v.
+  else pv_add (kdecay k txt) v.
 
 Definition add_text (txt : string) (v : pview) : pview :=
   if nonempty_str txt then pv_add (Str txt) v else v.
@@ -1052,10 +1067,16 @@ Proof.
   cbn [chars append]. f_equal. exact IH.
 Qed.
 
-Local Lemma lit_solid : forall k, exists s, lit k = Str s /\ solid s.
+(* An opener read as text is text a trim leaves alone, or a quote's node,
+   which is no text at all. *)
+Local Lemma lit_solid : forall k,
+  (exists s, lit k = Str s /\ solid s) \/ (forall s, lit k <> Str s).
 Proof.
   intros [[k mr|] im];
-    [|exists (bracket_open im); split; [reflexivity|destruct im; (split; [reflexivity|discriminate])]].
+    [|left; exists (bracket_open im); split; [reflexivity|destruct im; (split; [reflexivity|discriminate])]].
+  cbn [lit kdecay fst snd]. unfold decay_node.
+  destruct (dc_decay cfg k) as [|dfl l r] eqn:Ed; [|right; intros s E; discriminate E].
+  left.
   pose proof (ws_punct _ (dchar_punct k)) as Hw.
   destruct (dwidth k) as [|n] eqn:En; [destruct (dwidth_nonzero k En)|].
   assert (Ht : solid (dtoken k))
@@ -1063,22 +1084,40 @@ Proof.
   exists (ddecay_str k mr im). split; [reflexivity|].
   split; [|intros E; pose proof (ddecay_str_nonempty k mr im) as H; rewrite E in H;
             discriminate H].
-  unfold ddecay_str. destruct (dc_decay cfg k) as [|dfl l r] eqn:Ed.
-  - assert (Hc : solid (dtoken k ++ one rbrace))
-      by (apply solid_last; reflexivity).
-    destruct mr, im; cbn [andb negb append]; rewrite ?append_empty_r;
-      first [exact (proj1 Ht) | exact (proj1 Hc)
-            | exact (proj1 (solid_app (one lbrace) _ Ht))].
-  - destruct (ddecay_pair_solid k dfl l r Ed) as [Hl Hr].
-    destruct dfl, mr, im; assumption.
+  unfold ddecay_str. rewrite Ed.
+  assert (Hc : solid (dtoken k ++ one rbrace))
+    by (apply solid_last; reflexivity).
+  destruct mr, im; cbn [andb negb append]; rewrite ?append_empty_r;
+    first [exact (proj1 Ht) | exact (proj1 Hc)
+          | exact (proj1 (solid_app (one lbrace) _ Ht))].
 Qed.
 
-Local Lemma xtrim_collapsed : forall c x acc, (exists s, x = Str s /\ solid s) ->
+Local Lemma xtrim_xapp_nonstr : forall c (x : vitem) r, (forall s, x <> VIn (Str s)) ->
+  xtrim (xapp c (x :: r)) = xapp (xtrim c) (x :: r).
+Proof.
+  intros c x r Hx. destruct c as [|y [|z c]].
+  - cbn [xapp]. dv x; [destruct (Hx _ eq_refl)|..]; reflexivity.
+  - cbn [xapp]. destruct (str_view y) as [[t ->]|Hy].
+    + rewrite (xsnoc_str_nonstr t x r Hx). cbn [xtrim].
+      destruct (strip_trailing_ws t) as [|a t']; [reflexivity|].
+      cbn [xapp]. rewrite (xsnoc_str_nonstr _ x r Hx). reflexivity.
+    + rewrite (xsnoc_nonstr y _ Hy). dv y; [destruct (Hy _ eq_refl)|..];
+        cbn [xtrim xapp]; rewrite (xsnoc_nonstr _ _ Hy); reflexivity.
+  - change (xapp (y :: z :: c) (x :: r)) with (y :: xapp (z :: c) (x :: r)).
+    destruct (str_view y) as [[t ->]|Hy].
+    + cbn [xtrim]. destruct (strip_trailing_ws t); reflexivity.
+    + dv y; [destruct (Hy _ eq_refl)|..]; reflexivity.
+Qed.
+
+Local Lemma xtrim_collapsed : forall c x acc,
+  (exists s, x = Str s /\ solid s) \/ (forall s, x <> Str s) ->
   xtrim (xapp c (xsnoc x acc)) = xapp (xtrim c) (xsnoc x acc).
 Proof.
-  intros c x acc (s & -> & Hs).
-  destruct (xsnoc_solid s acc Hs) as (w & r & E & Hw). rewrite E.
-  apply xtrim_xapp_solid, Hw.
+  intros c x acc [(s & -> & Hs)|Hx].
+  - destruct (xsnoc_solid s acc Hs) as (w & r & E & Hw). rewrite E.
+    apply xtrim_xapp_solid, Hw.
+  - rewrite (xsnoc_nonstr x acc (vin_nonstr x Hx)).
+    apply xtrim_xapp_nonstr, vin_nonstr, Hx.
 Qed.
 
 Local Lemma collapse_trim : forall real v,
@@ -1204,6 +1243,14 @@ Proof.
       with (fst (tfr (fs0, top0))).
     change (map et top0) with (snd (tfr (fs0, top0))).
     apply temit_str_embed. }
+  assert (Item_ : forall x,
+            temit_item x (map (fun f => (fst f, map et (snd f))) fs0) (map et top0)
+            = vafter s real (pv_add (VIn x) v)).
+  { intros x. rewrite AddN.
+    change (map (fun f : tkind * list vitem => (fst f, map et (snd f))) fs0)
+      with (fst (tfr (fs0, top0))).
+    change (map et top0) with (snd (tfr (fs0, top0))).
+    apply temit_item_embed. }
   replace (snd (vembed real v)) with (map et top0)
     by (unfold vembed, v; cbn [pv_stk pv_out]; fold real; rewrite Ec; reflexivity).
   (* a closer that pairs with `p`, and the frame it closes *)
@@ -1250,11 +1297,11 @@ Proof.
         change (map (fun f : tkind * list vitem => (fst f, map et (snd f))) fs0)
           with (fst (tfr (fs0, top0))).
         change (map et top0) with (snd (tfr (fs0, top0))).
-        rewrite temit_str_embed.
+        rewrite temit_item_embed.
         assert (E : delim_lit k mr true cmr = ddecay_str k mr (mr && cmr))
           by (destruct mr; reflexivity).
-        unfold lit, K. cbn [fst snd]. fold cmr. rewrite E. reflexivity.
-      - rewrite (Ho eq_refl), Hc. apply Str_. }
+        unfold lit, kdecay, K. cbn [fst snd]. fold cmr. rewrite E. reflexivity.
+      - rewrite (Ho eq_refl), Hc. apply Item_. }
     cbn [step_facts] in Hf. unfold v. cbn [pstep]. fold v. unfold pv_live. cbn [pv_stk pv_out].
     fold K in Hf |- *. change (pv_stk v) with stk. change (pv_out v) with out.
     destruct (if cl then pick K (map fitem stk) else PNone) as [p below|] eqn:P.
@@ -1513,8 +1560,9 @@ Qed.
 
 Local Lemma lit_clean : forall k, clean [VIn (lit k)].
 Proof.
-  intros k. destruct (lit_solid k) as (s & E & _ & Hs). rewrite E.
-  constructor; [|constructor]. intros X. injection X as X. exact (Hs X).
+  intros k. destruct (lit_solid k) as [(s & E & _ & Hs)|Hn].
+  - rewrite E. constructor; [|constructor]. intros X. injection X as X. exact (Hs X).
+  - constructor; [|constructor]. intros X. injection X as X. exact (Hn _ X).
 Qed.
 
 Local Lemma pclose_go_clean : forall k stk pend content rest,
@@ -1694,7 +1742,7 @@ Proof.
   unfold pstep.
   assert (Open : forall i k op txt, txt <> "" ->
                  frames_clean (popen i k op txt {| pv_stk := stk; pv_out := out; pv_mode := md |})).
-  { intros i k [|] txt Ht; [constructor; [constructor|exact N]|apply pv_add_clean; [apply Str_, Ht|exact N]]. }
+  { intros i k [|] txt Ht; [constructor; [constructor|exact N]|apply pv_add_clean; [apply kdecay_ne, Ht|exact N]]. }
   destruct t as [c| |k mr op cl|oi|b rg|c|ws|ws|vp vn vb vc vr|dk|asrc|sa|ab aa|sb sa'|nl|dn|hn].
   - apply pv_add_clean; [discriminate|exact N].
   - destruct h; [exact N|apply pv_add_clean; [discriminate|exact N]].
@@ -3126,6 +3174,17 @@ Proof.
     split; [intros; contradiction|lia].
 Qed.
 
+(* A node after the text: the text is flushed and the node emitted. *)
+Local Lemma sim_node : forall v txt o (x : inline),
+  sim v txt o -> (forall s, x <> Str s) ->
+  sim (pv_add x v) "" (oemit (mk x) (flush_text txt o)).
+Proof.
+  intros v txt o x (v0 & -> & Ht & ->) Hx.
+  rewrite (flush_view txt v0 Ht), (oemit_view x _ Hx).
+  exists (pv_add x (add_text txt v0)).
+  split; [reflexivity|]. split; [apply top_add_nonstr, Hx|reflexivity].
+Qed.
+
 (* A completed token, bare or with `}` after it (`mr`), resolved. *)
 Local Lemma resolve_sim : forall ps n h k mr txt prev next v o,
   pv_ok ps n v -> pv_mode v = PMNormal -> frames_normal v ->
@@ -3169,8 +3228,13 @@ Proof.
       rewrite Hv. eexists "", _. split; [reflexivity|].
       exists (PView (PF n (KDelim k false, false) [] :: pv_stk v) (pv_out v) (pv_mode v)).
       split; [reflexivity|]. split; reflexivity.
-    - exists (txt ++ ddecay_str k false mr), (oview v0). split; [reflexivity|].
-      unfold popen. exact Lit. }
+    - (* a quote is a node after the flushed text, any other token text *)
+      unfold popen, odecay, K. cbn [kdecay fst]. unfold decay_node.
+      destruct (dc_decay cfg k) eqn:Ed.
+      + exists (txt ++ ddecay_str k false mr), (oview v0). split; [reflexivity|]. exact Lit.
+      + eexists "", _. split; [reflexivity|].
+        apply sim_node; [|discriminate].
+        exists v0. split; [reflexivity|]. split; [exact Ht|reflexivity]. }
   unfold idelim_resolve, pstep. fold op cmr K. cbv zeta. rewrite El.
   destruct (nonspace_at prev || mr)%bool eqn:Hc.
   2: { apply orb_false_iff in Hc as [Hp ->]. rewrite Hp. cbn [orb]. exact Done. }
@@ -4030,6 +4094,7 @@ Proof.
   unfold idelim_resolve, idelim_done.
   repeat match goal with |- context [if ?b then _ else _] => destruct b end;
     repeat match goal with |- context [match ?b with Some _ => _ | None => _ end] => destruct b end;
+    repeat match goal with |- context [odecay ?a ?b ?c ?d] => destruct (odecay a b c d) end;
     eauto.
 Qed.
 
@@ -4470,7 +4535,7 @@ Proof.
   assert (Open : forall i k op txt, txt <> "" ->
             normal (pv_out (popen i k op txt v)) /\ clean (pv_out (popen i k op txt v))).
   { intros i k [|] txt Hne; [split; assumption|apply Add; [|exact N0|exact C0]].
-    intros E. injection E as E. exact (Hne E). }
+    apply kdecay_ne, Hne. }
   unfold pstep.
   destruct t as [c| |k mr op cl|oi|b rg|c|ws|ws|vp vn vb vc vr|dk|asrc|sa|ab aa|sb sa'|nl|dn|hn].
   - apply Add; [discriminate|exact N0|exact C0].
@@ -7449,17 +7514,6 @@ Proof.
         { unfold dots_end. rewrite Es. rewrite append_assoc, <- chars_add.
           replace (3 + (3 * q + r)) with (3 * S q + r) by lia. reflexivity. }
         rewrite E in A, B. split; [exact A|exact B].
-Qed.
-
-(* A node after the text: the text is flushed and the node emitted. *)
-Local Lemma sim_node : forall v txt o (x : inline),
-  sim v txt o -> (forall s, x <> Str s) ->
-  sim (pv_add x v) "" (oemit (mk x) (flush_text txt o)).
-Proof.
-  intros v txt o x (v0 & -> & Ht & ->) Hx.
-  rewrite (flush_view txt v0 Ht), (oemit_view x _ Hx).
-  exists (pv_add x (add_text txt v0)).
-  split; [reflexivity|]. split; [apply top_add_nonstr, Hx|reflexivity].
 Qed.
 
 Local Lemma sim_emits : forall q v o (x : inline),
