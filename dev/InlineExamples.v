@@ -294,7 +294,8 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* Smart punctuation on the two characters that are not delimiters.
    Three periods are one ellipsis, a node of its own, and a fourth is
-   text; a run of hyphens is cut by `dashes`, and is text. *)
+   text; a run of hyphens is cut by `dashes` into dash nodes, and a lone
+   hyphen is text. *)
 Example ellipsis_and_remainder :
   (parse_inline_line "a...b", parse_inline_line "a....b")
   = ([mk (Str "a"); mk ellipsis_node; mk (Str "b")],
@@ -308,8 +309,8 @@ Proof. vm_compute. reflexivity. Qed.
 Example dash_runs :
   (parse_inline_line "a-b", parse_inline_line "a--b", parse_inline_line "a---b")
   = ([mk (Str "a-b")],
-     [mk (Str ("a" ++ endash ++ "b"))],
-     [mk (Str ("a" ++ emdash ++ "b"))]).
+     [mk (Str "a"); mk endash_node; mk (Str "b")],
+     [mk (Str "a"); mk emdash_node; mk (Str "b")]).
 Proof. vm_compute. reflexivity. Qed.
 
 (* Where the run meets the delete row, which is the one place the two
@@ -317,13 +318,13 @@ Proof. vm_compute. reflexivity. Qed.
    the run is cut. *)
 Example dash_run_gives_back_its_closer :
   parse_inline_line "{-a---}"
-  = [mk (Delete [mk (Str ("a" ++ endash))])].
+  = [mk (Delete [mk (Str "a"); mk endash_node])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* With nothing open, `-}` is what is left over: two literal characters,
    and the run before them cut. *)
 Example dash_run_without_an_opener :
-  parse_inline_line "a---}" = [mk (Str ("a" ++ endash ++ "-}"))].
+  parse_inline_line "a---}" = [mk (Str "a"); mk endash_node; mk (Str "-}")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* Escaping is what keeps canonical text out of both rules. *)
@@ -437,10 +438,10 @@ Example decay_does_not_hide_the_source_byte :
   = [mk (Str ("a" ++ rsquo)); mk (Quoted SingleQuotes [mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The dashes rewrite the buffer the same way, and cost the same. *)
+(* A dash is a node, and the byte before the quote is still the hyphen. *)
 Example dash_does_not_hide_the_source_byte :
   parse_inline_line "a--'b'"
-  = [mk (Str ("a" ++ endash)); mk (Quoted SingleQuotes [mk (Str "b")])].
+  = [mk (Str "a"); mk endash_node; mk (Quoted SingleQuotes [mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A marker overrides both the open rule and the side: a braced opener
@@ -1482,7 +1483,7 @@ Proof. vm_compute. reflexivity. Qed.
    symbol is a symbol, and a `{` inside the region may begin a spec of
    its own. *)
 Example attr_failed_spec_dash :
-  parse_inline_line "x{a--" = [mk (Str "x{a–")].
+  parse_inline_line "x{a--" = [mk (Str "x{a"); mk endash_node].
 Proof. vm_compute. reflexivity. Qed.
 
 Example attr_failed_spec_symbol :

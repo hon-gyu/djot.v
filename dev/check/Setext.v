@@ -37,7 +37,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example djot_reads_dashes_as_an_em_dash :
   Djot "a
----" = [mk (Para [mk (Str "a"); mk SoftBreak; mk (Str emdash)])].
+---" = [mk (Para [mk (Str "a"); mk SoftBreak; mk emdash_node])].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

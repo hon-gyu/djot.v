@@ -806,9 +806,6 @@ Definition emdash : string :=
 Definition periods (two : bool) : string :=
   if two then String period (one period) else one period.
 
-Definition typography_ellipsis : string :=
-  if smart_typography then ellipsis else chars period 3.
-
 (* The node an ellipsis is, with smart typography on. *)
 Definition ellipsis_node : inline := SmartPunctuation (chars period 3) ellipsis.
 
@@ -831,12 +828,30 @@ Definition dash_counts (n : nat) : nat * nat * nat :=
   else if Nat.eqb (Nat.modulo n 6) 5 then (Nat.div (n - 2) 3, 1, 0)
   else (Nat.div (n - 4) 3, 2, 0).
 
+(* A run of two or more is at least one dash. *)
+Lemma dash_counts_some : forall n, 2 <= n ->
+  let '(em, en, _) := dash_counts n in 0 < em + en.
+Proof.
+  intros n Hn. unfold dash_counts.
+  pose proof (Nat.div_mod_eq n 3) as D3. pose proof (Nat.div_mod_eq n 2) as D2.
+  destruct (Nat.eqb (Nat.modulo n 3) 0) eqn:E1; [apply Nat.eqb_eq in E1; lia|].
+  destruct (Nat.eqb (Nat.modulo n 2) 0) eqn:E2; [apply Nat.eqb_eq in E2; lia|].
+  destruct (Nat.eqb n 1) eqn:E3; [apply Nat.eqb_eq in E3; lia|].
+  destruct (Nat.eqb (Nat.modulo n 6) 5); lia.
+Qed.
+
 Definition dashes (n : nat) : string :=
   let '(em, en, lit) := dash_counts n in
   (srep emdash em ++ srep endash en ++ chars hyphen lit)%string.
 
-Definition typography_dashes (n : nat) : string :=
-  if smart_typography then dashes n else chars hyphen n.
+(* The nodes a dash is, with smart typography on. *)
+Definition emdash_node : inline := SmartPunctuation (chars hyphen 3) emdash.
+Definition endash_node : inline := SmartPunctuation (chars hyphen 2) endash.
+
+(* Whether a run of `n` hyphens is cut into dash nodes: with smart
+   typography, when it is longer than one.  A lone hyphen is text.  The
+   length is asked first, so a run of one is text by computation. *)
+Definition dash_run_smart (n : nat) : bool := (Nat.leb 2 n && smart_typography)%bool.
 
 (* The counts pinned on the runs that decide the arithmetic: the two
    homogeneous cases, the two remainders, and the lone hyphen. *)

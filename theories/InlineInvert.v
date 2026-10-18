@@ -220,6 +220,26 @@ Proof.
   destruct (nonempty_str txt); [apply oemit_app | reflexivity].
 Qed.
 
+Local Lemma odash_run_app :
+  forall w x count after stop o base,
+    @odash_run semantic_pos w x count after stop (oout_app base o)
+    = oout_app base (@odash_run semantic_pos w x count after stop o).
+Proof.
+  intros w x count. induction count as [|m IH]; intros after stop o base; [reflexivity|].
+  cbn [odash_run]. rewrite oemit_app. apply IH.
+Qed.
+
+Local Lemma odashes_app :
+  forall n stop txt o base,
+    @odashes T _ _ semantic_pos semantic_inline_cursor n stop txt (oout_app base o)
+    = (fst (@odashes T _ _ semantic_pos semantic_inline_cursor n stop txt o),
+       oout_app base (snd (@odashes T _ _ semantic_pos semantic_inline_cursor n stop txt o))).
+Proof.
+  intros n stop txt o base. unfold odashes. destruct (dash_run_smart n); [|reflexivity].
+  destruct (dash_counts n) as [[em en] lit]. cbn [fst snd].
+  sem_flush. rewrite flush_text_app, !odash_run_app. reflexivity.
+Qed.
+
 
 Local Lemma opush_at_app :
   forall k m cm open o base,
@@ -531,6 +551,8 @@ Proof.
   - cbn [iresolve iout_app]. destruct (Nat.ltb (S seen) (dwidth k));
       [reflexivity|].
     destruct mrk; [apply idelim_open_marked_out_app | apply idelim_resolve_app].
+  - cbn [iresolve iout_app]. rewrite odashes_app.
+    destruct (odashes dn cursor_start dtx dob2); reflexivity.
 Qed.
 
 Local Lemma iraw_open_app :
@@ -631,9 +653,17 @@ Proof.
   - (* a hyphen run either grows, gives its last back to a close marker,
        or is cut into dashes *)
     unfold idash_step. destruct (Ascii.eqb c hyphen); [reflexivity|].
-    destruct (Ascii.eqb c rbrace); [|apply ilead_app].
-    destruct (dstyle_of hyphen) as [k|]; [|reflexivity].
-    destruct (Nat.leb (dwidth k) dn); [apply idelim_resolve_app|reflexivity].
+    rewrite !odashes_app.
+    destruct (Ascii.eqb c rbrace);
+      [|destruct (odashes dn cursor_start dtx dob2); apply ilead_app].
+    destruct (dstyle_of hyphen) as [k|];
+      [|destruct (odashes dn cursor_start dtx dob2); reflexivity].
+    destruct (Nat.leb (dwidth k) dn);
+      [|destruct (odashes dn cursor_start dtx dob2); reflexivity].
+    rewrite odashes_app.
+    destruct (odashes (dn - dwidth k) (spot_before cursor_start (chars hyphen (dwidth k)))
+                dtx dob2) as [t o'].
+    apply idelim_resolve_app.
   - unfold ibang_step. destruct (Ascii.eqb c lbrack);
       [cbn [iout_app]; rewrite flush_text_app, bpush_app; reflexivity
       |apply ilead_app].
@@ -1216,8 +1246,6 @@ Proof.
          by (destruct d as [[] [] [] [] [] [] [] []]; first [reflexivity | discriminate Hd]).
        cbn [andb iscan_str]. f_equal.
        apply delim_alone_step, Halone. }
-  assert (Hd1 : typography_dashes 1 = one hyphen)
-    by (unfold typography_dashes; destruct smart_typography; reflexivity).
   cbn [escape_from].
   destruct (escapes b (String c (String p pre')) d r) eqn:Hd;
     [|apply escapes_false in Hd]; cbn [iscan_str]; f_equal.
@@ -1232,7 +1260,7 @@ Proof.
       unfold istep. cbn [istep_at]. unfold ilead at 1, itable. cbn. reflexivity.
     + apply andb_true_iff in Hh as [Hh _].
       apply Ascii.eqb_eq in Hh. subst c.
-      unfold istep. cbn [istep_at]. unfold ilead at 1, itable. cbn. rewrite Hd1. reflexivity.
+      unfold istep. cbn [istep_at]. unfold ilead at 1, itable. cbn. reflexivity.
   - (* the next byte is bare, so it is not a bracket or a brace, which
        are never bare *)
     assert (Hlb : Ascii.eqb d lbrack = false).
@@ -1256,8 +1284,8 @@ Proof.
       unfold ibang_step. rewrite Hlb. reflexivity.
     + apply andb_true_iff in Hh as [Hh Hdh]. apply negb_true_iff in Hdh.
       apply Ascii.eqb_eq in Hh. subst c.
-      unfold istep. cbn [istep_at]. unfold ilead at 1, itable. cbn - [ilead typography_dashes].
-      unfold idash_step. rewrite Hdh, Hrb, Hd1. reflexivity.
+      unfold istep. cbn [istep_at]. unfold ilead at 1, itable. cbn - [ilead].
+      unfold idash_step. rewrite Hdh, Hrb. reflexivity.
 Qed.
 
 (* Canonical text never leaves `IText` for long: `needs_escape` claims
@@ -1316,8 +1344,6 @@ Proof.
            cbn [bare_ok andb] in Hesc.
            cbn [escape_from iscan_str istep istep_at str_last].
            right.
-           assert (Hd1 : typography_dashes 1 = one hyphen)
-             by (unfold typography_dashes; destruct smart_typography; reflexivity).
            apply orb_true_iff in Hesc as [Hesc|Hh];
              [apply orb_true_iff in Hesc as [Hp|Hb]|].
            ++ apply andb_true_iff in Hp as [Hp _]. apply Ascii.eqb_eq in Hp. subst c.
@@ -1325,8 +1351,8 @@ Proof.
            ++ apply Ascii.eqb_eq in Hb. subst c.
               unfold ilead, itable. cbn - [tpush]. split; [eauto|reflexivity].
            ++ apply Ascii.eqb_eq in Hh. subst c.
-              unfold ilead, itable. cbn - [tpush typography_dashes]. split; [eauto|].
-              rewrite Hd1. reflexivity.
+              unfold ilead, itable. cbn - [tpush]. split; [eauto|].
+              reflexivity.
         -- destruct pre as [|p pre']; [discriminate Hesc|].
            cbn [prev_of] in Hprev. subst prev.
            cbn [iscan_str istep istep_at].
@@ -1603,9 +1629,10 @@ Proof.
     change (Ascii.eqb rbrace hyphen) with false.
     rewrite Ascii.eqb_refl, <- Hhy, (dstyle_of_dchar k Hen), Ew.
     rewrite Nat.leb_refl, Nat.sub_diag. tred.
-    assert (Ezero : typography_dashes 0 = EmptyString).
-    { unfold typography_dashes. destruct smart_typography; reflexivity. }
-    rewrite Ezero, (append_empty_r txt).
+    (* a run of no hyphens before the closer is no dash *)
+    change (odashes 0 (spot_before cursor_start (chars (dchar k) (S w))) txt o)
+      with ((txt ++ "")%string, o).
+    cbv beta iota. rewrite (append_empty_r txt).
     unfold idelim_resolve. rewrite !oclose_guard. tred. sem_flush.
     rewrite Bool.orb_true_r, H. reflexivity. }
   rewrite iscan_str_app, (iscan_dtoken k txt prev o Hen Hhy Hup).
@@ -4101,6 +4128,7 @@ Proof.
     destruct mrk; [exact I|].
     destruct (idelim_resolve_text k txt cc false None o) as [txt' [prev' [o' E]]].
     rewrite E. exact I.
+  - destruct (odashes dn cursor_start dtx dob2). exact I.
 Qed.
 
 Local Lemma parse_inline_line_escape :

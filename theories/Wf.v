@@ -1697,6 +1697,50 @@ Proof.
     cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity.
 Qed.
 
+(* Dash nodes after the text: no node is a plain `Str`, and a run that
+   is cut is at least one of them, so the scope never ends in text. *)
+Local Lemma odash_run_ok :
+  forall w x count after stop o,
+    oscope_ok o = true -> (x = emdash_node \/ x = endash_node) ->
+    oscope_ok (odash_run w x count after stop o) = true
+    /\ (count <> 0 -> starts_str (ocur (odash_run w x count after stop o)) = false).
+Proof.
+  intros w x count. induction count as [|m IH]; intros after stop o Ho Hx;
+    [split; [exact Ho|intros H; contradiction]|].
+  cbn [odash_run].
+  assert (Hp : plain_str (@imk semantic_pos (spot_before stop (chars hyphen (w + (m * w + after))))
+                              (spot_before stop (chars hyphen (m * w + after))) x) = false)
+    by (destruct Hx as [->| ->]; reflexivity).
+  assert (He : oscope_ok (oemit (@imk semantic_pos (spot_before stop (chars hyphen (w + (m * w + after))))
+                              (spot_before stop (chars hyphen (m * w + after))) x) o) = true).
+  { apply oscope_ok_emit; [exact Ho| |rewrite Hp; reflexivity].
+    destruct Hx as [->| ->]; reflexivity. }
+  destruct (IH after stop _ He Hx) as [H1 H2]. split; [exact H1|]. intros _.
+  destruct m as [|m']; [|apply H2; discriminate].
+  cbn [odash_run]. rewrite ocur_emit. destruct Hx as [->| ->]; reflexivity.
+Qed.
+
+Local Lemma odashes_ok :
+  forall n stop txt o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oscope_ok (snd (odashes n stop txt o)) = true
+    /\ starts_str (ocur (snd (odashes n stop txt o))) = false.
+Proof.
+  intros n stop txt o Ho Hs. unfold odashes.
+  destruct (dash_run_smart n) eqn:Ed; [|split; assumption].
+  assert (Hn : 2 <= n)
+    by (unfold dash_run_smart in Ed; apply andb_true_iff in Ed as [Ed _];
+        apply Nat.leb_le, Ed).
+  pose proof (dash_counts_some n Hn) as Hc.
+  destruct (dash_counts n) as [[em en] lit]. cbn [snd]. sem_flush.
+  pose proof (iscan_wf_flush (tval txt) o Ho Hs) as Hf.
+  destruct (odash_run_ok 3 emdash_node em (2 * en) stop _ Hf (or_introl eq_refl)) as [E1 E2].
+  destruct (odash_run_ok 2 endash_node en 0 stop _ E1 (or_intror eq_refl)) as [N1 N2].
+  split; [exact N1|].
+  destruct en as [|en']; [|apply N2; discriminate].
+  destruct em as [|em']; [cbn in Hc; destruct (Nat.lt_irrefl _ Hc)|]. apply E2. discriminate.
+Qed.
+
 Local Lemma ilead_wf :
   forall c txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
@@ -2008,15 +2052,23 @@ Proof.
     + apply oscope_ok_emit;
         [sem_flush; apply iscan_wf_flush; [exact Ho|exact Hs]|reflexivity|reflexivity].
     + rewrite ocur_emit. reflexivity.
-  - (* a hyphen run keeps its buffer, and the close it may hand to the
-       delete row is `idelim_resolve`'s business *)
+  - (* a hyphen run keeps its buffer until it is cut; its dashes are
+       nodes after the text (`odashes_ok`), and the close it may hand to
+       the delete row is `idelim_resolve`'s business *)
     unfold idash_step. destruct (Ascii.eqb c hyphen);
       [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
-    destruct (Ascii.eqb c rbrace); [|apply ilead_wf; assumption].
-    destruct (dstyle_of hyphen) as [k|];
-      [destruct (Nat.leb (dwidth k) dn);
-         [apply idelim_resolve_wf; assumption|]|];
-      (apply iscan_wf_text; assumption).
+    destruct (Ascii.eqb c rbrace).
+    2: { destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+         destruct (odashes dn cursor_start dtx dob2). apply ilead_wf; assumption. }
+    destruct (dstyle_of hyphen) as [k|].
+    2: { destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+         destruct (odashes dn cursor_start dtx dob2). apply iscan_wf_text; assumption. }
+    destruct (Nat.leb (dwidth k) dn).
+    2: { destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+         destruct (odashes dn cursor_start dtx dob2). apply iscan_wf_text; assumption. }
+    destruct (odashes_ok (dn - dwidth k) (spot_before cursor_start (chars hyphen (dwidth k)))
+                dtx dob2 Ho Hs) as [H1 H2].
+    destruct (odashes (dn - dwidth k) _ dtx dob2). apply idelim_resolve_wf; assumption.
   - unfold ibang_step. destruct (Ascii.eqb c lbrack);
       [apply iscan_wf_text;
          [apply oscope_ok_bpush, iscan_wf_flush; assumption | reflexivity]
@@ -2228,6 +2280,9 @@ Proof.
       [apply iscan_wf_text; assumption|].
     destruct mrk;
       [apply idelim_open_marked_wf | apply idelim_resolve_wf]; assumption.
+  - apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs.
+    destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+    destruct (odashes dn cursor_start dtx dob2). apply iscan_wf_text; assumption.
 Qed.
 
 Local Lemma iscan_wf_ostate_flat :
@@ -2352,9 +2407,10 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   assert (Hcomp' : is_compound (iresolve st) = false)
     by (destruct st as [| | |k extra txt before marked o
-                       | | | | | | | | | | | | | | | | | | |];
+                       | | | | | | |n dtxt dprev dob | | | | | | | | | | | | ];
         cbn [is_compound iresolve] in *;
         try reflexivity; try discriminate Hcomp;
+        try (destruct (odashes n cursor_start dtxt dob); reflexivity);
         destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|];
         destruct marked; [reflexivity|];
         destruct (idelim_resolve_text k txt before false None o)

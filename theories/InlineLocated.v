@@ -909,6 +909,30 @@ Proof.
   cbn [of_iscan]. rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
 Qed.
 
+(* A dash's position is all erasure drops of it, so where the run is
+   said to stop does not matter after. *)
+Local Lemma of_odash_run : forall `{P : PosPolicy} w x count after stop stop' o,
+  Erase.of_inline x = x ->
+  of_ostate (@odash_run P w x count after stop o) =
+  @odash_run semantic_pos w x count after stop' (of_ostate o).
+Proof.
+  intros P w x count. induction count as [|m IH]; intros after stop stop' o Hx;
+    [reflexivity|].
+  cbn [odash_run]. rewrite (IH after stop stop' _ Hx), of_oemit, of_imk, Hx. reflexivity.
+Qed.
+
+Local Lemma of_odashes : forall `{P : PosPolicy} `{C : InlineCursor} n stop stop' txt o,
+  @odashes T _ _ semantic_pos semantic_inline_cursor n stop' txt (of_ostate o)
+  = (fst (@odashes T _ _ P C n stop txt o), of_ostate (snd (@odashes T _ _ P C n stop txt o))).
+Proof.
+  intros P C n stop stop' txt o. unfold odashes.
+  destruct (dash_run_smart n); [|reflexivity].
+  destruct (dash_counts n) as [[em en] lit]. cbn [fst snd].
+  rewrite (of_odash_run 2 endash_node en 0 stop stop') by reflexivity.
+  rewrite (of_odash_run 3 emdash_node em (2 * en) stop stop') by reflexivity.
+  rewrite of_flush_text_to_at. reflexivity.
+Qed.
+
 Local Lemma of_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}
   c n txt prev o,
   of_iscan (@idash_step T _ _ P C c n txt prev o) =
@@ -917,21 +941,29 @@ Local Lemma of_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}
 Proof.
   intros P C c n txt prev o. unfold idash_step.
   destruct (Ascii.eqb c hyphen); [reflexivity|].
-  destruct (Ascii.eqb c rbrace); [|apply of_ilead].
-  destruct (dstyle_of hyphen) as [k|]; [|reflexivity].
-  destruct (Nat.leb (dwidth k) n); [apply of_idelim_resolve|reflexivity].
+  rewrite !(of_odashes n cursor_start).
+  destruct (Ascii.eqb c rbrace);
+    [|destruct (@odashes T _ _ P C n cursor_start txt o); apply of_ilead].
+  destruct (dstyle_of hyphen) as [k|];
+    [|destruct (@odashes T _ _ P C n cursor_start txt o); reflexivity].
+  destruct (Nat.leb (dwidth k) n);
+    [|destruct (@odashes T _ _ P C n cursor_start txt o); reflexivity].
+  rewrite (of_odashes (n - dwidth k) (spot_before cursor_start (chars hyphen (dwidth k)))).
+  destruct (@odashes T _ _ P C (n - dwidth k) _ txt o). apply of_idelim_resolve.
 Qed.
 
 Local Lemma of_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   of_iscan (@iresolve T _ _ P C st) =
   @iresolve T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
-  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | | | | |];
+  intros P C [| | |k extra txt before marked o| | | | | | |n txt prev o| | | | | | | | | | | | ];
     try reflexivity.
-  cbn [of_iscan iresolve].
-  destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
-  destruct marked;
-    [apply of_idelim_open_marked|apply of_idelim_resolve].
+  - cbn [of_iscan iresolve].
+    destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
+    destruct marked;
+      [apply of_idelim_open_marked|apply of_idelim_resolve].
+  - cbn [of_iscan iresolve]. rewrite (of_odashes n cursor_start).
+    destruct (@odashes T _ _ P C n cursor_start txt o). reflexivity.
 Qed.
 
 Local Lemma of_iescws_resolve : forall `{P : PosPolicy} `{C : InlineCursor}

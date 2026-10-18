@@ -684,14 +684,6 @@ let ellipsis_node =
   SmartPunctuation
     ((chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))), ellipsis)
 
-(** val srep : string -> int -> string **)
-
-let rec srep s n =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> "")
-    (fun m -> (^) s (srep s m))
-    n
-
 (** val dash_counts : int -> (int * int) * int **)
 
 let dash_counts n =
@@ -715,17 +707,21 @@ let dash_counts n =
                           (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))),
                         (Stdlib.succ (Stdlib.succ 0))), 0)
 
-(** val dashes : int -> string **)
+(** val emdash_node : inline **)
 
-let dashes n =
-  let (p, lit) = dash_counts n in
-  let (em, en) = p in
-  (^) (srep emdash em) ((^) (srep endash en) (chars hyphen lit))
+let emdash_node =
+  SmartPunctuation
+    ((chars hyphen (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))), emdash)
 
-(** val typography_dashes : dtable -> int -> string **)
+(** val endash_node : inline **)
 
-let typography_dashes t n =
-  if smart_typography t then dashes n else chars hyphen n
+let endash_node =
+  SmartPunctuation ((chars hyphen (Stdlib.succ (Stdlib.succ 0))), endash)
+
+(** val dash_run_smart : dtable -> int -> bool **)
+
+let dash_run_smart t n =
+  (&&) (( <= ) (Stdlib.succ (Stdlib.succ 0)) n) (smart_typography t)
 
 (** val auto_node : string -> inline **)
 

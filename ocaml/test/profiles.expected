@@ -9,7 +9,9 @@ Table
 Para
   Str "| a |"
   SoftBreak
-  Str "|—|"
+  Str "|"
+  SmartPunctuation "---" "—"
+  Str "|"
 
 "**a**\n"
 -- djot

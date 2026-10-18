@@ -210,7 +210,7 @@ Definition pstep (s : string) (i : nat) (hard : bool) (t : token) (v : pview) : 
   | TAttr _ a => pv_setmode (PMAtom (VMark a) (pred (tok_end s i))) v
   | TNote l => pv_setmode (PMAtom (FootnoteReference (normalize_label l)) (pred (tok_end s i))) v
   | TDots n => pv_add_items (dots_items n) v
-  | TDash n => pv_add (Str (typography_dashes n)) v
+  | TDash n => pv_add_items (dash_items n) v
   | TSpan b a =>
       match pick KBracket (pv_live v), pclose_go KBracket [] (pv_stk v) with
       | PFound _ _, Some (content, rest) =>
@@ -843,6 +843,7 @@ Proof.
     destruct (pclose_found _ _ _ _ P) as (content & rest & Hc & Hb).
     rewrite Hc. cbn [pv_live pv_stk map fitem]. rewrite ?Hb. reflexivity.
   - rewrite (proj1 (pv_add_items_live _ v)). exact Hl.
+  - rewrite (proj1 (pv_add_items_live _ v)). exact Hl.
 Qed.
 
 Local Lemma pstep_mode : forall s n h t v,
@@ -1404,7 +1405,14 @@ Proof.
     rewrite temit_items_embed. unfold v. cbn [pv_stk pv_out]. fold real. rewrite Ec.
     reflexivity.
   - (* a run of hyphens *)
-    cbn [tstep pstep]. apply Str_.
+    cbn [tstep pstep].
+    rewrite Norm by (rewrite (proj2 (pv_add_items_live _ v)); reflexivity).
+    unfold vembed. rewrite collapse_add_items.
+    change (map (fun f : tkind * list vitem => (fst f, map et (snd f))) fs0)
+      with (fst (tfr (fs0, top0))).
+    change (map et top0) with (snd (tfr (fs0, top0))).
+    rewrite temit_items_embed. unfold v. cbn [pv_stk pv_out]. fold real. rewrite Ec.
+    reflexivity.
 Qed.
 
 Local Lemma pv_add_normal : forall x v, frames_normal v -> frames_normal (pv_add x v).
@@ -1471,6 +1479,7 @@ Proof.
       destruct (pclose_go KBracket [] stk) as [[content rest]|] eqn:Hc;
       try (apply pv_add_normal; exact N).
     exact (proj2 (pclose_go_normal _ stk [] content rest N Logic.I Hc)).
+  - apply pv_add_items_normal, N.
   - apply pv_add_items_normal, N.
 Qed.
 
@@ -1585,9 +1594,6 @@ Definition empty_run (t : token) : Prop := t = TDollars 0 \/ t = TDots 0 \/ t = 
 
 Ltac norun := first [discriminate | (let E := fresh in intros [E|[E|E]]; discriminate E)].
 
-Local Lemma app_ne_l : forall a b, a <> "" -> (a ++ b)%string <> "".
-Proof. intros [|c a] b H; [contradiction|discriminate]. Qed.
-
 Local Lemma app_ne_r : forall a b, b <> "" -> (a ++ b)%string <> "".
 Proof. intros [|c a] b H; [exact H|discriminate]. Qed.
 
@@ -1612,6 +1618,27 @@ Proof.
   destruct (Nat.modulo n 3) as [|r]; [lia|discriminate].
 Qed.
 
+Local Lemma dash_items_nonempty : forall n, n <> 0 -> dash_items n <> [].
+Proof.
+  intros n Hn. unfold dash_items. destruct (dash_run_smart n) eqn:Ed; [|discriminate].
+  assert (H2 : 2 <= n)
+    by (unfold dash_run_smart in Ed; apply andb_true_iff in Ed as [Ed _];
+        apply Nat.leb_le, Ed).
+  pose proof (dash_counts_some n H2) as Hc.
+  destruct (dash_counts n) as [[[|em] [|en]] lit]; cbn in Hc |- *; try lia; discriminate.
+Qed.
+
+Local Lemma dash_items_ne : forall n, n <> 0 ->
+  Forall (fun x : inline => VIn x <> VIn (Str "")) (dash_items n).
+Proof.
+  intros n Hn. unfold dash_items. destruct (dash_run_smart n).
+  - destruct (dash_counts n) as [[em en] lit]. apply Forall_app. split;
+      apply Forall_forall; intros x Hx; apply repeat_spec in Hx; subst x;
+      [unfold emdash_node|unfold endash_node]; discriminate.
+  - destruct n as [|n]; [contradiction|].
+    constructor; [|constructor]. cbn [chars]. discriminate.
+Qed.
+
 Local Lemma pv_add_items_clean : forall xs v,
   Forall (fun x : inline => VIn x <> VIn (Str "")) xs ->
   frames_clean v -> frames_clean (pv_add_items xs v).
@@ -1619,16 +1646,6 @@ Proof.
   induction xs as [|x xs IH]; intros v Hx N; [exact N|].
   apply Forall_cons_iff in Hx as [Hx Hxs]. apply IH; [exact Hxs|].
   apply pv_add_clean; assumption.
-Qed.
-
-Local Lemma dashes_ne : forall n, n <> 0 -> typography_dashes n <> "".
-Proof.
-  intros n Hn. unfold typography_dashes.
-  destruct smart_typography; [|destruct n; [contradiction|discriminate]].
-  destruct (dashes_divide n ltac:(lia)) as (em & en & lit & E & Hs & _). rewrite E.
-  destruct em as [|em]; [|cbn [srep]; apply app_ne_l, app_ne_l; discriminate].
-  destruct en as [|en]; [|cbn [srep append]; apply app_ne_l, app_ne_l; discriminate].
-  destruct lit as [|lit]; [lia|discriminate].
 Qed.
 
 Local Lemma tok_text_ne : forall t,
@@ -1719,8 +1736,8 @@ Proof.
   - exact N.
   - apply pv_add_items_clean; [|exact N].
     apply dots_items_ne. intros ->. apply H0. right. left. reflexivity.
-  - apply pv_add_clean; [|exact N].
-    apply Str_, dashes_ne. intros ->. apply H0. right. right. reflexivity.
+  - apply pv_add_items_clean; [|exact N].
+    apply dash_items_ne. intros ->. apply H0. right. right. reflexivity.
 Qed.
 
 Local Lemma pbyte_normal : forall i c v, frames_normal v -> frames_normal (pbyte i c v).
@@ -2926,6 +2943,10 @@ Proof.
     pose proof (tok_at_dots ps n dn l Ht) as El.
     apply (pv_ok_add_items ps n); [|exact D|exact Bd|exact Be|exact So|exact Bt|lia].
     apply dots_items_nonempty. lia.
+  - (* a run of hyphens *)
+    pose proof (tok_at_dash ps n hn l Ht) as El.
+    apply (pv_ok_add_items ps n); [|exact D|exact Bd|exact Be|exact So|exact Bt|lia].
+    apply dash_items_nonempty. lia.
 Qed.
 
 Local Lemma pv_ok_byte : forall ps n c v,
@@ -4002,7 +4023,8 @@ Proof. intros c. destruct c as [[] [] [] [] [] [] [] []]; intros H; try discrimi
 Local Lemma iresolve_shape : forall st : iscan,
   (exists txt prev o, iresolve st = IText false txt prev o) \/ iresolve st = st.
 Proof.
-  intros st. destruct st; try (right; reflexivity); try (left; cbn [iresolve]; eauto; fail).
+  intros st. destruct st; try (right; reflexivity); try (left; cbn [iresolve]; eauto; fail);
+    try (left; cbn [iresolve]; destruct (odashes _ _ _ _); eauto; fail).
   left. cbn [iresolve]. destruct (Nat.ltb (S extra) (dwidth k)); [eauto|].
   destruct marked; [unfold idelim_open_marked; eauto|].
   unfold idelim_resolve, idelim_done.
@@ -4019,6 +4041,7 @@ Proof.
   - cbn [rres]. destruct inline_attrs_enabled; reflexivity.
   - destruct (iresolve_shape (IDelim k extra txt before marked o)) as [(t & p & o' & E)|E];
       cbn [rres ifinish_ostate]; rewrite !E; cbn [ifinish_ostate]; rewrite ?E; reflexivity.
+  - cbn [rres iresolve ifinish_ostate]. destruct (odashes _ _ _ _); reflexivity.
 Qed.
 
 Local Lemma ifinish_rres : forall st : iscan, ifinish (rres st) = ifinish st.
@@ -4034,6 +4057,7 @@ Proof.
   - cbn [rres]. destruct inline_attrs_enabled; reflexivity.
   - destruct (iresolve_shape (IDelim k extra txt before marked o)) as [(t & p & o' & E)|E];
       cbn [rres ibreak_at]; rewrite !E; cbn [ibreak_at]; rewrite ?E; reflexivity.
+  - cbn [rres iresolve ibreak_at]. destruct (odashes _ _ _ _); reflexivity.
 Qed.
 
 Local Lemma ifinish_wrap : forall ws core, ifinish (wrap ws core) = ifinish core.
@@ -4490,8 +4514,8 @@ Proof.
   - split; assumption.
   - apply pv_add_items_out; [|exact N0|exact C0].
     apply dots_items_ne. intros ->. apply H0. right. left. reflexivity.
-  - apply Add; [|exact N0|exact C0]. intros E. injection E as E. revert E.
-    apply dashes_ne. intros ->. apply H0. right. right. reflexivity.
+  - apply pv_add_items_out; [|exact N0|exact C0].
+    apply dash_items_ne. intros ->. apply H0. right. right. reflexivity.
 Qed.
 
 Local Lemma pstep_atom : forall ps n h t v,
@@ -7504,11 +7528,15 @@ Qed.
 Local Lemma dash_settle : forall n txt prev o c', Ascii.eqb c' hyphen = false ->
   (Ascii.eqb c' rbrace = true -> dstyle_of hyphen = None) ->
   istep c' (IDash n txt prev o)
-  = istep c' (IText false (txt ++ typography_dashes n) (Some hyphen) o).
+  = istep c' (IText false (fst (odashes n cursor_start txt o)) (Some hyphen)
+                (snd (odashes n cursor_start txt o))).
 Proof.
   intros n txt prev o c' Hh Hr. unfold istep. cbn [istep_at]. unfold idash_step. rewrite Hh.
-  destruct (Ascii.eqb c' rbrace) eqn:E; [|reflexivity].
-  rewrite (Hr eq_refl). apply Ascii.eqb_eq in E. subst c'. tred. unfold ilead, itable.
+  destruct (Ascii.eqb c' rbrace) eqn:E;
+    [|destruct (odashes n cursor_start txt o); reflexivity].
+  rewrite (Hr eq_refl). apply Ascii.eqb_eq in E. subst c'.
+  destruct (odashes n cursor_start txt o) as [t o']. cbn [fst snd].
+  tred. unfold ilead, itable.
   change (is_bslash rbrace) with false. change (is_tick rbrace) with false.
   change (Ascii.eqb rbrace dollar) with false. change (Ascii.eqb rbrace period) with false.
   change (Ascii.eqb rbrace hyphen) with false. change (Ascii.eqb rbrace lbrace) with false.
@@ -7516,7 +7544,59 @@ Proof.
   change (Ascii.eqb rbrace ":"%char) with false. change (Ascii.eqb rbrace lbrack) with false.
   change (Ascii.eqb rbrace rbrack) with false. change (Ascii.eqb rbrace hat) with false.
   cbn [andb]. rewrite dstyle_of_rbrace. change (Ascii.eqb rbrace percent) with false.
-  rewrite andb_false_r. tred. rewrite append_assoc. reflexivity.
+  rewrite andb_false_r. tred. reflexivity.
+Qed.
+
+(* Without positions a run of dash nodes is copies of one node, and
+   where the run stops is not looked at. *)
+Local Lemma odash_run_emits : forall w x count after stop o,
+  @odash_run semantic_pos w x count after stop o = emits count (mk x) o.
+Proof.
+  intros w x count. induction count as [|m IH]; intros after stop o; [reflexivity|].
+  cbn [odash_run emits]. apply IH.
+Qed.
+
+Local Lemma odashes_stop : forall n stop stop' txt o,
+  odashes n stop txt o = odashes n stop' txt o.
+Proof.
+  intros n stop stop' txt o. unfold odashes. destruct (dash_run_smart n); [|reflexivity].
+  destruct (dash_counts n) as [[em en] lit]. rewrite !odash_run_emits. reflexivity.
+Qed.
+
+Local Lemma sim_emits_after : forall q v txt o (x : inline),
+  sim v txt o -> (forall s, x <> Str s) ->
+  sim (pv_add_items (repeat x (S q)) v) "" (emits (S q) (mk x) (flush_text txt o)).
+Proof.
+  intros q v txt o x Hs Hx. cbn [repeat emits].
+  apply (sim_emits q (pv_add x v)); [|exact Hx]. exact (sim_node v txt o x Hs Hx).
+Qed.
+
+(* A run of hyphens, cut or not, as the view and the scanner hold it. *)
+Local Lemma dash_sim : forall k v txt o, 0 < k -> sim v txt o ->
+  sim (pv_add_items (dash_items k) v)
+    (fst (odashes k cursor_start txt o)) (snd (odashes k cursor_start txt o)).
+Proof.
+  intros k v txt o Hk Hs. unfold dash_items, odashes.
+  destruct (dash_run_smart k) eqn:Ed.
+  - assert (H2 : 2 <= k)
+      by (unfold dash_run_smart in Ed; apply andb_true_iff in Ed as [Ed _];
+          apply Nat.leb_le, Ed).
+    pose proof (dash_counts_some k H2) as Hc.
+    destruct (dash_counts k) as [[em en] lit]. cbn [fst snd].
+    rewrite !odash_run_emits.
+    assert (Hm : forall s, emdash_node <> Str s) by (intros s0; discriminate).
+    assert (Hn : forall s, endash_node <> Str s) by (intros s0; discriminate).
+    unfold pv_add_items. rewrite fold_left_app.
+    fold (pv_add_items (repeat emdash_node em) v).
+    fold (pv_add_items (repeat endash_node en) (pv_add_items (repeat emdash_node em) v)).
+    destruct em as [|em].
+    + destruct en as [|en]; [cbn in Hc; lia|].
+      cbn [repeat pv_add_items fold_left emits].
+      exact (sim_emits_after en v txt o endash_node Hs Hn).
+    + apply sim_emits; [|exact Hn].
+      exact (sim_emits_after em v txt o emdash_node Hs Hm).
+  - cbn [fst snd pv_add_items fold_left]. apply sim_text; [exact Hs|].
+    destruct k; [lia|reflexivity].
 Qed.
 
 Local Lemma run_of_split : forall c j rest,
@@ -7531,9 +7611,6 @@ Qed.
 
 Local Lemma sdrop_chars : forall c j x, sdrop j (chars c j ++ x) = x.
 Proof. intros c j x. induction j as [|j IH]; [reflexivity|exact IH]. Qed.
-
-Local Lemma dashes_0 : typography_dashes 0 = "".
-Proof. unfold typography_dashes. destruct smart_typography; reflexivity. Qed.
 
 (* A `^` right after a bracket opens, with footnotes on: the bracket is
    taken back, and the `^` read as usual inside the label's layer. *)
@@ -7896,7 +7973,8 @@ Proof.
         apply (scan_tok_in ps after len IH (String hyphen s') n false v ws
                  (IText false txt prev o) (TDash (S j)) (S j)
                  (String hyphen (String rbrace r)) (Some hyphen)
-                 (IText false (txt ++ typography_dashes (S j)) (Some hyphen) o)
+                 (IText false (fst (odashes (S j) cursor_start txt o)) (Some hyphen)
+                    (snd (odashes (S j) cursor_start txt o)))
                  Hl Hs Fn V Em).
         - rewrite Htok by first [reflexivity|assumption]. unfold next_tok, dash_tok. rewrite Hrun, Ek, Sd, Hrow. cbn. reflexivity.
         - exact Hsp2.
@@ -7909,17 +7987,21 @@ Proof.
           exists (String hyphen (one rbrace)), r. split; [reflexivity|left].
           cbn [tok_text]. rewrite (dash_run_scan (S j) txt prev o ltac:(lia)).
           cbn [iscan_str one].
-          change (istep hyphen (IText false (txt ++ typography_dashes (S j)) (Some hyphen) o))
-            with (IDash 1 (txt ++ typography_dashes (S j)) (Some hyphen) o).
+          change (istep hyphen (IText false (fst (odashes (S j) cursor_start txt o))
+                                  (Some hyphen) (snd (odashes (S j) cursor_start txt o))))
+            with (IDash 1 (fst (odashes (S j) cursor_start txt o)) (Some hyphen)
+                    (snd (odashes (S j) cursor_start txt o))).
           unfold istep. cbn [istep_at]. unfold idash_step. rewrite Ascii.eqb_refl.
           cbn [istep_at]. unfold idash_step. change (Ascii.eqb rbrace hyphen) with false.
-          rewrite Ascii.eqb_refl, Ek, Hrow. cbn [Nat.leb Nat.sub]. rewrite dashes_0. tred.
-          rewrite append_empty_r. reflexivity.
+          rewrite Ascii.eqb_refl, Ek, Hrow. cbn [Nat.leb Nat.sub].
+          replace (S (S j) - 1) with (S j) by lia.
+          rewrite (odashes_stop (S j) _ cursor_start).
+          destruct (odashes (S j) cursor_start txt o) as [t o']. cbn [fst snd].
+          change (odashes 0 _ t o') with ((t ++ "")%string, o').
+          cbv beta iota. rewrite append_empty_r. reflexivity.
         - cbn [is_hard]. apply linked_normal.
           + apply pstep_mode; [exact Em|discriminate|discriminate|discriminate|discriminate|discriminate].
-          + unfold pstep. apply sim_text; [exact Hsim|].
-            destruct (typography_dashes (S j)) eqn:E;
-              [destruct (dashes_ne (S j) ltac:(lia) E)|reflexivity].
+          + unfold pstep. apply dash_sim; [lia|exact Hsim].
         - left. apply pstep_mode; [exact Em|discriminate|discriminate|discriminate|discriminate|discriminate]. }
       unfold k in *. clear k.
       pose proof (dstyle_of_char _ _ Ek) as Ekc.
@@ -7943,7 +8025,9 @@ Proof.
         change (istep hyphen (IText false txt prev o)) with (IDash 1 txt prev o).
         unfold istep. cbn [istep_at]. unfold idash_step.
         change (Ascii.eqb rbrace hyphen) with false. rewrite Ascii.eqb_refl, Ek, Hrow.
-        cbn [Nat.leb Nat.sub]. rewrite dashes_0. tred. rewrite append_empty_r, Er.
+        cbn [Nat.leb Nat.sub].
+        change (odashes 0 _ txt o) with ((txt ++ "")%string, o).
+        cbv beta iota. tred. rewrite append_empty_r, Er.
         apply settles_refl.
       + reflexivity.
       + apply pstep_mode; [exact Em|discriminate|discriminate|discriminate|discriminate|discriminate].
@@ -7953,7 +8037,8 @@ Proof.
                 dstyle_of hyphen = None).
       { intros c' r' -> E. cbn [starts_with] in Cl. rewrite E in Cl.
         destruct (dstyle_of hyphen); [discriminate Cl|reflexivity]. }
-      apply (Nrm (TDash k) k rest (Some hyphen) (txt ++ typography_dashes k) o).
+      apply (Nrm (TDash k) k rest (Some hyphen) (fst (odashes k cursor_start txt o))
+               (snd (odashes k cursor_start txt o))).
       + rewrite Htok by first [reflexivity|assumption]. unfold next_tok, dash_tok. rewrite Hrun, Sd.
         destruct (dstyle_of hyphen); [rewrite Cl|]; reflexivity.
       + exact Hsp.
@@ -7965,14 +8050,13 @@ Proof.
       + rewrite Hsp in Ha. exact (over_alphabet_app_r _ rest (no_bslash_chars hyphen k eq_refl) Ha).
       + apply Hfh.
       + cbn [tok_text]. rewrite (dash_run_scan k txt prev o ltac:(unfold k; lia)).
-        destruct rest as [|c' r'] eqn:Er; cbn [get settles]; [reflexivity|].
-        apply dash_settle; [|exact (Hnc c' r' eq_refl)].
-        cbn [starts_with] in Hrh. exact Hrh.
+        destruct rest as [|c' r'] eqn:Er; cbn [get settles].
+        * cbn [rres iresolve]. destruct (odashes k cursor_start txt o); reflexivity.
+        * apply dash_settle; [|exact (Hnc c' r' eq_refl)].
+          cbn [starts_with] in Hrh. exact Hrh.
       + reflexivity.
       + apply pstep_mode; [exact Em|discriminate|discriminate|discriminate|discriminate|discriminate].
-      + unfold pstep. apply sim_text; [exact Hsim|].
-        destruct (typography_dashes k) eqn:E;
-          [destruct (dashes_ne k ltac:(unfold k; lia) E)|reflexivity]. }
+      + unfold pstep. apply dash_sim; [unfold k; lia|exact Hsim]. }
   destruct (Ascii.eqb c bang) eqn:Ebg.
   { (* a `!`: an image's bracket before a `[`, or text *)
     apply Ascii.eqb_eq in Ebg. subst c.

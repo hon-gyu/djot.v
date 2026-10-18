@@ -859,6 +859,14 @@ Definition dots_items (n : nat) : list inline :=
             else [Str (chars period (Nat.modulo n 3))]))%list
   else [Str (chars period n)].
 
+(* A run of hyphens (Q5): the em and en dashes `dash_counts` cuts it into,
+   or text when `dash_run_smart` says it is not cut. *)
+Definition dash_items (n : nat) : list inline :=
+  if dash_run_smart n
+  then let '(em, en, _) := dash_counts n in
+       (repeat emdash_node em ++ repeat endash_node en)%list
+  else [Str (chars hyphen n)].
+
 (* Nodes after the nodes before them, text merging with text. *)
 Definition temit_item (x : inline) (fs : tframes) (top : list titem)
   : tframes * list titem :=
@@ -899,7 +907,7 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   | TAttr _ a => tmark a fs top
   | TNote l => temit (mk (FootnoteReference (normalize_label l))) fs top
   | TDots n => temit_items (dots_items n) fs top
-  | TDash n => temit_str (typography_dashes n) fs top
+  | TDash n => temit_items (dash_items n) fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
   | TDelim k mr op _ =>
       if is_opener m i then ((TKDelim k, []) :: fs, top)

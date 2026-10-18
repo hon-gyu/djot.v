@@ -75,7 +75,18 @@ foo : bar
 ```
 
 The label is one inline element: a run of text, or an emphasis, a link, a
-code span.
+code span.  A run of text may hold smart punctuation.
+
+``` example
+it's -- here: bar
+.
+<dl class="keyed">
+<dt>it’s – here</dt>
+<dd>
+<p>bar</p>
+</dd>
+</dl>
+```
 
 ## The value
 

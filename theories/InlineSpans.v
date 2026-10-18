@@ -1192,6 +1192,28 @@ Qed.
 Lemma oinv_any : forall W o t h, oinv W o true h -> oinv W o t h.
 Proof. intros. apply oinv_untouch. assumption. Qed.
 
+(* Dash nodes are no delimiter's, so they keep a touched scope as it is. *)
+Lemma odash_run_ok : forall W w x count after stop o h,
+  dkind x = None -> children x = [] ->
+  oinv W o true h -> oinv W (odash_run w x count after stop o) true h.
+Proof.
+  intros W w x count. induction count as [|m IH]; intros after stop o h Hk Hc Ho;
+    [exact Ho|].
+  cbn [odash_run]. apply IH; [exact Hk|exact Hc|]. apply oemit_ok; [|exact Ho].
+  apply dn_imk_plain; [exact Hk|rewrite Hc; constructor].
+Qed.
+
+Lemma odashes_touched : forall W (CU : InlineCursor) n stop txt o h,
+  oinv W o true h -> oinv W (snd (odashes n stop txt o)) true h.
+Proof.
+  intros W CU n stop txt o h Ho. unfold odashes.
+  destruct (dash_run_smart n); [|exact Ho].
+  destruct (dash_counts n) as [[em en] lit]. cbn [snd].
+  apply odash_run_ok; [reflexivity|reflexivity|].
+  apply odash_run_ok; [reflexivity|reflexivity|].
+  apply flush_text_to_at_touched, Ho.
+Qed.
+
 (* The bracket's scope, pushed at the cursor. *)
 Lemma bpush_ok : forall W (CU : InlineCursor) (image : bool) o (start : spot),
   oinv W o false start ->
@@ -1638,9 +1660,6 @@ Qed.
 Lemma previous_spot_eq : forall p, previous_spot p = sleft 1 p.
 Proof. intros [k r]. unfold previous_spot, sleft. cbn. f_equal. lia. Qed.
 
-Lemma typography_dashes_0 : typography_dashes 0 = EmptyString.
-Proof. unfold typography_dashes. destruct smart_typography; reflexivity. Qed.
-
 Lemma chars_add : forall c a b, chars c (a + b) = (chars c a ++ chars c b)%string.
 Proof. intros c a b. induction a as [|a IH]; [reflexivity|]. cbn. rewrite IH. reflexivity. Qed.
 
@@ -1849,11 +1868,14 @@ Proof.
     replace (sleft (S n) next) with (sleft n cur); [exact Ho|].
     unfold next. pose proof (cur_rem _ _ _ _ Hcur). destruct cur as [kk rr].
     unfold sleft, sright. cbn in *. f_equal. lia.
-  - destruct (Ascii.eqb c rbrace) eqn:E2.
+  - pose proof (odashes_touched W CU n cursor_start txt o cur Ht) as Hd.
+    destruct (Ascii.eqb c rbrace) eqn:E2.
     + apply Ascii.eqb_eq in E2. pose proof Hcur as Hc'. rewrite E2 in Hc'.
       assert (Hlit : st_inv W next
-                (IText false (txt ++ typography_dashes n ++ one rbrace) (Some rbrace) o))
-        by (rewrite <- E2; apply text_next, Ht).
+                (let '(t, o') := odashes n cursor_start txt o in
+                 IText false (tpush t (one rbrace)) (Some rbrace) o')).
+      { destruct (odashes n cursor_start txt o) as [t o']. cbn [snd] in Hd.
+        rewrite <- E2. apply text_next, Hd. }
       destruct (dstyle_of hyphen) as [k|] eqn:Ek; [|exact Hlit].
       destruct (Nat.leb (dwidth k) n) eqn:Ew; [|exact Hlit].
       apply Nat.leb_le in Ew. apply dstyle_of_char in Ek.
@@ -1861,19 +1883,30 @@ Proof.
       { unfold dtoken. rewrite Ek.
         replace n with ((n - dwidth k) + dwidth k) in He by lia.
         rewrite chars_add in He. eapply ends_at_suffix, He. }
-      assert (Hts : oinv W o (nonempty_str (txt ++ typography_dashes (n - dwidth k)))
+      set (stop := spot_before cursor_start (chars hyphen (dwidth k))).
+      assert (Hts : oinv W (snd (odashes (n - dwidth k) stop txt o))
+                      (nonempty_str (fst (odashes (n - dwidth k) stop txt o)))
                       (sleft (dwidth k) cur)).
-      { destruct (n - dwidth k) as [|d] eqn:Ed.
-        - rewrite typography_dashes_0, append_empty_r.
-          replace (dwidth k) with n by lia. exact Ho.
-        - apply oinv_any. eapply oinv_strict; [|exact Ho].
-          destruct cur as [kk rr]. unfold spot_lt, sleft. cbn. lia. }
-      destruct (idelim_resolve_ok W CU cur Hs k Htok _ None true (Some rbrace) o Hts
+      { unfold odashes at 2. destruct (dash_run_smart (n - dwidth k)) eqn:Esm.
+        - destruct (dash_counts (n - dwidth k)) as [[em en] lit]. cbn [fst].
+          apply oinv_any, odashes_touched. eapply oinv_strict; [|exact Ho].
+          unfold dash_run_smart in Esm. apply andb_true_iff in Esm as [Esm _].
+          apply Nat.leb_le in Esm.
+          destruct cur as [kk rr]. unfold spot_lt, sleft. cbn. lia.
+        - unfold odashes. rewrite Esm. cbn [fst snd]. tred.
+          destruct (n - dwidth k) as [|d] eqn:Ed.
+          + cbn [chars]. rewrite append_empty_r.
+            replace (dwidth k) with n by lia. exact Ho.
+          + apply oinv_any. eapply oinv_strict; [|exact Ho].
+            destruct cur as [kk rr]. unfold spot_lt, sleft. cbn. lia. }
+      destruct (odashes (n - dwidth k) stop txt o) as [t o'] eqn:Eo. cbn [fst snd] in Hts.
+      destruct (idelim_resolve_ok W CU cur Hs k Htok _ None true (Some rbrace) o' Hts
                   ltac:(discriminate) (fun _ => byte_at_sfx _ _ _ _ Hc') (fun _ => Hn)
                   (byte_at_sfx _ _ _ _ Hc'))
-        as (txt' & prev' & o' & Eq & A & B).
+        as (txt' & prev' & o'' & Eq & A & B).
       tred. rewrite E2, Eq. cbn [st_inv orb]. split; [exact A|split; [exact B|discriminate]].
-    + apply ilead_held; [exact Ht|exact Hph].
+    + destruct (odashes n cursor_start txt o) as [t o']. cbn [snd] in Hd.
+      apply ilead_held; [exact Hd|exact Hph].
 Qed.
 
 Lemma ipercent_ok : forall txt prev o,
@@ -2308,8 +2341,12 @@ Proof.
     split; [|split; [unfold prev_ok; rewrite Hb; reflexivity|discriminate]].
     apply oinv_any; exact (held_oinv _ _ _ _ Ho).
   - (* IDash *) destruct H as (He & Hn1 & Ho).
+    assert (Ht : oinv W o true cur)
+      by (eapply oinv_strict; [|exact Ho]; apply spot_lt_sleft; lia).
+    pose proof (odashes_touched W CU n cursor_start txt o cur Ht) as Hd.
+    destruct (odashes n cursor_start txt o) as [t o']. cbn [snd] in Hd.
     split; [|split; [|discriminate]].
-    + apply oinv_any. eapply oinv_strict; [|exact Ho]. apply spot_lt_sleft; lia.
+    + apply oinv_any, Hd.
     + destruct n as [|n]; [lia|]. rewrite chars_snoc in He. eapply prev_of_ends, He.
   - (* IBang *) destruct H as (Ho & Hb).
     split; [|split; [unfold prev_ok; rewrite Hb; reflexivity|discriminate]].
@@ -2351,9 +2388,10 @@ Lemma iresolve_settled : forall (CU : InlineCursor) st,
 Proof.
   intros CU st Hc.
   destruct st; cbn [is_compound] in Hc; try discriminate; cbn [iresolve settled]; try exact I.
-  destruct (Nat.ltb (S extra) (dwidth k)); [exact I|].
-  destruct marked; [exact I|].
-  destruct (idelim_resolve_text CU k txt before false None o) as (t & p & o' & ->). exact I.
+  - destruct (Nat.ltb (S extra) (dwidth k)); [exact I|].
+    destruct marked; [exact I|].
+    destruct (idelim_resolve_text CU k txt before false None o) as (t & p & o' & ->). exact I.
+  - destruct (odashes n cursor_start txt o). exact I.
 Qed.
 
 Section Break.

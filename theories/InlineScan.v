@@ -1853,6 +1853,32 @@ Definition iperiod_step `{PosPolicy} `{InlineCursor}
         else IPeriod true txt prev o)
   else ilead c (tpush txt (periods two)) (Some period) o.
 
+(* `count` dash nodes `w` hyphens wide, the last of them `after` hyphens
+   before `stop`, each covering its own hyphens. *)
+Fixpoint odash_run `{PosPolicy} (w : nat) (x : inline) (count after : nat)
+  (stop : spot) (o : ostate) : ostate :=
+  match count with
+  | O => o
+  | S m =>
+      let rest := m * w + after in
+      odash_run w x m after stop
+        (oemit (imk (spot_before stop (chars hyphen (w + rest)))
+                    (spot_before stop (chars hyphen rest)) x) o)
+  end.
+
+(* A run of `n` hyphens that ends at `stop`, after the pending text.  When
+   it is cut (`dash_run_smart`) the text is flushed and the dashes are
+   nodes, em dashes first; otherwise the run joins the text. *)
+Definition odashes `{PosPolicy} `{InlineCursor} (n : nat) (stop : spot)
+  (txt : Buf) (o : ostate) : Buf * ostate :=
+  if dash_run_smart n
+  then let start := spot_before stop (chars hyphen n) in
+       let '(em, en, _) := dash_counts n in
+       (tnil, odash_run 2 endash_node en 0 stop
+                (odash_run 3 emdash_node em (2 * en) stop
+                   (flush_text_to_at start (tval txt) o)))
+  else (tpush txt (chars hyphen n), o).
+
 (* A run of hyphens ends at the first byte that is not one.  A `}` is the
    exception, and the only place the dash rule and the delete row meet:
    the run gives its last hyphen back to be a close marker, and what is
@@ -1870,15 +1896,17 @@ Definition idash_step `{PosPolicy} `{InlineCursor}
               parameter and `iscan_marked_close_step` is stated for every
               row, so the arithmetic has to be the row's *)
            if Nat.leb (dwidth k) n
-           then idelim_resolve k
-                  (tpush txt (typography_dashes (n - dwidth k)))
-                  None true (Some c) o
-           else IText false (tpush txt (typography_dashes n ++ one rbrace))
-                  (Some rbrace) o
-       | None => IText false (tpush txt (typography_dashes n ++ one rbrace))
-                   (Some rbrace) o
+           then let '(t, o') := odashes (n - dwidth k)
+                                  (spot_before cursor_start (chars hyphen (dwidth k)))
+                                  txt o in
+                idelim_resolve k t None true (Some c) o'
+           else let '(t, o') := odashes n cursor_start txt o in
+                IText false (tpush t (one rbrace)) (Some rbrace) o'
+       | None =>
+           let '(t, o') := odashes n cursor_start txt o in
+           IText false (tpush t (one rbrace)) (Some rbrace) o'
        end
-  else ilead c (tpush txt (typography_dashes n)) (Some hyphen) o.
+  else let '(t, o') := odashes n cursor_start txt o in ilead c t (Some hyphen) o'.
 
 (* Resolving a `%`: a backtick run opens the hole it prefixes, which
    then reads exactly as a verbatim does; anything else makes the `%`
@@ -1901,7 +1929,7 @@ Definition iresolve `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   | IPeriod two txt _ o =>
       IText false (tpush txt (periods two)) (Some period) o
   | IDash n txt _ o =>
-      IText false (tpush txt (typography_dashes n)) (Some hyphen) o
+      let '(t, o') := odashes n cursor_start txt o in IText false t (Some hyphen) o'
   | IBang txt _ o => IText false (tpush txt (one bang)) (Some bang) o
   | IPercent txt _ o => IText false (tpush txt (one percent)) (Some percent) o
   (* A token still being spelled is text: the run ended before the row's
@@ -3017,27 +3045,30 @@ Proof.
 Qed.
 
 (** Q5: a run of hyphens is cut whole.  The run ends at the first byte
-    that is not a hyphen, the text gains `typography_dashes` of its
-    length (`dashes`, when smart typography is on: `dashes_divide`), and
-    that byte is read next.  A `}` is the exception: it takes the last
-    hyphen back for a close marker (`idash_step`). *)
+    that is not a hyphen and is cut into dash nodes after the text, or
+    joins the text when it is not cut (`odashes`; the cut is `dashes`:
+    `dashes_divide`), and that byte is read next.  A `}` is the
+    exception: it takes the last hyphen back for a close marker
+    (`idash_step`). *)
 Theorem dash_run_in_text : forall n c rest txt prev o,
   Ascii.eqb c hyphen = false -> Ascii.eqb c rbrace = false ->
   iscan_str (chars hyphen (S n) ++ String c rest) (IText false txt prev o)
   = iscan_str (String c rest)
-      (IText false (txt ++ typography_dashes (S n)) (Some hyphen) o).
+      (let '(t, o') := odashes (S n) cursor_start txt o in
+       IText false t (Some hyphen) o').
 Proof.
   intros n c rest txt prev o Hh Hr.
   change (iscan_str (chars hyphen (S n) ++ String c rest) (IText false txt prev o))
     with (iscan_str (chars hyphen n ++ String c rest) (IDash 1 txt prev o)).
   rewrite iscan_dash_run, Nat.add_1_r. cbn [iscan_str]. f_equal.
-  unfold istep. cbn [istep_at]. unfold idash_step. rewrite Hh, Hr. reflexivity.
+  unfold istep. cbn [istep_at]. unfold idash_step. rewrite Hh, Hr.
+  destruct (odashes (S n) cursor_start txt o). reflexivity.
 Qed.
 
 (** Q5, for a run that ends its line. *)
 Theorem dash_run_at_end : forall n txt prev o,
   iresolve (iscan_str (chars hyphen (S n)) (IText false txt prev o))
-  = IText false (txt ++ typography_dashes (S n)) (Some hyphen) o.
+  = let '(t, o') := odashes (S n) cursor_start txt o in IText false t (Some hyphen) o'.
 Proof.
   intros n txt prev o.
   change (iscan_str (chars hyphen (S n)) (IText false txt prev o))
@@ -3199,12 +3230,28 @@ Local Fixpoint key_scan (s lbl : string) (prev : option ascii) (st : iscan)
 Definition key_point (l : string) : option (string * string) :=
   key_scan (drop_leading_ws l) EmptyString None istart.
 
+(* A node of a text run: plain text, or smart punctuation, which breaks a
+   run into several nodes without making it two things. *)
+Definition text_piece (n : node inline) : bool :=
+  match n with
+  | Node _ [] (Str _) | Node _ [] (SmartPunctuation _ _) => true
+  | _ => false
+  end.
+
+(* One element: one node, or one run of text however its punctuation
+   breaks it (`it's`, `a -- b`). *)
+Definition one_element (ns : inlines) : bool :=
+  match ns with
+  | [] => false
+  | [_] => true
+  | _ => forallb text_piece ns
+  end.
+
 (* Is the label one inline?  A fact about the *resolved* list, so it
-   turns on the merge in `oresolve`: `it's` and `foo\: bar` are one run
-   because of it, and ``x`y` `` is two because a verbatim span cannot
-   merge with the text beside it. *)
-Definition key_label_ok (lbl : string) : bool :=
-  match para_inlines [lbl] with [_] => true | _ => false end.
+   turns on the merge in `oresolve`: `foo\: bar` is one run because of
+   it, and ``x`y` `` is two because a verbatim span cannot merge with the
+   text beside it. *)
+Definition key_label_ok (lbl : string) : bool := one_element (para_inlines [lbl]).
 
 (* The split, when the line is a key.  Only the first split point is
    tried: a label already two elements cannot come back to one, since
@@ -3317,26 +3364,24 @@ Qed.
 
 Local Lemma key_split_label_one :
   forall l lbl v,
-    key_split l = Some (lbl, v) ->
-    exists x, para_inlines [lbl] = [x].
+    key_split l = Some (lbl, v) -> one_element (para_inlines [lbl]) = true.
 Proof.
   intros l lbl v H. unfold key_split in H.
   destruct (key_point l) as [[lbl0 v0]|] eqn:E; [|discriminate].
   destruct (key_label_ok lbl0) eqn:Hok; [|discriminate].
-  injection H as <- <-. unfold key_label_ok in Hok.
-  destruct (para_inlines [lbl0]) as [|x xs] eqn:Hils; [discriminate|].
-  destruct xs as [|y ys]; [exists x; reflexivity|discriminate].
+  injection H as <- <-. exact Hok.
 Qed.
 
-(** A successful key split has one nonblank resolved label, and the scan
-    of that label is settled with the connective colon known as the next
-    byte.  Thus the block layer consumes only split points for which the
-    inline layer has no open or undecided construct. *)
+(** A successful key split has a nonblank label that resolves to one
+    element, and the scan of that label is settled with the connective
+    colon known as the next byte.  Thus the block layer consumes only
+    split points for which the inline layer has no open or undecided
+    construct. *)
 Theorem key_split_contract :
   forall l lbl v,
     key_split l = Some (lbl, v) ->
     nonblank lbl = true /\
-    (exists x, para_inlines [lbl] = [x]) /\
+    one_element (para_inlines [lbl]) = true /\
     iscan_settled ":"%char (iscan_str lbl istart) = true.
 Proof.
   intros l lbl v H. split.
