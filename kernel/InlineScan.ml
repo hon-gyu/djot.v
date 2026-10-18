@@ -128,10 +128,17 @@ let imk h start stop x =
 let imk_here h h0 x =
   imk h h0.cursor_start h0.cursor_stop x
 
+(** val fr_node : dtable -> frame -> inline **)
+
+let fr_node t f =
+  match f.fr_kind with
+  | FKDelim (k, _) -> decay_node t k (fr_src t f)
+  | _ -> Str (fr_src t f)
+
 (** val fr_lit : dtable -> coq_PosPolicy -> frame -> inline node **)
 
 let fr_lit t h f =
-  imk h f.fr_open.span_start f.fr_open.span_stop (Str (fr_src t f))
+  imk h f.fr_open.span_start f.fr_open.span_stop (fr_node t f)
 
 (** val add_inline_role :
     coq_PosPolicy -> syntax_role -> span -> inline node -> inline node **)
@@ -1182,6 +1189,21 @@ let idelim_lit t x k txt marker =
 let idelim_lit_prev t k marker =
   Some (if marker then rbrace else dchar t k)
 
+(** val odecay :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle
+    -> 'a1 -> bool -> ostate -> 'a1 * ostate **)
+
+let odecay t x h h0 k txt marker o =
+  match t.dc_decay k with
+  | DDSelf -> ((idelim_lit t x k txt marker), o)
+  | DDPair (_, _, _) ->
+    let start = (dtoken_span t h h0 k false).span_start in
+    (x.tnil,
+    (oemit
+      (imk h start (if marker then h0.cursor_stop else h0.cursor_start)
+        (decay_node t k (ddecay_str t k false marker)))
+      (flush_text_to_at h h0 start (x.tval txt) o)))
+
 (** val idelim_done :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle
     -> 'a1 -> char option -> bool -> char option -> ostate -> 'a1 iscan_g **)
@@ -1192,8 +1214,8 @@ let idelim_done t x h h0 k txt before marker next o =
          (opush t h h0 k false
            (flush_text_to_at h h0 (dtoken_span t h h0 k false).span_start
              (x.tval txt) o)))
-  else IText (false, (idelim_lit t x k txt marker),
-         (idelim_lit_prev t k marker), o)
+  else let (t0, o') = odecay t x h h0 k txt marker o in
+       IText (false, t0, (idelim_lit_prev t k marker), o')
 
 (** val idelim_resolve :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle

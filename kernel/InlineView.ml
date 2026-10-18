@@ -119,6 +119,13 @@ let ddecay_str t k openmark closemark =
   | DDPair (dfl, l, r) ->
     if dfl then if closemark then r else l else if openmark then l else r
 
+(** val decay_node : dtable -> dstyle -> string -> inline **)
+
+let decay_node t k s =
+  match t.dc_decay k with
+  | DDSelf -> Str s
+  | DDPair (_, _, _) -> SmartPunctuation ((dtoken t k), s)
+
 (** val dbare : dtable -> dstyle -> char option -> bool **)
 
 let dbare t k before =

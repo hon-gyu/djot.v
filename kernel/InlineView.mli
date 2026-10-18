@@ -48,6 +48,8 @@ val dopens_after : char option -> bool
 
 val ddecay_str : dtable -> dstyle -> bool -> bool -> string
 
+val decay_node : dtable -> dstyle -> string -> inline
+
 val dbare : dtable -> dstyle -> char option -> bool
 
 val is_delim : dtable -> char -> bool

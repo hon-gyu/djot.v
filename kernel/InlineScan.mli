@@ -62,6 +62,8 @@ val imk : coq_PosPolicy -> spot -> spot -> inline -> inline node
 
 val imk_here : coq_PosPolicy -> coq_InlineCursor -> inline -> inline node
 
+val fr_node : dtable -> frame -> inline
+
 val fr_lit : dtable -> coq_PosPolicy -> frame -> inline node
 
 val add_inline_role :
@@ -304,6 +306,10 @@ val ibang_step :
 val idelim_lit : dtable -> 'a1 coq_TextOps -> dstyle -> 'a1 -> bool -> 'a1
 
 val idelim_lit_prev : dtable -> dstyle -> bool -> char option
+
+val odecay :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
+  'a1 -> bool -> ostate -> 'a1 * ostate
 
 val idelim_done :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
