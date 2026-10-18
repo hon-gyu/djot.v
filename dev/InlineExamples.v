@@ -981,18 +981,34 @@ Example auto_email_addr :
   parse_inline_line "<me@example.com>" = [mk (EmailLink "me@example.com")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The two tests are searches, not shapes: any letter-colon anywhere is a
-   url, and the email test wins when both match. *)
-Example auto_scheme_is_a_search :
+(* Both tests read a prefix.  A url is a colon after letters, digits, `+`,
+   `.` and `-`, so `<a:b>` is one and so is `<1:b>`. *)
+Example auto_scheme_prefix :
   parse_inline_line "<a:b>" = [mk (UrlLink "a:b")].
 Proof. vm_compute. reflexivity. Qed.
 
-Example auto_email_beats_url :
-  parse_inline_line "<a:b@c>" = [mk (EmailLink "a:b@c")].
+Example auto_scheme_leading_digit :
+  parse_inline_line "<1:b>" = [mk (UrlLink "1:b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* An `@` in the leading position has no character before it, so
-   `/[^:]@/` cannot match and the region fails both tests. *)
+(* A byte outside the scheme run before the colon: neither test. *)
+Example auto_scheme_not_prefix :
+  parse_inline_line "<a/b:c>" = [mk (Str "<a/b:c>")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A colon before the `@` makes it a url, not an email. *)
+Example auto_mailto_is_url :
+  parse_inline_line "<mailto:me@example.com>"
+  = [mk (UrlLink "mailto:me@example.com")].
+Proof. vm_compute. reflexivity. Qed.
+
+Example auto_query_email_is_url :
+  parse_inline_line "<https://x.com?e=me@x.com>"
+  = [mk (UrlLink "https://x.com?e=me@x.com")].
+Proof. vm_compute. reflexivity. Qed.
+
+(* An `@` in the leading position has an empty prefix before it, so
+   `/^[^:]+@/` cannot match there and the region fails both tests. *)
 Example auto_leading_at_is_not_email :
   parse_inline_line "<@x>" = [mk (Str "<@x>")].
 Proof. vm_compute. reflexivity. Qed.

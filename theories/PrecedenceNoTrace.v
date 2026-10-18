@@ -344,16 +344,13 @@ Qed.
 Local Lemma auto_kind_ins : forall z x,
   auto_kind_ok (ins x z) = auto_kind_ok (orig x z).
 Proof.
-  intros z x. unfold auto_kind_ok, auto_email. f_equal.
-  - generalize (@None ascii) as pv. induction x as [|a x IH]; intros pv.
-    + cbn [append]. destruct pv as [p|]; cbn; bytes; reflexivity.
-    + cbn [append]. destruct pv as [p|]; cbn - [append]; rewrite ?IH;
-        [destruct (_ && _)%bool|]; rewrite ?IH; reflexivity.
-  - induction x as [|a x IH].
-    + reflexivity.
-    + destruct x as [|b x]; cbn [append] in *.
-      * bytes; reflexivity.
-      * cbn. destruct (_ && _)%bool; [reflexivity|exact IH].
+  intros z x. unfold auto_kind_ok, auto_email, InlineView.auto_scheme. f_equal.
+  - generalize false as l. induction x as [|a x IH]; intros l.
+    + destruct l; bytes; reflexivity.
+    + cbn [append InlineView.auto_email_from]. rewrite !IH. reflexivity.
+  - generalize false as l. induction x as [|a x IH]; intros l.
+    + destruct l; bytes; reflexivity.
+    + cbn [append InlineView.auto_scheme_from]. rewrite !IH. reflexivity.
 Qed.
 
 Lemma auto_tok_ins : forall y x,

@@ -2988,3 +2988,28 @@ and the two `_` are the first opener and closer that pair.  This is the
 same reading as `_[](a_`, which differs in djot.js through its
 destination barrier (`inline.ts:198`) rather than through
 `clearOpeners`, since there the opener is before the `[`.
+
+## 2026-10-18 -- AGREES now: an autolink's kind is read from a prefix
+
+djot.js `917949a` (in the `9790d4d` bump) changed both tests, and
+`links_and_images.test:372` came with it.
+
+| Input | djot.js `3b3a9f5` | djot.js `9790d4d` | Ours before | Ours now |
+| --- | --- | --- | --- | --- |
+| `<mailto:me@example.com>` | email | url | email | as `9790d4d` |
+| `<https://x.com?e=me@x.com>` | email | url | email | as `9790d4d` |
+| `<a/b:c>` | url | text | url | as `9790d4d` |
+| `<1:b>` | text | url | text | as `9790d4d` |
+
+The email test is `/^[^:]+@/` and the url test `/^[a-zA-Z0-9+.-]+:/`,
+both anchored at the byte after the `<` (`inline.ts:136-137`).  They
+were `/[^:]@/` and `/[a-zA-Z]:/` searched anywhere in the region.  The
+reference says only "a URL or email address", and a `mailto:` URL is a
+URL, so the new reading fits it better.  No region passes both, so the
+order of the two tests no longer matters.
+
+`auto_email` and `auto_scheme` in `InlineView.v` and their extraction
+overrides follow the new patterns.  Pinned in `dev/InlineExamples.v` by
+`auto_mailto_is_url`, `auto_query_email_is_url`,
+`auto_scheme_leading_digit` and `auto_scheme_not_prefix`;
+`auto_email_beats_url` is gone with the overlap.

@@ -411,16 +411,17 @@ Extract Constant DjotV.InlineScan.wiki_split =>
 Extract Constant DjotV.InlineView.auto_email =>
   "(fun s ->
      let rec scan i =
-       i < String.length s &&
-       ((i > 0 && s.[i] = '@' && s.[i-1] <> ':') || scan (i + 1))
+       i < String.length s && s.[i] <> ':' &&
+       ((i > 0 && s.[i] = '@') || scan (i + 1))
      in scan 0)".
 Extract Constant DjotV.InlineView.auto_kind_ok =>
   "(fun s ->
-     let alpha c =
-       (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') in
+     let scheme_char c =
+       (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+       || (c >= '0' && c <= '9') || c = '+' || c = '.' || c = '-' in
      let rec scheme i =
-       i + 1 < String.length s &&
-       ((alpha s.[i] && s.[i+1] = ':') || scheme (i + 1)) in
+       i < String.length s &&
+       ((i > 0 && s.[i] = ':') || (scheme_char s.[i] && scheme (i + 1))) in
      auto_email s || scheme 0)".
 Extract Constant DjotV.InlineView.auto_body_ok =>
   "(fun s ->

@@ -642,8 +642,8 @@ let rec last_ws_split s =
 
 let auto_email = (fun s ->
      let rec scan i =
-       i < String.length s &&
-       ((i > 0 && s.[i] = '@' && s.[i-1] <> ':') || scan (i + 1))
+       i < String.length s && s.[i] <> ':' &&
+       ((i > 0 && s.[i] = '@') || scan (i + 1))
      in scan 0)
 
 (** val is_alpha : char -> bool **)
@@ -738,11 +738,12 @@ let auto_node s =
 (** val auto_kind_ok : string -> bool **)
 
 let auto_kind_ok = (fun s ->
-     let alpha c =
-       (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') in
+     let scheme_char c =
+       (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+       || (c >= '0' && c <= '9') || c = '+' || c = '.' || c = '-' in
      let rec scheme i =
-       i + 1 < String.length s &&
-       ((alpha s.[i] && s.[i+1] = ':') || scheme (i + 1)) in
+       i < String.length s &&
+       ((i > 0 && s.[i] = ':') || (scheme_char s.[i] && scheme (i + 1))) in
      auto_email s || scheme 0)
 
 (** val auto_text : string -> string **)

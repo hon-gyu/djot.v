@@ -763,29 +763,24 @@ Autolinks
 ---------
 
 `<...>` is a link to its own text, and the region decides which kind: an
-email test, then a URL test.  Both search the whole region rather than
-matching a shape, so an autolink is decided by two predicates, not by a
-parser. *)
+email test, then a URL test.  Both read a prefix of the region, and
+what follows the prefix is not looked at, so an autolink is decided by
+two predicates, not by a parser. *)
 
-(* `/[^:]@/`: an `@` with a character before it that is not a colon.  The
-   leading position cannot match, so `<@x>` is not an email. *)
-Local Fixpoint auto_email_from (prev : option ascii) (s : string) : bool :=
+(* `/^[^:]+@/`: an `@` after a nonempty prefix with no colon.  So
+   `<mailto:a@b>` is not an email, and neither is `<@x>`.  `lead` says
+   the prefix read so far is nonempty. *)
+Local Fixpoint auto_email_from (lead : bool) (s : string) : bool :=
   match s with
   | EmptyString => false
   | String c rest =>
-      match prev with
-      | Some p =>
-          if (Ascii.eqb c "@"%char && negb (Ascii.eqb p ":"%char))%bool
-          then true else auto_email_from (Some c) rest
-      | None => auto_email_from (Some c) rest
-      end
+      if Ascii.eqb c ":"%char then false
+      else if (lead && Ascii.eqb c "@"%char)%bool then true
+      else auto_email_from true rest
   end.
 
-Definition auto_email (s : string) : bool := auto_email_from None s.
+Definition auto_email (s : string) : bool := auto_email_from false s.
 
-(* `/[a-zA-Z]:/`: a letter immediately followed by a colon, anywhere.
-   Not a scheme in the URI sense -- `<a:b>` is a link to `a:b` -- and the
-   name says only what it tests. *)
 Local Definition is_alpha (c : ascii) : bool :=
   ((Ascii.leb "a"%char c && Ascii.leb c "z"%char)
    || (Ascii.leb "A"%char c && Ascii.leb c "Z"%char))%bool.
@@ -796,13 +791,24 @@ Definition symbol_char (c : ascii) : bool :=
    || Ascii.eqb c "_"%char || Ascii.eqb c "+"%char
    || Ascii.eqb c "-"%char)%bool.
 
-Local Fixpoint auto_scheme (s : string) : bool :=
+(* `/^[a-zA-Z0-9+.-]+:/`: a colon after a nonempty prefix of letters,
+   digits, `+`, `.` and `-`.  Not a scheme in the URI sense, which begins
+   with a letter -- `<1:b>` is a link to `1:b` -- and the name says only
+   what it tests.  `lead` as in `auto_email_from`. *)
+Local Definition scheme_char (c : ascii) : bool :=
+  (is_alnum c || Ascii.eqb c "+"%char || Ascii.eqb c "."%char
+   || Ascii.eqb c "-"%char)%bool.
+
+Local Fixpoint auto_scheme_from (lead : bool) (s : string) : bool :=
   match s with
-  | String c ((String d _) as rest) =>
-      if (is_alpha c && Ascii.eqb d ":"%char)%bool then true
-      else auto_scheme rest
-  | _ => false
+  | EmptyString => false
+  | String c rest =>
+      if (lead && Ascii.eqb c ":"%char)%bool then true
+      else if scheme_char c then auto_scheme_from true rest
+      else false
   end.
+
+Local Definition auto_scheme (s : string) : bool := auto_scheme_from false s.
 
 (* The ellipsis and the two dashes, as UTF-8.  Three bytes each, like the
    curly quotes, and nothing downstream looks inside. *)
@@ -917,8 +923,9 @@ Proof.
     eexists _, _, _. split; [reflexivity|]. lia.
 Qed.
 
-(* The email test first.  A region failing both is not an autolink, and
-   the brackets are literal. *)
+(* The email test first, though no region passes both: an email has its
+   `@` before any colon, and a scheme run holds no `@`.  A region failing
+   both is not an autolink, and the brackets are literal. *)
 Definition auto_node (s : string) : inline :=
   if auto_email s then EmailLink s else UrlLink s.
 
