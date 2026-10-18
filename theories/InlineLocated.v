@@ -493,7 +493,7 @@ Proof.
     (fun i => reference_text (Erase.of_inline i) = reference_text i)
     (fun ils => reference_text (Emph (Erase.of_inlines ils)) =
                 reference_text (Emph ils))
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
     intros;
     cbn [Erase.of_inline Erase.of_inlines Erase.inode reference_text
       node_contents] in *;

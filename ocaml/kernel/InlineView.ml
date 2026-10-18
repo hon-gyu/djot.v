@@ -818,6 +818,35 @@ let raw_text fmt s =
 let hole_spell s =
   (^) (one percent) (verb_text s)
 
+(** val smart_spell : dtable -> string -> string -> string **)
+
+let smart_spell t src s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> src)
+    (fun c s0 ->
+    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+      (fun _ ->
+      match dstyle_of t c with
+      | Some k ->
+        (match t.dc_decay k with
+         | DDSelf -> src
+         | DDPair (left_by_default, l, r) ->
+           if left_by_default
+           then if (=) s r then (^) src (one rbrace) else src
+           else if (=) s l then (^) (one lbrace) src else src)
+      | None -> src)
+      (fun _ _ -> src)
+      s0)
+    src
+
 type cinline =
 | CIStr of string
 | CIVerb of string
@@ -1109,7 +1138,8 @@ let rec inline_text t il =
 
        (bslash, (one '\n'))
    | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
-   | Hole s -> hole_spell s)
+   | Hole s -> hole_spell s
+   | SmartPunctuation (src, s) -> smart_spell t src s)
 
 (** val line_ends : inlines -> bool **)
 

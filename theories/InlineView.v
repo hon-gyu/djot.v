@@ -985,6 +985,27 @@ Definition raw_text (fmt s : string) : string :=
 Definition hole_spell (s : string) : string :=
   (one percent ++ verb_text s)%string.
 
+(* A smart-punctuation token's source, with the brace that keeps a quote
+   on its side when that is not the row's default.  Not covered by the
+   round trip: a quote written with `{` can still pair with a later
+   one. *)
+Definition smart_spell (src s : string) : string :=
+  match src with
+  | String c EmptyString =>
+      match dstyle_of c with
+      | Some k =>
+          match dc_decay cfg k with
+          | DDPair true _ r =>
+              if String.eqb s r then (src ++ one rbrace)%string else src
+          | DDPair false l _ =>
+              if String.eqb s l then (one lbrace ++ src)%string else src
+          | DDSelf => src
+          end
+      | None => src
+      end
+  | _ => src
+  end.
+
 (* One line's inline content, described by the source that determines it.
    One constructor per inline construct the roundtrip covers, exactly as
    `cblock` carries one per block construct. *)
@@ -1598,6 +1619,7 @@ Fixpoint inline_text (il : inline) : string :=
   | SoftBreak => one "010"%char
   | HardBreak => String bslash (one "010"%char)
   | Hole s => hole_spell s
+  | SmartPunctuation src s => smart_spell src s
   end.
 
 Lemma ci_ast_attrs : forall ci, node_attrs (ci_ast ci) = [].

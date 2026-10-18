@@ -133,6 +133,7 @@ type inline =
 | HardBreak
 | Ext_wikilink of bool * string * string option
 | Hole of string
+| SmartPunctuation of string * string
 
 type inlines = inline node list
 

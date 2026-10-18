@@ -411,7 +411,7 @@ Unexpected member tag value in inline object: nope. Must be str, emph,
 strong, mark, insert, delete, superscript, subscript, verbatim, symb,
 inline_math, display_math, link, image, span, footnote_reference, url, email,
 raw_inline, non_breaking_space, single_quoted, double_quoted, soft_break,
-hard_break, ext_wikilink or ext_hole.
+hard_break, ext_wikilink, ext_hole or smart_punctuation.
 File "-", line 1, characters 40-41:
 File "-": in member tag of
 File "-", line 1, characters 27-41: inline object
