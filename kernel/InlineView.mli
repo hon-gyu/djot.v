@@ -176,6 +176,8 @@ val raw_text : string -> string -> string
 
 val hole_spell : string -> string
 
+val smart_spell : dtable -> string -> string -> string
+
 type cinline =
 | CIStr of string
 | CIVerb of string

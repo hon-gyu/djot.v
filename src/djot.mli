@@ -318,6 +318,9 @@ module Inline : sig
     | Hole of string
     (** An extension ({!Profile.with_ext_holes}): [%`e`], the expression read as the
         code span's content is.  The parser never reads it. *)
+    | SmartPunctuation of string * string
+    (** [SmartPunctuation (src, s)]: an unmatched quote, an ellipsis or a dash, as typed
+        ([src], without the braces that marked a quote) and as rendered ([s]). *)
 
   (** The text a heading identifier is derived from. *)
   val to_plain_text : t node list -> string

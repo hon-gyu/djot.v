@@ -84,6 +84,7 @@ let rec inline_text il =
    | HardBreak -> nl
    | Ext_wikilink (_, t0, al) -> wiki_display t0 al
    | Hole s -> s
+   | SmartPunctuation (src, _) -> src
    | _ -> "")
 
 (** val inlines_text : inlines -> string **)

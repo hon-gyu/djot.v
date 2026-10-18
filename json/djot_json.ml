@@ -116,6 +116,41 @@ let formatted : (string * string) Jsont.t =
   |> O.finish
 ;;
 
+(* Smart punctuation: djot.js's [type] for each of its renderings, and the token as
+   typed in [text].  A rendering djot.js has no type for is written under [rendering]
+   instead. *)
+let smart_types =
+  [ "left_single_quote", "\u{2018}"
+  ; "right_single_quote", "\u{2019}"
+  ; "left_double_quote", "\u{201C}"
+  ; "right_double_quote", "\u{201D}"
+  ; "ellipses", "\u{2026}"
+  ; "en_dash", "\u{2013}"
+  ; "em_dash", "\u{2014}"
+  ]
+;;
+
+let smart : (string * string) Jsont.t =
+  let type_of s = List.find_map (fun (t, r) -> if r = s then Some t else None) smart_types in
+  let dec ty rendering src =
+    match rendering, ty with
+    | Some s, _ -> src, s
+    | None, Some t ->
+      (match List.assoc_opt t smart_types with
+       | Some s -> src, s
+       | None -> error "unknown smart_punctuation type %s" t)
+    | None, None -> error "a smart_punctuation node has a type or a rendering"
+  in
+  O.map dec
+  |> O.opt_mem "type" Jsont.string ~enc:(fun (_, s) -> type_of s)
+  |> O.opt_mem "rendering" Jsont.string ~enc:(fun (_, s) ->
+    match type_of s with
+    | Some _ -> None
+    | None -> Some s)
+  |> O.mem "text" Jsont.string ~enc:fst
+  |> O.finish
+;;
+
 (* Inlines
    ======= *)
 
@@ -190,6 +225,9 @@ let inline_at (l : loc) : Inline.t node Jsont.t =
          C.map "ext_wikilink" wikilink ~dec:(fun (e, t, a) -> Ext_wikilink (e, t, a))
        in
        let ext_hole = C.map "ext_hole" text ~dec:(fun s -> Hole s) in
+       let smart_punctuation =
+         C.map "smart_punctuation" smart ~dec:(fun (src, s) -> SmartPunctuation (src, s))
+       in
        let enc_case = function
          | Str s -> C.value str s
          | Emph k -> C.value emph k
@@ -217,6 +255,7 @@ let inline_at (l : loc) : Inline.t node Jsont.t =
          | HardBreak -> C.value hard_break ()
          | Ext_wikilink (e, t, a) -> C.value ext_wikilink (e, t, a)
          | Hole s -> C.value ext_hole s
+         | SmartPunctuation (src, s) -> C.value smart_punctuation (src, s)
        in
        let cases =
          [ C.make str
@@ -245,6 +284,7 @@ let inline_at (l : loc) : Inline.t node Jsont.t =
          ; C.make hard_break
          ; C.make ext_wikilink
          ; C.make ext_hole
+         ; C.make smart_punctuation
          ]
        in
        node ~kind:"inline" l cases enc_case)

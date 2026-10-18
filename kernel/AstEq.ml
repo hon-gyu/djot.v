@@ -212,6 +212,10 @@ let rec inline_eqb x y =
   | Hole s -> (match y with
                | Hole t -> (=) s t
                | _ -> false)
+  | SmartPunctuation (r, s) ->
+    (match y with
+     | SmartPunctuation (q, t) -> (&&) ((=) r q) ((=) s t)
+     | _ -> false)
 
 (** val inlines_eqb : inlines -> inlines -> bool **)
 

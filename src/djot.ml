@@ -542,6 +542,7 @@ module Inline = struct
     | HardBreak
     | Ext_wikilink of bool * string * string option
     | Hole of string
+    | SmartPunctuation of string * string
 
   let to_string ?(profile = Profile.djot) ?(style = `Checked) (ils : t node list) : string
     =
@@ -1399,7 +1400,8 @@ module Mapper = struct
         | NonBreakingSpace
         | SoftBreak
         | HardBreak
-        | Hole _ ) as x -> x
+        | Hole _
+        | SmartPunctuation _ ) as x -> x
     in
     Node (p, a, x)
   ;;
@@ -1523,7 +1525,8 @@ module Folder = struct
        | NonBreakingSpace
        | SoftBreak
        | HardBreak
-       | Hole _ -> acc)
+       | Hole _
+       | SmartPunctuation _ -> acc)
   ;;
 
   let rec fold_block (f : 'a t) (acc : 'a) (n : Block.t node) : 'a =
