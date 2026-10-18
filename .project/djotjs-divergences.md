@@ -2932,3 +2932,22 @@ last word runs back to the whitespace.  An escape changes how a
 character is read, not where a word ends; djot.js cuts there because the
 escape starts a `str` node of its own.  With the entry above, every row
 of the 2026-09-19 entry is decided.
+
+## 2026-10-18 -- AGREES now: smart punctuation contributes what was typed
+
+The 2026-08-21 entry ("ours: smart punctuation contributes its
+rendering"), done as its 2026-10-04 revision decided.
+
+| Input | djot.js (`3b3a9f5`) | Ours before | Ours now |
+| --- | --- | --- | --- |
+| `![a'b](u)` | `alt="a'b"` | `alt="a’b"` | as djot.js |
+| `# head'ing` | `id="head'ing"` | `id="head’ing"` | as djot.js |
+| `![a...b](u)` | `alt="a...b"` | `alt="a…b"` | as djot.js |
+| `![a---b](u)` | `alt="a---b"` | `alt="a—b"` | as djot.js |
+| `[What's new][]` | the heading `# What's new` | the same | the same |
+
+An unmatched quote, an ellipsis and each dash are `SmartPunctuation src
+s` nodes, and `inline_text`, `plain_text` (`alt`) and `reference_text`
+read `src`.  HTML writes `s`, so nothing else in the output moves.  A
+spec after text still attaches to the whole last word
+(`word_split`), so `a'{.a}` keeps `<span class="a">a’</span>`.
