@@ -321,6 +321,13 @@ val iperiod_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   bool -> 'a1 -> char option -> ostate -> 'a1 iscan_g
 
+val odash_run :
+  coq_PosPolicy -> int -> inline -> int -> int -> spot -> ostate -> ostate
+
+val odashes :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> int ->
+  spot -> 'a1 -> ostate -> 'a1 * ostate
+
 val idash_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   int -> 'a1 -> char option -> ostate -> 'a1 iscan_g
@@ -474,6 +481,10 @@ val key_scan :
   (string * string) option
 
 val key_point : dtable -> string -> (string * string) option
+
+val text_piece : inline node -> bool
+
+val one_element : inlines -> bool
 
 val key_label_ok : dtable -> string -> bool
 

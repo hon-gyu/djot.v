@@ -146,13 +146,13 @@ val periods : bool -> string
 
 val ellipsis_node : inline
 
-val srep : string -> int -> string
-
 val dash_counts : int -> (int * int) * int
 
-val dashes : int -> string
+val emdash_node : inline
 
-val typography_dashes : dtable -> int -> string
+val endash_node : inline
+
+val dash_run_smart : dtable -> int -> bool
 
 val auto_node : string -> inline
 

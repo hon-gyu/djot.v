@@ -1267,6 +1267,37 @@ let iperiod_step t x h h0 c two txt prev o =
        else IPeriod (true, txt, prev, o)
   else ilead t x h h0 c (x.tpush txt (periods two)) (Some period) o
 
+(** val odash_run :
+    coq_PosPolicy -> int -> inline -> int -> int -> spot -> ostate -> ostate **)
+
+let rec odash_run h w x count after stop o =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> o)
+    (fun m ->
+    let rest = ( + ) (( * ) m w) after in
+    odash_run h w x m after stop
+      (oemit
+        (imk h (spot_before stop (chars hyphen (( + ) w rest)))
+          (spot_before stop (chars hyphen rest)) x)
+        o))
+    count
+
+(** val odashes :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> int ->
+    spot -> 'a1 -> ostate -> 'a1 * ostate **)
+
+let odashes t x h h0 n stop txt o =
+  if dash_run_smart t n
+  then let start = spot_before stop (chars hyphen n) in
+       let (p, _) = dash_counts n in
+       let (em, en) = p in
+       (x.tnil,
+       (odash_run h (Stdlib.succ (Stdlib.succ 0)) endash_node en 0 stop
+         (odash_run h (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) emdash_node
+           em (( * ) (Stdlib.succ (Stdlib.succ 0)) en) stop
+           (flush_text_to_at h h0 start (x.tval txt) o))))
+  else ((x.tpush txt (chars hyphen n)), o)
+
 (** val idash_step :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
     int -> 'a1 -> char option -> ostate -> 'a1 iscan_g **)
@@ -1278,18 +1309,21 @@ let idash_step t x h h0 c n txt prev o =
        then (match dstyle_of t hyphen with
              | Some k ->
                if ( <= ) (dwidth t k) n
-               then idelim_resolve t x h h0 k
-                      (x.tpush txt (typography_dashes t (sub n (dwidth t k))))
-                      None true (Some c) o
-               else IText (false,
-                      (x.tpush txt ((^) (typography_dashes t n) (one rbrace))),
-                      (Some rbrace), o)
+               then let (t0, o') =
+                      odashes t x h h0 (sub n (dwidth t k))
+                        (spot_before h0.cursor_start
+                          (chars hyphen (dwidth t k)))
+                        txt o
+                    in
+                    idelim_resolve t x h h0 k t0 None true (Some c) o'
+               else let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+                    IText (false, (x.tpush t0 (one rbrace)), (Some rbrace),
+                    o')
              | None ->
-               IText (false,
-                 (x.tpush txt ((^) (typography_dashes t n) (one rbrace))),
-                 (Some rbrace), o))
-       else ilead t x h h0 c (x.tpush txt (typography_dashes t n)) (Some
-              hyphen) o
+               let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+               IText (false, (x.tpush t0 (one rbrace)), (Some rbrace), o'))
+       else let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+            ilead t x h h0 c t0 (Some hyphen) o'
 
 (** val ipercent_step :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -1321,7 +1355,8 @@ let iresolve t x h h0 st = match st with
 | IPeriod (two, txt, _, o) ->
   IText (false, (x.tpush txt (periods two)), (Some period), o)
 | IDash (n, txt, _, o) ->
-  IText (false, (x.tpush txt (typography_dashes t n)), (Some hyphen), o)
+  let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+  IText (false, t0, (Some hyphen), o')
 | IBang (txt, _, o) -> IText (false, (x.tpush txt (one bang)), (Some bang), o)
 | IClosed (txt, o) ->
   IText (false, (x.tpush txt (one rbrack)), (Some rbrack), o)
@@ -2350,14 +2385,30 @@ let rec key_scan t s lbl prev st =
 let key_point t l =
   key_scan t (drop_leading_ws l) "" None istart
 
+(** val text_piece : inline node -> bool **)
+
+let text_piece = function
+| Node (_, a, x) ->
+  (match a with
+   | [] ->
+     (match x with
+      | Str _ -> true
+      | SmartPunctuation (_, _) -> true
+      | _ -> false)
+   | _ :: _ -> false)
+
+(** val one_element : inlines -> bool **)
+
+let one_element ns = match ns with
+| [] -> false
+| _ :: l -> (match l with
+             | [] -> true
+             | _ :: _ -> forallb text_piece ns)
+
 (** val key_label_ok : dtable -> string -> bool **)
 
 let key_label_ok t lbl =
-  match para_inlines t (lbl :: []) with
-  | [] -> false
-  | _ :: l -> (match l with
-               | [] -> true
-               | _ :: _ -> false)
+  one_element (para_inlines t (lbl :: []))
 
 (** val key_split : dtable -> string -> (string * string) option **)
 
