@@ -1277,6 +1277,13 @@ Example attr_covers_word_with_apostrophe :
   = [mk (Str "a "); Node NoPos [("class", "x")] (Str ("b" ++ rsquo ++ "c"))].
 Proof. vm_compute. reflexivity. Qed.
 
+(* So is an escape.  djot.js starts a node at the escape and attaches
+   the spec to `*c`. *)
+Example attr_covers_word_with_escape :
+  parse_inline_line "a b\*c{.x} d"
+  = [mk (Str "a "); Node NoPos [("class", "x")] (Str "b*c"); mk (Str " d")].
+Proof. vm_compute. reflexivity. Qed.
+
 (* A break or a non-breaking space is no element to attach to: a spec
    after a hard break attaches to nothing, as after a soft break, and one
    after an escaped space as after a space. *)

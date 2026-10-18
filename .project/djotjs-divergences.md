@@ -2918,3 +2918,17 @@ node of its own.  This also settles the smart-punctuation rows of the
 Ours already does this, so nothing changes now.  When the
 smart-punctuation node lands (`json-gaps.md`, "Smart punctuation: the
 plan"), the last word must run across it.
+
+## 2026-10-18 -- OURS: an escape is part of the word a spec attaches to
+
+The escape row of the 2026-09-19 entry, decided.
+
+| Input | djot.js (`3b3a9f5`) | Ours |
+| --- | --- | --- |
+| `a b\*c{.x} d` | `a b<span class="x">*c</span> d` | `a <span class="x">b*c</span> d` |
+
+Decided by the maintainer (2026-10-18): as with smart punctuation, the
+last word runs back to the whitespace.  An escape changes how a
+character is read, not where a word ends; djot.js cuts there because the
+escape starts a `str` node of its own.  With the entry above, every row
+of the 2026-09-19 entry is decided.
