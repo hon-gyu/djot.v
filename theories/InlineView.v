@@ -94,6 +94,16 @@ Definition ddecay_str (k : dstyle) (openmark closemark : bool) : string :=
       else (if openmark then l else r)
   end.
 
+(* What an unmatched token of row `k` is in the tree, given what it
+   decays to (`ddecay_str`): a curly quote is a smart-punctuation node
+   recording the token without its braces, and any other row's token is
+   text. *)
+Definition decay_node (k : dstyle) (s : string) : inline :=
+  match dc_decay cfg k with
+  | DDPair _ _ _ => SmartPunctuation (dtoken k) s
+  | DDSelf => Str s
+  end.
+
 (* Whether an unbraced delimiter may open a span here.  Closing never
    asks this, so a quote may close wherever its neighbour is nonspace. *)
 Definition dbare (k : dstyle) (before : option ascii) : bool :=
@@ -806,8 +816,8 @@ Definition emdash : string :=
 Definition periods (two : bool) : string :=
   if two then String period (one period) else one period.
 
-Definition typography_ellipsis : string :=
-  if smart_typography then ellipsis else chars period 3.
+(* The node an ellipsis is, with smart typography on. *)
+Definition ellipsis_node : inline := SmartPunctuation (chars period 3) ellipsis.
 
 Fixpoint srep (s : string) (n : nat) : string :=
   match n with O => EmptyString | S m => (s ++ srep s m)%string end.
@@ -828,12 +838,30 @@ Definition dash_counts (n : nat) : nat * nat * nat :=
   else if Nat.eqb (Nat.modulo n 6) 5 then (Nat.div (n - 2) 3, 1, 0)
   else (Nat.div (n - 4) 3, 2, 0).
 
+(* A run of two or more is at least one dash. *)
+Lemma dash_counts_some : forall n, 2 <= n ->
+  let '(em, en, _) := dash_counts n in 0 < em + en.
+Proof.
+  intros n Hn. unfold dash_counts.
+  pose proof (Nat.div_mod_eq n 3) as D3. pose proof (Nat.div_mod_eq n 2) as D2.
+  destruct (Nat.eqb (Nat.modulo n 3) 0) eqn:E1; [apply Nat.eqb_eq in E1; lia|].
+  destruct (Nat.eqb (Nat.modulo n 2) 0) eqn:E2; [apply Nat.eqb_eq in E2; lia|].
+  destruct (Nat.eqb n 1) eqn:E3; [apply Nat.eqb_eq in E3; lia|].
+  destruct (Nat.eqb (Nat.modulo n 6) 5); lia.
+Qed.
+
 Definition dashes (n : nat) : string :=
   let '(em, en, lit) := dash_counts n in
   (srep emdash em ++ srep endash en ++ chars hyphen lit)%string.
 
-Definition typography_dashes (n : nat) : string :=
-  if smart_typography then dashes n else chars hyphen n.
+(* The nodes a dash is, with smart typography on. *)
+Definition emdash_node : inline := SmartPunctuation (chars hyphen 3) emdash.
+Definition endash_node : inline := SmartPunctuation (chars hyphen 2) endash.
+
+(* Whether a run of `n` hyphens is cut into dash nodes: with smart
+   typography, when it is longer than one.  A lone hyphen is text.  The
+   length is asked first, so a run of one is text by computation. *)
+Definition dash_run_smart (n : nat) : bool := (Nat.leb 2 n && smart_typography)%bool.
 
 (* The counts pinned on the runs that decide the arithmetic: the two
    homogeneous cases, the two remainders, and the lone hyphen. *)
@@ -984,6 +1012,27 @@ Definition raw_text (fmt s : string) : string :=
 (* A hole's own source: its prefix and its verbatim, as math's. *)
 Definition hole_spell (s : string) : string :=
   (one percent ++ verb_text s)%string.
+
+(* A smart-punctuation token's source, with the brace that keeps a quote
+   on its side when that is not the row's default.  Not covered by the
+   round trip: a quote written with `{` can still pair with a later
+   one. *)
+Definition smart_spell (src s : string) : string :=
+  match src with
+  | String c EmptyString =>
+      match dstyle_of c with
+      | Some k =>
+          match dc_decay cfg k with
+          | DDPair true _ r =>
+              if String.eqb s r then (src ++ one rbrace)%string else src
+          | DDPair false l _ =>
+              if String.eqb s l then (one lbrace ++ src)%string else src
+          | DDSelf => src
+          end
+      | None => src
+      end
+  | _ => src
+  end.
 
 (* One line's inline content, described by the source that determines it.
    One constructor per inline construct the roundtrip covers, exactly as
@@ -1598,6 +1647,7 @@ Fixpoint inline_text (il : inline) : string :=
   | SoftBreak => one "010"%char
   | HardBreak => String bslash (one "010"%char)
   | Hole s => hole_spell s
+  | SmartPunctuation src s => smart_spell src s
   end.
 
 Lemma ci_ast_attrs : forall ci, node_attrs (ci_ast ci) = [].

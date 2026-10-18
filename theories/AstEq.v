@@ -201,6 +201,7 @@ Fixpoint inline_eqb (x y : inline) : bool :=
   | HardBreak, HardBreak => true
   | Ext_wikilink e s a, Ext_wikilink f t b =>
       Bool.eqb e f && String.eqb s t && option_eqb String.eqb a b
+  | SmartPunctuation r s, SmartPunctuation q t => String.eqb r q && String.eqb s t
   | _, _ => false
   end.
 

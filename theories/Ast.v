@@ -543,7 +543,11 @@ Inductive inline : Type :=
   (* Extension, not djot (`.project/261009.plan.backtick-holes.md`):
      `` %`e` ``, an expression to be evaluated by the consumer.  The
      payload is the code span's content; the parser never reads it. *)
-  | Hole (s : string).
+  | Hole (s : string)
+  (* A smart-punctuation token: an unmatched quote, an ellipsis or a
+     dash.  `src` is the token as typed, without the braces that marked
+     it (`{'` records `'`), and `s` is what it renders as. *)
+  | SmartPunctuation (src s : string).
 
 Definition inlines : Type := list (node inline).
 
@@ -575,6 +579,7 @@ Definition inline_ind2
   (hsoft : P SoftBreak)
   (hhard : P HardBreak)
   (hhole : forall s, P (Hole s))
+  (hsmart : forall src s, P (SmartPunctuation src s))
   (hnil : Q [])
   (hcons : forall p a x rest, P x -> Q rest -> Q (Node p a x :: rest))
   : forall i, P i :=
@@ -610,6 +615,7 @@ Definition inline_ind2
     | SoftBreak => hsoft
     | HardBreak => hhard
     | Hole s => hhole s
+    | SmartPunctuation src s => hsmart src s
     end.
 
 (*

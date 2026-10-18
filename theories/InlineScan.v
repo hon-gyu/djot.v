@@ -301,14 +301,22 @@ Proof. reflexivity. Qed.
 Definition imk_here `{PosPolicy} `{InlineCursor} (x : inline) : node inline :=
   imk cursor_start cursor_stop x.
 
-(* An abandoned opener, put back as text.  It covers the source the
-   opener was written in, which is not the length of what the decay
-   spells: a smart quote is written `'` and decays to a curly quote. *)
+(* What an abandoned opener is put back as: its source text, or for a
+   quote a smart-punctuation node (`decay_node`). *)
+Definition fr_node (f : frame) : inline :=
+  match fr_kind f with
+  | FKDelim k _ => decay_node k (fr_src f)
+  | FKBracket _ | FKTag _ => Str (fr_src f)
+  end.
+
+(* An abandoned opener, put back.  It covers the source the opener was
+   written in, which is not the length of what the decay spells: a smart
+   quote is written `'` and decays to a curly quote. *)
 Definition fr_lit `{PosPolicy} (f : frame) : node inline :=
-  imk (span_start (fr_open f)) (span_stop (fr_open f)) (Str (fr_src f)).
+  imk (span_start (fr_open f)) (span_stop (fr_open f)) (fr_node f).
 
 Local Lemma fr_lit_semantic : forall f,
-  @fr_lit semantic_pos f = mk (Str (fr_src f)).
+  @fr_lit semantic_pos f = mk (fr_node f).
 Proof. reflexivity. Qed.
 
 Lemma imk_here_semantic : forall x,
@@ -643,12 +651,48 @@ Definition split_text_pos (p : pos) (word_start : option spot)
   | _, _ => (p, p)
   end.
 
+(* `word_split` with positions.  The text run the word starts in is cut
+   at `word_start`; a run the word covers whole keeps its range, except
+   when it is the whole word. *)
+Fixpoint oword_split `{PosPolicy} (word_start : option spot) (out : inlines)
+  : inlines * inlines :=
+  match out with
+  | Node p [] (Str s) :: rest =>
+      let '(pre, w) := last_ws_split s in
+      if nonempty_str w
+      then if nonempty_str pre
+           then let '(pp, wp) := split_text_pos p word_start in
+                ([Node wp [] (Str w)], isnoc (Node pp [] (Str pre)) rest)
+           else match oword_split word_start rest with
+                | ([], before) =>
+                    ([Node (snd (split_text_pos p word_start)) [] (Str s)], before)
+                | (ws, before) => (Node p [] (Str s) :: ws, before)
+                end
+      else ([], out)
+  | Node p [] (SmartPunctuation src t) :: rest =>
+      let '(ws, before) := oword_split word_start rest in
+      (Node p [] (SmartPunctuation src t) :: ws, before)
+  | _ => ([], out)
+  end.
+
+(* `word_node`, with the span of a longer word covering its pieces. *)
+Definition oword_node (a : attr) (ws : inlines) : node inline :=
+  match ws with
+  | [Node p _ x] => Node p a x
+  | Node q _ _ :: _ =>
+      match last ws (Node q [] SoftBreak) with
+      | Node p _ _ => Node (merge_text_pos p q) a (Span EmptyString (List.rev ws))
+      end
+  | [] => Node NoPos a (Span EmptyString [])
+  end.
+
 (* Where a waiting spec lands, given the list the scope has resolved so
    far, whose head is what sits immediately before the spec.  Openers
    that never closed are text by then.
 
-   - A plain `Str` takes the spec on its last word.  An empty spec keeps
-     the run whole, since cutting it would only produce two plain `Str`s.
+   - A plain `Str` takes the spec on its last word, which runs back over
+     smart punctuation (`word_split`).  An empty spec keeps the run
+     whole, since cutting it would only produce two plain `Str`s.
    - A run ending in whitespace has no last word, and the spec is
      dropped rather than attached across the gap.
    - Any other node takes it (`*e*{.a}`, `[l](u){}`, `x{.a}{.b}`).
@@ -661,24 +705,21 @@ Definition split_text_pos (p : pos) (word_start : option spot)
 Definition oattach_list `{PosPolicy}
   (a : attr) (spec : span) (word_start : option spot) (out : inlines)
   : inlines :=
-  match out with
-  | Node p [] (Str s) :: rest =>
-      let '(pre, w) := last_ws_split s in
-      if nonempty_str w
-      then match a with
-           | [] => out
-           | _ =>
-               let '(pp, wp) := split_text_pos p word_start in
-               let out1 := if nonempty_str pre
-                           then isnoc (Node pp [] (Str pre)) rest else rest in
-               isnoc (add_inline_role RAttrSpec spec (Node wp a (Str w))) out1
-           end
-      else out
-  | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
-  | n :: rest => add_inline_role RAttrSpec spec
-                   (match n with
-                    | Node p a' v => Node p (Attr.merge a a') v
-                    end) :: rest
+  match oword_split word_start out with
+  | ((_ :: _) as ws, before) =>
+      match a with
+      | [] => out
+      | _ => isnoc (add_inline_role RAttrSpec spec (oword_node a ws)) before
+      end
+  | ([], _) =>
+      match out with
+      | Node _ [] (Str _) :: _
+      | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
+      | n :: rest => add_inline_role RAttrSpec spec
+                       (match n with
+                        | Node p a' v => Node p (Attr.merge a a') v
+                        end) :: rest
+      end
   end.
 
 (* A scope's items, settled.  Walking the tail first is what puts the
@@ -1748,6 +1789,20 @@ Local Definition idelim_lit (k : dstyle) (txt : Buf) (marker : bool) : Buf :=
 Local Definition idelim_lit_prev (k : dstyle) (marker : bool) : option ascii :=
   Some (if marker then rbrace else dchar k).
 
+(* An unmatched token after the pending text: a quote is a node after the
+   text flushed (`decay_node`), covering the token and the `}` that marks
+   it; any other row's token joins the text. *)
+Definition odecay `{PosPolicy} `{InlineCursor}
+  (k : dstyle) (txt : Buf) (marker : bool) (o : ostate) : Buf * ostate :=
+  match dc_decay cfg k with
+  | DDPair _ _ _ =>
+      let start := span_start (dtoken_span k false) in
+      (tnil, oemit (imk start (if marker then cursor_stop else cursor_start)
+                     (decay_node k (ddecay_str k false marker)))
+               (flush_text_to_at start (tval txt) o))
+  | DDSelf => (idelim_lit k txt marker, o)
+  end.
+
 Definition idelim_done `{PosPolicy} `{InlineCursor}
   (k : dstyle) (txt : Buf) (before : option ascii)
   (marker : bool) (next : option ascii) (o : ostate) : iscan :=
@@ -1755,7 +1810,8 @@ Definition idelim_done `{PosPolicy} `{InlineCursor}
   then IText false tnil (Some (dchar k))
          (opush k false
             (flush_text_to_at (span_start (dtoken_span k false)) (tval txt) o))
-  else IText false (idelim_lit k txt marker) (idelim_lit_prev k marker) o.
+  else let '(t, o') := odecay k txt marker o in
+       IText false t (idelim_lit_prev k marker) o'.
 
 Definition idelim_resolve `{PosPolicy} `{InlineCursor}
   (k : dstyle) (txt : Buf) (before : option ascii)
@@ -1810,11 +1866,41 @@ Definition iperiod_step `{PosPolicy} `{InlineCursor}
   (prev : option ascii) (o : ostate) : iscan :=
   if Ascii.eqb c period
   then (if two then
-          IText false
-            (tpush txt (typography_ellipsis))
-            (Some c) o
+          if smart_typography
+          then
+            let start := spot_before cursor_start (periods true) in
+            IText false tnil (Some c)
+              (oemit (imk start cursor_stop ellipsis_node)
+                 (flush_text_to_at start (tval txt) o))
+          else IText false (tpush txt (chars period 3)) (Some c) o
         else IPeriod true txt prev o)
   else ilead c (tpush txt (periods two)) (Some period) o.
+
+(* `count` dash nodes `w` hyphens wide, the last of them `after` hyphens
+   before `stop`, each covering its own hyphens. *)
+Fixpoint odash_run `{PosPolicy} (w : nat) (x : inline) (count after : nat)
+  (stop : spot) (o : ostate) : ostate :=
+  match count with
+  | O => o
+  | S m =>
+      let rest := m * w + after in
+      odash_run w x m after stop
+        (oemit (imk (spot_before stop (chars hyphen (w + rest)))
+                    (spot_before stop (chars hyphen rest)) x) o)
+  end.
+
+(* A run of `n` hyphens that ends at `stop`, after the pending text.  When
+   it is cut (`dash_run_smart`) the text is flushed and the dashes are
+   nodes, em dashes first; otherwise the run joins the text. *)
+Definition odashes `{PosPolicy} `{InlineCursor} (n : nat) (stop : spot)
+  (txt : Buf) (o : ostate) : Buf * ostate :=
+  if dash_run_smart n
+  then let start := spot_before stop (chars hyphen n) in
+       let '(em, en, _) := dash_counts n in
+       (tnil, odash_run 2 endash_node en 0 stop
+                (odash_run 3 emdash_node em (2 * en) stop
+                   (flush_text_to_at start (tval txt) o)))
+  else (tpush txt (chars hyphen n), o).
 
 (* A run of hyphens ends at the first byte that is not one.  A `}` is the
    exception, and the only place the dash rule and the delete row meet:
@@ -1833,15 +1919,17 @@ Definition idash_step `{PosPolicy} `{InlineCursor}
               parameter and `iscan_marked_close_step` is stated for every
               row, so the arithmetic has to be the row's *)
            if Nat.leb (dwidth k) n
-           then idelim_resolve k
-                  (tpush txt (typography_dashes (n - dwidth k)))
-                  None true (Some c) o
-           else IText false (tpush txt (typography_dashes n ++ one rbrace))
-                  (Some rbrace) o
-       | None => IText false (tpush txt (typography_dashes n ++ one rbrace))
-                   (Some rbrace) o
+           then let '(t, o') := odashes (n - dwidth k)
+                                  (spot_before cursor_start (chars hyphen (dwidth k)))
+                                  txt o in
+                idelim_resolve k t None true (Some c) o'
+           else let '(t, o') := odashes n cursor_start txt o in
+                IText false (tpush t (one rbrace)) (Some rbrace) o'
+       | None =>
+           let '(t, o') := odashes n cursor_start txt o in
+           IText false (tpush t (one rbrace)) (Some rbrace) o'
        end
-  else ilead c (tpush txt (typography_dashes n)) (Some hyphen) o.
+  else let '(t, o') := odashes n cursor_start txt o in ilead c t (Some hyphen) o'.
 
 (* Resolving a `%`: a backtick run opens the hole it prefixes, which
    then reads exactly as a verbatim does; anything else makes the `%`
@@ -1864,7 +1952,7 @@ Definition iresolve `{PosPolicy} `{InlineCursor} (st : iscan) : iscan :=
   | IPeriod two txt _ o =>
       IText false (tpush txt (periods two)) (Some period) o
   | IDash n txt _ o =>
-      IText false (tpush txt (typography_dashes n)) (Some hyphen) o
+      let '(t, o') := odashes n cursor_start txt o in IText false t (Some hyphen) o'
   | IBang txt _ o => IText false (tpush txt (one bang)) (Some bang) o
   | IPercent txt _ o => IText false (tpush txt (one percent)) (Some percent) o
   (* A token still being spelled is text: the run ended before the row's
@@ -2980,27 +3068,30 @@ Proof.
 Qed.
 
 (** Q5: a run of hyphens is cut whole.  The run ends at the first byte
-    that is not a hyphen, the text gains `typography_dashes` of its
-    length (`dashes`, when smart typography is on: `dashes_divide`), and
-    that byte is read next.  A `}` is the exception: it takes the last
-    hyphen back for a close marker (`idash_step`). *)
+    that is not a hyphen and is cut into dash nodes after the text, or
+    joins the text when it is not cut (`odashes`; the cut is `dashes`:
+    `dashes_divide`), and that byte is read next.  A `}` is the
+    exception: it takes the last hyphen back for a close marker
+    (`idash_step`). *)
 Theorem dash_run_in_text : forall n c rest txt prev o,
   Ascii.eqb c hyphen = false -> Ascii.eqb c rbrace = false ->
   iscan_str (chars hyphen (S n) ++ String c rest) (IText false txt prev o)
   = iscan_str (String c rest)
-      (IText false (txt ++ typography_dashes (S n)) (Some hyphen) o).
+      (let '(t, o') := odashes (S n) cursor_start txt o in
+       IText false t (Some hyphen) o').
 Proof.
   intros n c rest txt prev o Hh Hr.
   change (iscan_str (chars hyphen (S n) ++ String c rest) (IText false txt prev o))
     with (iscan_str (chars hyphen n ++ String c rest) (IDash 1 txt prev o)).
   rewrite iscan_dash_run, Nat.add_1_r. cbn [iscan_str]. f_equal.
-  unfold istep. cbn [istep_at]. unfold idash_step. rewrite Hh, Hr. reflexivity.
+  unfold istep. cbn [istep_at]. unfold idash_step. rewrite Hh, Hr.
+  destruct (odashes (S n) cursor_start txt o). reflexivity.
 Qed.
 
 (** Q5, for a run that ends its line. *)
 Theorem dash_run_at_end : forall n txt prev o,
   iresolve (iscan_str (chars hyphen (S n)) (IText false txt prev o))
-  = IText false (txt ++ typography_dashes (S n)) (Some hyphen) o.
+  = let '(t, o') := odashes (S n) cursor_start txt o in IText false t (Some hyphen) o'.
 Proof.
   intros n txt prev o.
   change (iscan_str (chars hyphen (S n)) (IText false txt prev o))
@@ -3162,12 +3253,28 @@ Local Fixpoint key_scan (s lbl : string) (prev : option ascii) (st : iscan)
 Definition key_point (l : string) : option (string * string) :=
   key_scan (drop_leading_ws l) EmptyString None istart.
 
+(* A node of a text run: plain text, or smart punctuation, which breaks a
+   run into several nodes without making it two things. *)
+Definition text_piece (n : node inline) : bool :=
+  match n with
+  | Node _ [] (Str _) | Node _ [] (SmartPunctuation _ _) => true
+  | _ => false
+  end.
+
+(* One element: one node, or one run of text however its punctuation
+   breaks it (`it's`, `a -- b`). *)
+Definition one_element (ns : inlines) : bool :=
+  match ns with
+  | [] => false
+  | [_] => true
+  | _ => forallb text_piece ns
+  end.
+
 (* Is the label one inline?  A fact about the *resolved* list, so it
-   turns on the merge in `oresolve`: `it's` and `foo\: bar` are one run
-   because of it, and ``x`y` `` is two because a verbatim span cannot
-   merge with the text beside it. *)
-Definition key_label_ok (lbl : string) : bool :=
-  match para_inlines [lbl] with [_] => true | _ => false end.
+   turns on the merge in `oresolve`: `foo\: bar` is one run because of
+   it, and ``x`y` `` is two because a verbatim span cannot merge with the
+   text beside it. *)
+Definition key_label_ok (lbl : string) : bool := one_element (para_inlines [lbl]).
 
 (* The split, when the line is a key.  Only the first split point is
    tried: a label already two elements cannot come back to one, since
@@ -3280,26 +3387,24 @@ Qed.
 
 Local Lemma key_split_label_one :
   forall l lbl v,
-    key_split l = Some (lbl, v) ->
-    exists x, para_inlines [lbl] = [x].
+    key_split l = Some (lbl, v) -> one_element (para_inlines [lbl]) = true.
 Proof.
   intros l lbl v H. unfold key_split in H.
   destruct (key_point l) as [[lbl0 v0]|] eqn:E; [|discriminate].
   destruct (key_label_ok lbl0) eqn:Hok; [|discriminate].
-  injection H as <- <-. unfold key_label_ok in Hok.
-  destruct (para_inlines [lbl0]) as [|x xs] eqn:Hils; [discriminate|].
-  destruct xs as [|y ys]; [exists x; reflexivity|discriminate].
+  injection H as <- <-. exact Hok.
 Qed.
 
-(** A successful key split has one nonblank resolved label, and the scan
-    of that label is settled with the connective colon known as the next
-    byte.  Thus the block layer consumes only split points for which the
-    inline layer has no open or undecided construct. *)
+(** A successful key split has a nonblank label that resolves to one
+    element, and the scan of that label is settled with the connective
+    colon known as the next byte.  Thus the block layer consumes only
+    split points for which the inline layer has no open or undecided
+    construct. *)
 Theorem key_split_contract :
   forall l lbl v,
     key_split l = Some (lbl, v) ->
     nonblank lbl = true /\
-    (exists x, para_inlines [lbl] = [x]) /\
+    one_element (para_inlines [lbl]) = true /\
     iscan_settled ":"%char (iscan_str lbl istart) = true.
 Proof.
   intros l lbl v H. split.

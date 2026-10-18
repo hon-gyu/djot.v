@@ -12,46 +12,18 @@ djot.js writes. Recorded 2026-10-04.
 
 | Gap | djot.js | Ours | What closing it needs |
 | --- | ------- | ---- | --------------------- |
-| Smart punctuation | a `smart_punctuation` node with the source (`--`, `...`, an unmatched quote) | part of a `str`, as the rendered character | an inline constructor carrying its source; planned below |
 | Attributes with no block after them (2026-10-12) | no node: dropped, or put on a later block | a `block_attributes` node | a pass that removes the blocks before writing |
 
-### Smart punctuation: the plan
-
-Decided 2026-10-04, not started.
-
-- The node is worth having. It keeps the parse independent of the
-  punctuation map, lets `Doc.to_string` write back what was typed, and
-  gives `alt` and derived ids a text that does not move with the map.
-- It lands together with the user-provided punctuation map, not before.
-  The dash and ellipsis rules are scanner states of their own (`IPeriod`,
-  `IDash`); a map replaces them with something read from a table, and a
-  node added at the present sites would be redone then.
-- `inline_text` reads the node's source, as djot.js does. This closes
-  the divergence logged on 2026-08-21 ("smart punctuation contributes
-  its rendering" in `djotjs-divergences.md`). Derived ids of headings
-  with a quote, a dash run or an ellipsis change once.
-- Open: whether the node holds only its source, the renderer looking the
-  replacement up, or both. A tree rendered without a document
-  (`Html.of_blocks`) has no map to look in, which favours both.
-- A spec after text still attaches to the whole last word, the node
-  included: `a'{.a}` keeps `<span class="a">a’</span>` (decided
-  2026-10-18, `djotjs-divergences.md`).
-
-What it touches:
-
-- The scanner writes the rendered characters into its text buffer at
-  eight places: `iperiod_step`, three arms of `idash_step`, the dash arms
-  of `iresolve` and `islice_end`, and the two uses of `ddecay_str` for an
-  unmatched quote. Each would close the buffer and emit a node instead.
-- A new inline constructor goes through every inline traversal and
-  through the proofs that text between constructs is one `Str`
-  (`no_adjacent_str` in `Wf.v`, `InlineInvert.v`, `InlinePrecedence.v`,
-  `InlineSpans.v`).
-- The canonical inline view has no case for it, so the proved round trip
-  would either gain one or exclude these nodes as it excludes the
-  characters now.
-
 ## Closed
+
+### Smart punctuation (2026-10-18)
+
+`SmartPunctuation src s` is an inline constructor: an unmatched quote,
+an ellipsis or a dash, as typed and as rendered. JSON writes it as
+djot.js's `smart_punctuation` node, with `type` and `text`, and a
+rendering djot.js has no `type` for under `rendering`. Built before the
+punctuation map, against the plan of 2026-10-04; the design and the
+stages are in `261018.plan.smart-punctuation-node.md`.
 
 ### Derived identifiers (2026-10-04)
 

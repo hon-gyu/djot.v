@@ -384,7 +384,9 @@ Proof. intros [k m open out]; destruct k; reflexivity. Qed.
 Local Lemma of_fr_lit : forall `{P : PosPolicy} f,
   @fr_lit T semantic_pos (of_frame f) = Erase.inode (@fr_lit T P f).
 Proof.
-  intros P f. unfold fr_lit. rewrite of_imk, of_fr_src. reflexivity.
+  intros P [k m open out]. unfold fr_lit. rewrite of_imk.
+  destruct k; cbn [fr_node fr_src of_frame fr_kind fr_marked];
+    [unfold decay_node; destruct (dc_decay cfg style)|..]; reflexivity.
 Qed.
 
 Local Lemma of_nonempty : forall l, nonempty (of_oitems l) = nonempty l.
@@ -399,25 +401,63 @@ Proof.
   intros [|[p [|kv a] v] l]; try reflexivity; destruct v; reflexivity.
 Qed.
 
+Local Lemma of_oword_split : forall `{P : PosPolicy} w out,
+  @oword_split semantic_pos None (Erase.of_inlines out) =
+  (let '(ws, before) := @oword_split P w out in
+   (Erase.of_inlines ws, Erase.of_inlines before)).
+Proof.
+  intros P w. induction out as [|[p a v] out IH]; [reflexivity|].
+  destruct a as [|kv a]; [|destruct v; reflexivity].
+  destruct v; try reflexivity;
+    cbn [Erase.of_inlines Erase.inode Erase.of_inline oword_split]; rewrite IH.
+  - destruct (last_ws_split s) as [pre w0].
+    destruct (nonempty_str w0); [|reflexivity].
+    destruct (nonempty_str pre).
+    + destruct (split_text_pos p w) as [pp wp]. cbn [split_text_pos].
+      rewrite of_isnoc. reflexivity.
+    + destruct (@oword_split P w out) as [[|x ws] before];
+        destruct (split_text_pos p w); reflexivity.
+  - destruct (@oword_split P w out) as [ws before]; reflexivity.
+Qed.
+
+Local Lemma of_oword_node : forall a ws,
+  Erase.inode (oword_node a ws) = oword_node a (Erase.of_inlines ws).
+Proof.
+  intros a [|[q b x] [|y ws]]; [reflexivity|reflexivity|].
+  (* an erased word's nodes have no position, the last among them *)
+  assert (L : forall l d,
+    match last (Erase.of_inlines l) (Erase.inode d) with Node p _ _ => p end = NoPos).
+  { induction l as [|n l IH]; intros d; [destruct d; reflexivity|].
+    destruct l as [|m l]; [destruct n; reflexivity|]. apply IH. }
+  set (l := Node q b x :: y :: ws).
+  change (Erase.inode (match last l (Node q [] SoftBreak) with
+                       | Node p _ _ => Node (merge_text_pos p q) a (Span "" (rev l)) end)
+          = oword_node a (Erase.of_inlines l)).
+  unfold oword_node.
+  replace (Erase.of_inlines l)
+    with (Node NoPos b (Erase.of_inline x) :: Erase.of_inlines (y :: ws)) by reflexivity.
+  change (Node NoPos b (Erase.of_inline x) :: Erase.of_inlines (y :: ws))
+    with (Erase.of_inlines l).
+  pose proof (L l (Node q [] SoftBreak)) as Ll. cbn [Erase.inode Erase.of_inline] in Ll.
+  destruct (last l (Node q [] SoftBreak)) as [p c z].
+  destruct (last (Erase.of_inlines l) (Node NoPos [] SoftBreak)) as [p' c' z'].
+  subst p'. cbn [Erase.inode Erase.of_inline].
+  rewrite Erase.inline_children, Erase.inlines_rev. reflexivity.
+Qed.
+
 Local Lemma of_oattach_list : forall `{P : PosPolicy} a spec w out,
   Erase.of_inlines (@oattach_list P a spec w out) =
   @oattach_list semantic_pos a null_span None (Erase.of_inlines out).
 Proof.
-  intros P a spec w [|[p a' v] out]; [reflexivity|].
-  destruct v;
-    try (destruct a' as [|kv a'];
-         cbn [Erase.of_inlines Erase.inode oattach_list];
-         rewrite ?of_add_inline_role; reflexivity).
-  destruct a' as [|kv a'];
-    [|cbn [Erase.of_inlines Erase.inode oattach_list];
-      rewrite of_add_inline_role; reflexivity].
-  cbn [Erase.of_inlines Erase.inode Erase.of_inline oattach_list].
-  destruct (last_ws_split s) as [pre w0].
-  destruct (nonempty_str w0); [|reflexivity].
-  destruct a as [|kv a]; [reflexivity|].
-  destruct (split_text_pos p w) as [pp wp]. cbn [split_text_pos].
-  rewrite of_isnoc, of_add_inline_role. cbn [Erase.inode].
-  destruct (nonempty_str pre); [rewrite of_isnoc|]; reflexivity.
+  intros P a spec w out. unfold oattach_list. rewrite (of_oword_split w out).
+  destruct (@oword_split P w out) as [[|x ws] before]; cbn [Erase.of_inlines].
+  - destruct out as [|[p a' v] out]; [reflexivity|].
+    destruct a' as [|kv a'];
+      destruct v; cbn [Erase.of_inlines Erase.inode Erase.of_inline];
+      rewrite ?of_add_inline_role; reflexivity.
+  - destruct a as [|kv a]; [reflexivity|].
+    rewrite of_isnoc, of_add_inline_role, <- Erase.inlines_cons, <- of_oword_node.
+    reflexivity.
 Qed.
 
 (* Erasure commutes with resolution for the same reason it commutes with
@@ -493,7 +533,7 @@ Proof.
     (fun i => reference_text (Erase.of_inline i) = reference_text i)
     (fun ils => reference_text (Emph (Erase.of_inlines ils)) =
                 reference_text (Emph ils))
-    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _);
     intros;
     cbn [Erase.of_inline Erase.of_inlines Erase.inode reference_text
       node_contents] in *;
@@ -809,6 +849,16 @@ Proof.
   cbn [of_iscan]. rewrite of_bpush, of_flush_text_to_at. reflexivity.
 Qed.
 
+Local Lemma of_odecay : forall `{P : PosPolicy} `{C : InlineCursor} k txt marker o,
+  @odecay T _ _ semantic_pos semantic_inline_cursor k txt marker (of_ostate o)
+  = (fst (@odecay T _ _ P C k txt marker o), of_ostate (snd (@odecay T _ _ P C k txt marker o))).
+Proof.
+  intros P C k txt marker o. unfold odecay.
+  destruct (dc_decay cfg k) eqn:Ed; [reflexivity|]. cbn [fst snd].
+  rewrite of_oemit, of_imk, of_flush_text_to_at.
+  unfold decay_node. rewrite Ed. reflexivity.
+Qed.
+
 Local Lemma of_idelim_done : forall `{P : PosPolicy} `{C : InlineCursor}
   k txt before marker next o,
   of_iscan (@idelim_done T _ _ P C k txt before marker next o) =
@@ -816,9 +866,9 @@ Local Lemma of_idelim_done : forall `{P : PosPolicy} `{C : InlineCursor}
     (of_ostate o).
 Proof.
   intros P C k txt before marker next o. unfold idelim_done.
-  destruct (dbare k before && negb marker && nonspace_at next)%bool;
-    [|reflexivity].
-  cbn [of_iscan]. rewrite of_opush, of_flush_text_to_at. reflexivity.
+  destruct (dbare k before && negb marker && nonspace_at next)%bool.
+  - cbn [of_iscan]. rewrite of_opush, of_flush_text_to_at. reflexivity.
+  - rewrite of_odecay. destruct (@odecay T _ _ P C k txt marker o). reflexivity.
 Qed.
 
 Local Lemma of_idelim_resolve : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -866,7 +916,33 @@ Local Lemma of_iperiod_step : forall `{P : PosPolicy} `{C : InlineCursor}
     (of_ostate o).
 Proof.
   intros P C c two txt prev o. unfold iperiod_step.
-  destruct (Ascii.eqb c period); [destruct two; reflexivity|apply of_ilead].
+  destruct (Ascii.eqb c period); [|apply of_ilead].
+  destruct two; [|reflexivity]. destruct smart_typography; [|reflexivity].
+  cbn [of_iscan]. rewrite of_oemit, of_imk, of_flush_text_to_at. reflexivity.
+Qed.
+
+(* A dash's position is all erasure drops of it, so where the run is
+   said to stop does not matter after. *)
+Local Lemma of_odash_run : forall `{P : PosPolicy} w x count after stop stop' o,
+  Erase.of_inline x = x ->
+  of_ostate (@odash_run P w x count after stop o) =
+  @odash_run semantic_pos w x count after stop' (of_ostate o).
+Proof.
+  intros P w x count. induction count as [|m IH]; intros after stop stop' o Hx;
+    [reflexivity|].
+  cbn [odash_run]. rewrite (IH after stop stop' _ Hx), of_oemit, of_imk, Hx. reflexivity.
+Qed.
+
+Local Lemma of_odashes : forall `{P : PosPolicy} `{C : InlineCursor} n stop stop' txt o,
+  @odashes T _ _ semantic_pos semantic_inline_cursor n stop' txt (of_ostate o)
+  = (fst (@odashes T _ _ P C n stop txt o), of_ostate (snd (@odashes T _ _ P C n stop txt o))).
+Proof.
+  intros P C n stop stop' txt o. unfold odashes.
+  destruct (dash_run_smart n); [|reflexivity].
+  destruct (dash_counts n) as [[em en] lit]. cbn [fst snd].
+  rewrite (of_odash_run 2 endash_node en 0 stop stop') by reflexivity.
+  rewrite (of_odash_run 3 emdash_node em (2 * en) stop stop') by reflexivity.
+  rewrite of_flush_text_to_at. reflexivity.
 Qed.
 
 Local Lemma of_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}
@@ -877,21 +953,29 @@ Local Lemma of_idash_step : forall `{P : PosPolicy} `{C : InlineCursor}
 Proof.
   intros P C c n txt prev o. unfold idash_step.
   destruct (Ascii.eqb c hyphen); [reflexivity|].
-  destruct (Ascii.eqb c rbrace); [|apply of_ilead].
-  destruct (dstyle_of hyphen) as [k|]; [|reflexivity].
-  destruct (Nat.leb (dwidth k) n); [apply of_idelim_resolve|reflexivity].
+  rewrite !(of_odashes n cursor_start).
+  destruct (Ascii.eqb c rbrace);
+    [|destruct (@odashes T _ _ P C n cursor_start txt o); apply of_ilead].
+  destruct (dstyle_of hyphen) as [k|];
+    [|destruct (@odashes T _ _ P C n cursor_start txt o); reflexivity].
+  destruct (Nat.leb (dwidth k) n);
+    [|destruct (@odashes T _ _ P C n cursor_start txt o); reflexivity].
+  rewrite (of_odashes (n - dwidth k) (spot_before cursor_start (chars hyphen (dwidth k)))).
+  destruct (@odashes T _ _ P C (n - dwidth k) _ txt o). apply of_idelim_resolve.
 Qed.
 
 Local Lemma of_iresolve : forall `{P : PosPolicy} `{C : InlineCursor} st,
   of_iscan (@iresolve T _ _ P C st) =
   @iresolve T _ _ semantic_pos semantic_inline_cursor (of_iscan st).
 Proof.
-  intros P C [| | |k extra txt before marked o| | | | | | | | | | | | | | | | | | |];
+  intros P C [| | |k extra txt before marked o| | | | | | |n txt prev o| | | | | | | | | | | | ];
     try reflexivity.
-  cbn [of_iscan iresolve].
-  destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
-  destruct marked;
-    [apply of_idelim_open_marked|apply of_idelim_resolve].
+  - cbn [of_iscan iresolve].
+    destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|].
+    destruct marked;
+      [apply of_idelim_open_marked|apply of_idelim_resolve].
+  - cbn [of_iscan iresolve]. rewrite (of_odashes n cursor_start).
+    destruct (@odashes T _ _ P C n cursor_start txt o). reflexivity.
 Qed.
 
 Local Lemma of_iescws_resolve : forall `{P : PosPolicy} `{C : InlineCursor}

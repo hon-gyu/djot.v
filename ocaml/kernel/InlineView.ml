@@ -119,6 +119,13 @@ let ddecay_str t k openmark closemark =
   | DDPair (dfl, l, r) ->
     if dfl then if closemark then r else l else if openmark then l else r
 
+(** val decay_node : dtable -> dstyle -> string -> inline **)
+
+let decay_node t k s =
+  match t.dc_decay k with
+  | DDSelf -> Str s
+  | DDPair (_, _, _) -> SmartPunctuation ((dtoken t k), s)
+
 (** val dbare : dtable -> dstyle -> char option -> bool **)
 
 let dbare t k before =
@@ -678,20 +685,11 @@ let periods = function
     (period, (one period))
 | false -> one period
 
-(** val typography_ellipsis : dtable -> string **)
+(** val ellipsis_node : inline **)
 
-let typography_ellipsis t =
-  if smart_typography t
-  then ellipsis
-  else chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))
-
-(** val srep : string -> int -> string **)
-
-let rec srep s n =
-  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
-    (fun _ -> "")
-    (fun m -> (^) s (srep s m))
-    n
+let ellipsis_node =
+  SmartPunctuation
+    ((chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))), ellipsis)
 
 (** val dash_counts : int -> (int * int) * int **)
 
@@ -716,17 +714,21 @@ let dash_counts n =
                           (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))),
                         (Stdlib.succ (Stdlib.succ 0))), 0)
 
-(** val dashes : int -> string **)
+(** val emdash_node : inline **)
 
-let dashes n =
-  let (p, lit) = dash_counts n in
-  let (em, en) = p in
-  (^) (srep emdash em) ((^) (srep endash en) (chars hyphen lit))
+let emdash_node =
+  SmartPunctuation
+    ((chars hyphen (Stdlib.succ (Stdlib.succ (Stdlib.succ 0)))), emdash)
 
-(** val typography_dashes : dtable -> int -> string **)
+(** val endash_node : inline **)
 
-let typography_dashes t n =
-  if smart_typography t then dashes n else chars hyphen n
+let endash_node =
+  SmartPunctuation ((chars hyphen (Stdlib.succ (Stdlib.succ 0))), endash)
+
+(** val dash_run_smart : dtable -> int -> bool **)
+
+let dash_run_smart t n =
+  (&&) (( <= ) (Stdlib.succ (Stdlib.succ 0)) n) (smart_typography t)
 
 (** val auto_node : string -> inline **)
 
@@ -817,6 +819,35 @@ let raw_text fmt s =
 
 let hole_spell s =
   (^) (one percent) (verb_text s)
+
+(** val smart_spell : dtable -> string -> string -> string **)
+
+let smart_spell t src s =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> src)
+    (fun c s0 ->
+    (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+      (fun _ ->
+      match dstyle_of t c with
+      | Some k ->
+        (match t.dc_decay k with
+         | DDSelf -> src
+         | DDPair (left_by_default, l, r) ->
+           if left_by_default
+           then if (=) s r then (^) src (one rbrace) else src
+           else if (=) s l then (^) (one lbrace) src else src)
+      | None -> src)
+      (fun _ _ -> src)
+      s0)
+    src
 
 type cinline =
 | CIStr of string
@@ -1109,7 +1140,8 @@ let rec inline_text t il =
 
        (bslash, (one '\n'))
    | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
-   | Hole s -> hole_spell s)
+   | Hole s -> hole_spell s
+   | SmartPunctuation (src, s) -> smart_spell t src s)
 
 (** val line_ends : inlines -> bool **)
 

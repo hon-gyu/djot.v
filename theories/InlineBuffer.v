@@ -234,7 +234,10 @@ Proof. intros. unfold ibang_step. crush. Qed.
 
 Lemma idelim_done_map : forall k t before marker next o,
   map_text (idelim_done k t before marker next o) = idelim_done k (tval t) before marker next o.
-Proof. intros. unfold idelim_done, InlineScan.idelim_lit. crush. Qed.
+Proof.
+  intros. unfold idelim_done, odecay, InlineScan.idelim_lit.
+  destruct (dc_decay cfg k); crush.
+Qed.
 
 Hint Rewrite idelim_done_map : map_text.
 
@@ -253,12 +256,36 @@ Lemma iperiod_step_map : forall c two t prev o,
   map_text (iperiod_step c two t prev o) = iperiod_step c two (tval t) prev o.
 Proof. intros. unfold iperiod_step. crush. Qed.
 
+Lemma odashes_map : forall n stop t o,
+  map_fst (odashes n stop t o) = odashes n stop (tval t) o.
+Proof.
+  intros n stop t o. unfold odashes, map_fst.
+  destruct (dash_run_smart n); [|cbn [fst snd]; laws; reflexivity].
+  destruct (dash_counts n) as [[em en] lit]. cbn [fst snd]. laws. reflexivity.
+Qed.
+
 Lemma idash_step_map : forall c n t prev o,
   map_text (idash_step c n t prev o) = idash_step c n (tval t) prev o.
-Proof. intros. unfold idash_step. crush. Qed.
+Proof.
+  intros. unfold idash_step. rewrite <- !odashes_map.
+  destruct (Ascii.eqb c hyphen); [crush|].
+  destruct (Ascii.eqb c rbrace).
+  2: { destruct (odashes n cursor_start t o). unfold map_fst; cbn [fst snd]. crush. }
+  destruct (dstyle_of hyphen) as [k|].
+  2: { destruct (odashes n cursor_start t o). unfold map_fst; cbn [fst snd]. crush. }
+  destruct (Nat.leb (dwidth k) n).
+  2: { destruct (odashes n cursor_start t o). unfold map_fst; cbn [fst snd]. crush. }
+  rewrite <- odashes_map.
+  destruct (odashes (n - dwidth k) _ t o). unfold map_fst; cbn [fst snd]. crush.
+Qed.
 
 Lemma iresolve_map : forall st, map_text (iresolve st) = iresolve (map_text st).
-Proof. intros []; cbn [iresolve map_text]; crush. Qed.
+Proof.
+  intros []; cbn [iresolve map_text];
+    try (rewrite <- odashes_map; destruct (odashes _ cursor_start _ _);
+         unfold map_fst; cbn [fst snd]);
+    crush.
+Qed.
 
 Lemma iescws_resolve_map : forall ws t prev o,
   let '(t', p', o') := iescws_resolve ws t prev o in

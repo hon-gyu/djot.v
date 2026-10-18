@@ -52,7 +52,7 @@ Proof. reflexivity. Qed.
 Example parse_no_interrupt :
   parse_blocks "one
 ---" =
-  [ mk (Para [mk (Str "one"); mk SoftBreak; mk (Str emdash)]) ].
+  [ mk (Para [mk (Str "one"); mk SoftBreak; mk emdash_node]) ].
 Proof. reflexivity. Qed.
 
 Example parse_code_block :

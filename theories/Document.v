@@ -187,6 +187,8 @@ Fixpoint inline_text (il : inline) : string :=
   | UrlLink s | EmailLink s => s
   (* the text a wikilink displays, as its desugared link would push it *)
   | Ext_wikilink _ t al => wiki_display t al
+  (* what was typed, as djot.js's alt and ids read it *)
+  | SmartPunctuation src _ => src
   | Symbol _ | NonBreakingSpace => ""
   end.
 

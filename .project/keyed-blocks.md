@@ -219,14 +219,16 @@ A split point is necessary and not sufficient. The text before the
 colon has to be a single inline element.
 
 The counts are not obvious from the source, because resolution merges
-adjacent text and decayed punctuation merges with its neighbours:
+adjacent text, and smart punctuation breaks a run of text into several
+nodes without making it two things (2026-10-18: before then it merged
+into the text):
 
 | label source            | nodes | what they are                     | key? |
 | ----------------------- | ----- | --------------------------------- | ---- |
 | `foo`                   | 1     | a text run                        | yes  |
 | `foo bar baz`           | 1     | still one text run                | yes  |
-| `it's`                  | 1     | the apostrophe curls and merges   | yes  |
-| `a -- b`                | 1     | the dash likewise                 | yes  |
+| `it's`                  | 3     | one text run, the apostrophe a node | yes  |
+| `a -- b`                | 3     | one text run, the dash a node     | yes  |
 | `foo\: bar`             | 1     | the escape leaves one run         | yes  |
 | `` `code` ``            | 1     | a verbatim span                   | yes  |
 | `[see](x)`              | 1     | a link                            | yes  |
@@ -908,13 +910,13 @@ and `para_ok`'s new conjunct are one step, not two.
 
 **The label test depends on the merge pass.** Whether a label is one
 inline or two is a fact about the *resolved* inline list, so it turns on
-resolution merging adjacent text and on decayed punctuation merging with
-its neighbours. `it's` and `foo\: bar` are keys because of that pass and
-would not be without it. This is a coupling to record rather than a
-problem: the pass is what makes "one text run is one thing" true, and it
-is why the rule can be stated on node counts at all. It does mean the
-rule is about our normalised inline list and not about djot.js's, which
-does not merge these and would count `it's` as three.
+resolution merging adjacent text. `foo\: bar` is a key because of that
+pass and would not be without it. Smart punctuation is a node of its own
+(2026-10-18), so a text run is counted as one element when all its nodes
+are plain text and smart punctuation (`one_element` in `InlineScan.v`):
+`it's` is three nodes and one element. This is a coupling to record
+rather than a problem: the pass and that count are what make "one text
+run is one thing" true.
 
 **Free**: `prefix_determinism`, `no_future_line_dependence` and
 `prefix_state_suffices`. All three are facts about `parse_lines` being a

@@ -730,6 +730,34 @@ Definition item_trim (out : list titem) : list titem :=
   | _ => out
   end.
 
+(* The last word of the nodes before a spec, latest first, and the nodes
+   before it.  A word runs back over plain text and smart punctuation and
+   ends after the last whitespace, so `a'b` is one word.  It is empty when
+   the text before the spec ends in whitespace or there is none. *)
+Fixpoint word_split (out : inlines) : inlines * inlines :=
+  match out with
+  | Node p [] (Str s) :: rest =>
+      let '(pre, w) := last_ws_split s in
+      if nonempty_str w
+      then if nonempty_str pre
+           then ([Node p [] (Str w)], Node p [] (Str pre) :: rest)
+           else let '(ws, before) := word_split rest in
+                (Node p [] (Str s) :: ws, before)
+      else ([], out)
+  | Node p [] (SmartPunctuation src t) :: rest =>
+      let '(ws, before) := word_split rest in
+      (Node p [] (SmartPunctuation src t) :: ws, before)
+  | _ => ([], out)
+  end.
+
+(* A word that is one node takes the attributes itself; a longer one is
+   put in a span that takes them. *)
+Definition word_node (a : attr) (ws : inlines) : node inline :=
+  match ws with
+  | [Node p _ x] => Node p a x
+  | _ => Node NoPos a (Span EmptyString (List.rev ws))
+  end.
+
 (* Where a spec lands, given the nodes before it, latest first.  "They
    must immediately follow the inline element to which they are attached
    (with no intervening whitespace)": after plain text that element is
@@ -738,18 +766,18 @@ Definition item_trim (out : list titem) : list titem :=
    after whitespace, after a break, after a non-breaking space or with
    nothing before it the spec attaches to nothing. *)
 Definition attach (a : attr) (out : inlines) : inlines :=
-  match out with
-  | Node p [] (Str s) :: rest =>
-      let '(pre, w) := last_ws_split s in
-      if nonempty_str w
-      then match a with
-           | [] => out
-           | _ => Node p a (Str w)
-                  :: (if nonempty_str pre then Node p [] (Str pre) :: rest else rest)
-           end
-      else out
-  | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
-  | Node p a' v :: rest => Node p (Attr.merge a a') v :: rest
+  match word_split out with
+  | ((_ :: _) as ws, before) =>
+      match a with
+      | [] => out
+      | _ => word_node a ws :: before
+      end
+  | ([], _) =>
+      match out with
+      | Node _ [] (Str _) :: _
+      | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
+      | Node p a' v :: rest => Node p (Attr.merge a a') v :: rest
+      end
   end.
 
 (* A node after the nodes before it, plain text merging. *)
@@ -821,10 +849,38 @@ Definition verb_node (pre : nat) (raw : option string) (body : string) : inline 
 Definition delim_lit (k : dstyle) (mr op cm : bool) : string :=
   if (mr && op)%bool then ddecay_str k true cm else ddecay_str k false mr.
 
-(* A run of periods as text: an ellipsis for every three, left to right,
-   and the one or two left over (Q4). *)
-Definition dots (n : nat) : string :=
-  (srep typography_ellipsis (Nat.div n 3) ++ chars period (Nat.modulo n 3))%string.
+(* A run of periods (Q4): an ellipsis for every three, left to right,
+   and the one or two left over as text.  With smart typography off the
+   run is text. *)
+Definition dots_items (n : nat) : list inline :=
+  if smart_typography
+  then (repeat ellipsis_node (Nat.div n 3)
+        ++ (if Nat.eqb (Nat.modulo n 3) 0 then []
+            else [Str (chars period (Nat.modulo n 3))]))%list
+  else [Str (chars period n)].
+
+(* A run of hyphens (Q5): the em and en dashes `dash_counts` cuts it into,
+   or text when `dash_run_smart` says it is not cut. *)
+Definition dash_items (n : nat) : list inline :=
+  if dash_run_smart n
+  then let '(em, en, _) := dash_counts n in
+       (repeat emdash_node em ++ repeat endash_node en)%list
+  else [Str (chars hyphen n)].
+
+(* Nodes after the nodes before them, text merging with text. *)
+Definition temit_item (x : inline) (fs : tframes) (top : list titem)
+  : tframes * list titem :=
+  match x with
+  | Str s => temit_str s fs top
+  | _ => temit (mk x) fs top
+  end.
+
+Fixpoint temit_items (xs : list inline) (fs : tframes) (top : list titem)
+  : tframes * list titem :=
+  match xs with
+  | [] => (fs, top)
+  | x :: rest => let '(fs', top') := temit_item x fs top in temit_items rest fs' top'
+  end.
 
 (* One token of the chain; `hard` says the token before it was a hard
    break, which a break right after is part of.  A span is no image: the `!` of its bracket is text before it. *)
@@ -850,15 +906,16 @@ Definition tstep (s : string) (m : matching) (i : nat) (t : token) (hard : bool)
   | TSymbol a => temit (mk (Symbol a)) fs top
   | TAttr _ a => tmark a fs top
   | TNote l => temit (mk (FootnoteReference (normalize_label l))) fs top
-  | TDots n => temit_str (dots n) fs top
-  | TDash n => temit_str (typography_dashes n) fs top
+  | TDots n => temit_items (dots_items n) fs top
+  | TDash n => temit_items (dash_items n) fs top
   | TBreak => if hard then (fs, top) else temit (mk SoftBreak) fs top
   | TDelim k mr op _ =>
       if is_opener m i then ((TKDelim k, []) :: fs, top)
       else match is_closer m i, fs with
            | true, (TKDelim k', acc) :: fs0 => temit (mk (dnode k' (resolve acc))) fs0 top
            | _, _ =>
-               temit_str (delim_lit k mr op (at_rbrace (get (tok_end s i) s))) fs top
+               temit_item (decay_node k (delim_lit k mr op (at_rbrace (get (tok_end s i) s))))
+                 fs top
            end
   | TOpen im =>
       if is_opener m i then ((TKBracket im, []) :: fs, top)

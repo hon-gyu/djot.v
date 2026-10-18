@@ -48,6 +48,8 @@ val dopens_after : char option -> bool
 
 val ddecay_str : dtable -> dstyle -> bool -> bool -> string
 
+val decay_node : dtable -> dstyle -> string -> inline
+
 val dbare : dtable -> dstyle -> char option -> bool
 
 val is_delim : dtable -> char -> bool
@@ -144,15 +146,15 @@ val emdash : string
 
 val periods : bool -> string
 
-val typography_ellipsis : dtable -> string
-
-val srep : string -> int -> string
+val ellipsis_node : inline
 
 val dash_counts : int -> (int * int) * int
 
-val dashes : int -> string
+val emdash_node : inline
 
-val typography_dashes : dtable -> int -> string
+val endash_node : inline
+
+val dash_run_smart : dtable -> int -> bool
 
 val auto_node : string -> inline
 
@@ -175,6 +177,8 @@ val raw_stop : char -> bool
 val raw_text : string -> string -> string
 
 val hole_spell : string -> string
+
+val smart_spell : dtable -> string -> string -> string
 
 type cinline =
 | CIStr of string

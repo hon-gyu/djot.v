@@ -293,13 +293,13 @@ Example empty_span_is_text :
 Proof. vm_compute. reflexivity. Qed.
 
 (* Smart punctuation on the two characters that are not delimiters.
-   Three periods are one ellipsis and a fourth is itself; a run of
-   hyphens is cut by `dashes`; and both are text, so they merge with the
-   text around them rather than becoming nodes. *)
+   Three periods are one ellipsis, a node of its own, and a fourth is
+   text; a run of hyphens is cut by `dashes` into dash nodes, and a lone
+   hyphen is text. *)
 Example ellipsis_and_remainder :
   (parse_inline_line "a...b", parse_inline_line "a....b")
-  = ([mk (Str ("a" ++ ellipsis ++ "b"))],
-     [mk (Str ("a" ++ ellipsis ++ ".b"))]).
+  = ([mk (Str "a"); mk ellipsis_node; mk (Str "b")],
+     [mk (Str "a"); mk ellipsis_node; mk (Str ".b")]).
 Proof. vm_compute. reflexivity. Qed.
 
 Example two_periods_are_text :
@@ -309,8 +309,8 @@ Proof. vm_compute. reflexivity. Qed.
 Example dash_runs :
   (parse_inline_line "a-b", parse_inline_line "a--b", parse_inline_line "a---b")
   = ([mk (Str "a-b")],
-     [mk (Str ("a" ++ endash ++ "b"))],
-     [mk (Str ("a" ++ emdash ++ "b"))]).
+     [mk (Str "a"); mk endash_node; mk (Str "b")],
+     [mk (Str "a"); mk emdash_node; mk (Str "b")]).
 Proof. vm_compute. reflexivity. Qed.
 
 (* Where the run meets the delete row, which is the one place the two
@@ -318,13 +318,13 @@ Proof. vm_compute. reflexivity. Qed.
    the run is cut. *)
 Example dash_run_gives_back_its_closer :
   parse_inline_line "{-a---}"
-  = [mk (Delete [mk (Str ("a" ++ endash))])].
+  = [mk (Delete [mk (Str "a"); mk endash_node])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* With nothing open, `-}` is what is left over: two literal characters,
    and the run before them cut. *)
 Example dash_run_without_an_opener :
-  parse_inline_line "a---}" = [mk (Str ("a" ++ endash ++ "-}"))].
+  parse_inline_line "a---}" = [mk (Str "a"); mk endash_node; mk (Str "-}")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* Escaping is what keeps canonical text out of both rules. *)
@@ -408,40 +408,44 @@ Example dquote_pair :
   parse_inline_line """a""" = [mk (Quoted DoubleQuotes [mk (Str "a")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* An apostrophe cannot open, so it decays: this is `DBareAfterBreak`. *)
+(* An apostrophe cannot open, so it decays: this is `DBareAfterBreak`.
+   The decayed quote is a node recording what was typed. *)
 Example apostrophe_is_not_an_opener :
-  parse_inline_line "can't" = [mk (Str ("can" ++ rsquo ++ "t"))].
+  parse_inline_line "can't"
+  = [mk (Str "can"); mk (SmartPunctuation "'" rsquo); mk (Str "t")].
 Proof. vm_compute. reflexivity. Qed.
 
 Example decade_is_an_apostrophe :
-  parse_inline_line "the '70s" = [mk (Str ("the " ++ rsquo ++ "70s"))].
+  parse_inline_line "the '70s"
+  = [mk (Str "the "); mk (SmartPunctuation "'" rsquo); mk (Str "70s")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* An unmatched opener decays too: to the *right* form for the single
    quote and the *left* for the double one.  The side is a property of
    the row, not of the position. *)
 Example unmatched_squote_is_right :
-  parse_inline_line "'a" = [mk (Str (rsquo ++ "a"))].
+  parse_inline_line "'a" = [mk (SmartPunctuation "'" rsquo); mk (Str "a")].
 Proof. vm_compute. reflexivity. Qed.
 
 Example unmatched_dquote_is_left :
-  parse_inline_line "a""" = [mk (Str ("a" ++ ldquo))].
+  parse_inline_line "a""" = [mk (Str "a"); mk (SmartPunctuation """" ldquo)].
 Proof. vm_compute. reflexivity. Qed.
 
 (* And the byte a decay leaves in the buffer is not the byte the next
-   quote's open rule reads.  A quote that decays writes `rsquo`; the
+   quote's open rule reads.  A quote that decays is `rsquo`; the
    source said `'`, and `dopens_after` accepts a quote and not a curly
    one, so the second `'` here opens and the third closes it.  `ilead`
    takes the source byte from `prev` for exactly this. *)
 Example decay_does_not_hide_the_source_byte :
   parse_inline_line "a''b'"
-  = [mk (Str ("a" ++ rsquo)); mk (Quoted SingleQuotes [mk (Str "b")])].
+  = [mk (Str "a"); mk (SmartPunctuation "'" rsquo);
+     mk (Quoted SingleQuotes [mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
-(* The dashes rewrite the buffer the same way, and cost the same. *)
+(* A dash is a node, and the byte before the quote is still the hyphen. *)
 Example dash_does_not_hide_the_source_byte :
   parse_inline_line "a--'b'"
-  = [mk (Str ("a" ++ endash)); mk (Quoted SingleQuotes [mk (Str "b")])].
+  = [mk (Str "a"); mk endash_node; mk (Quoted SingleQuotes [mk (Str "b")])].
 Proof. vm_compute. reflexivity. Qed.
 
 (* A marker overrides both the open rule and the side: a braced opener
@@ -452,7 +456,7 @@ Example marked_squote_opens :
 Proof. vm_compute. reflexivity. Qed.
 
 Example marked_squote_abandoned_is_left :
-  parse_inline_line "{'a" = [mk (Str (lsquo ++ "a"))].
+  parse_inline_line "{'a" = [mk (SmartPunctuation "'" lsquo); mk (Str "a")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* Both markers at once, the one token whose two flips compete.  The
@@ -462,11 +466,11 @@ Proof. vm_compute. reflexivity. Qed.
    `}` is not consumed either way, since the token has an open marker, so
    the token still opens a scope and the brace is text after it. *)
 Example marked_squote_with_close_marker_is_left :
-  parse_inline_line "{'}a" = [mk (Str (lsquo ++ "}a"))].
+  parse_inline_line "{'}a" = [mk (SmartPunctuation "'" lsquo); mk (Str "}a")].
 Proof. vm_compute. reflexivity. Qed.
 
 Example marked_dquote_with_close_marker_is_right :
-  parse_inline_line "{""}a" = [mk (Str (rdquo ++ "}a"))].
+  parse_inline_line "{""}a" = [mk (SmartPunctuation """" rdquo); mk (Str "}a")].
 Proof. vm_compute. reflexivity. Qed.
 
 (* And it is still an opener, so a closer later in the line reaches it
@@ -792,7 +796,7 @@ Proof. vm_compute. reflexivity. Qed.
    closes the bracket the failed span left open, into a link. *)
 Example span_failed_spec_bracket_closes :
   parse_inline_line "[a]{k=""](u)"
-  = [mk (Link [mk (Str "a]{k=“")] (Direct "u"))].
+  = [mk (Link [mk (Str "a]{k="); mk (SmartPunctuation """" ldquo)] (Direct "u"))].
 Proof. vm_compute. reflexivity. Qed.
 
 (* `!` is not part of a span: the image opener decays to text. *)
@@ -1265,16 +1269,27 @@ Example attr_punctuation_does_not_split :
   = [Node NoPos [("class", "a")] (Str "a-b")].
 Proof. vm_compute. reflexivity. Qed.
 
-(* Smart punctuation is part of the last word.  djot.js attaches the
-   spec to the quote alone and renders it without attributes. *)
+(* Smart punctuation is part of the last word, and a word of several
+   nodes is put in an unnamed span that takes the attributes.  djot.js
+   attaches the spec to the quote alone and renders it without
+   attributes. *)
 Example attr_covers_smart_punctuation :
   parse_inline_line "a'{.a}"
-  = [Node NoPos [("class", "a")] (Str ("a" ++ rsquo))].
+  = [Node NoPos [("class", "a")]
+       (Span "" [mk (Str "a"); mk (SmartPunctuation "'" rsquo)])].
 Proof. vm_compute. reflexivity. Qed.
 
 Example attr_covers_word_with_apostrophe :
   parse_inline_line "a b'c{.x}"
-  = [mk (Str "a "); Node NoPos [("class", "x")] (Str ("b" ++ rsquo ++ "c"))].
+  = [mk (Str "a ");
+     Node NoPos [("class", "x")]
+       (Span "" [mk (Str "b"); mk (SmartPunctuation "'" rsquo); mk (Str "c")])].
+Proof. vm_compute. reflexivity. Qed.
+
+(* A word that is one quote takes the attributes itself. *)
+Example attr_on_lone_smart_punctuation :
+  parse_inline_line "a '{.x}"
+  = [mk (Str "a "); Node NoPos [("class", "x")] (SmartPunctuation "'" rsquo)].
 Proof. vm_compute. reflexivity. Qed.
 
 (* So is an escape.  djot.js starts a node at the escape and attaches
@@ -1483,7 +1498,7 @@ Proof. vm_compute. reflexivity. Qed.
    symbol is a symbol, and a `{` inside the region may begin a spec of
    its own. *)
 Example attr_failed_spec_dash :
-  parse_inline_line "x{a--" = [mk (Str "x{a–")].
+  parse_inline_line "x{a--" = [mk (Str "x{a"); mk endash_node].
 Proof. vm_compute. reflexivity. Qed.
 
 Example attr_failed_spec_symbol :
@@ -1492,7 +1507,9 @@ Proof. vm_compute. reflexivity. Qed.
 
 Example attr_failed_spec_inner_spec :
   parse_inline_line "x{a=""{.c} y"
-  = [Node NoPos [("class", "c")] (Str "x{a=“"); mk (Str " y")].
+  = [Node NoPos [("class", "c")]
+       (Span "" [mk (Str "x{a="); mk (SmartPunctuation """" ldquo)]);
+     mk (Str " y")].
 Proof. vm_compute. reflexivity. Qed.
 
 (*

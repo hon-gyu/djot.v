@@ -128,10 +128,17 @@ let imk h start stop x =
 let imk_here h h0 x =
   imk h h0.cursor_start h0.cursor_stop x
 
+(** val fr_node : dtable -> frame -> inline **)
+
+let fr_node t f =
+  match f.fr_kind with
+  | FKDelim (k, _) -> decay_node t k (fr_src t f)
+  | _ -> Str (fr_src t f)
+
 (** val fr_lit : dtable -> coq_PosPolicy -> frame -> inline node **)
 
 let fr_lit t h f =
-  imk h f.fr_open.span_start f.fr_open.span_stop (Str (fr_src t f))
+  imk h f.fr_open.span_start f.fr_open.span_stop (fr_node t f)
 
 (** val add_inline_role :
     coq_PosPolicy -> syntax_role -> span -> inline node -> inline node **)
@@ -359,46 +366,82 @@ let split_text_pos p word_start =
          (prov_at { span_start = w; span_stop = pr.node_span.span_stop })))
      | None -> (p, p))
 
-(** val oattach_list :
-    coq_PosPolicy -> attr -> span -> spot option -> inlines -> inlines **)
+(** val oword_split :
+    coq_PosPolicy -> spot option -> inlines -> inlines * inlines **)
 
-let oattach_list h a spec word_start out = match out with
-| [] -> out
+let rec oword_split h word_start out = match out with
+| [] -> ([], out)
 | n :: rest ->
-  let Node (p, a0, x) = n in
-  (match a0 with
+  let Node (p, a, x) = n in
+  (match a with
    | [] ->
      (match x with
       | Str s ->
         let (pre, w) = last_ws_split s in
         if nonempty_str w
-        then (match a with
-              | [] -> out
-              | _ :: _ ->
-                let (pp, wp) = split_text_pos p word_start in
-                let out1 =
-                  if nonempty_str pre
-                  then isnoc (Node (pp, [], (Str pre))) rest
-                  else rest
-                in
-                isnoc
-                  (add_inline_role h RAttrSpec spec (Node (wp, a, (Str w))))
-                  out1)
-        else out
-      | NonBreakingSpace -> out
-      | SoftBreak -> out
-      | HardBreak -> out
-      | _ ->
-        (add_inline_role h RAttrSpec spec
-          (let Node (p0, a', v) = n in Node (p0, (Attr.merge a a'), v))) :: rest)
+        then if nonempty_str pre
+             then let (pp, wp) = split_text_pos p word_start in
+                  (((Node (wp, [], (Str w))) :: []),
+                  (isnoc (Node (pp, [], (Str pre))) rest))
+             else let (ws, before) = oword_split h word_start rest in
+                  (match ws with
+                   | [] ->
+                     (((Node ((snd (split_text_pos p word_start)), [], (Str
+                       s))) :: []), before)
+                   | _ :: _ -> (((Node (p, [], (Str s))) :: ws), before))
+        else ([], out)
+      | SmartPunctuation (src, t) ->
+        let (ws, before) = oword_split h word_start rest in
+        (((Node (p, [], (SmartPunctuation (src, t)))) :: ws), before)
+      | _ -> ([], out))
+   | _ :: _ -> ([], out))
+
+(** val oword_node : attr -> inlines -> inline node **)
+
+let oword_node a ws = match ws with
+| [] -> Node (NoPos, a, (Span ("", [])))
+| n :: l ->
+  let Node (q, _, x) = n in
+  (match l with
+   | [] -> Node (q, a, x)
    | _ :: _ ->
-     (match x with
-      | NonBreakingSpace -> out
-      | SoftBreak -> out
-      | HardBreak -> out
-      | _ ->
-        (add_inline_role h RAttrSpec spec
-          (let Node (p0, a', v) = n in Node (p0, (Attr.merge a a'), v))) :: rest))
+     let Node (p, _, _) = last ws (Node (q, [], SoftBreak)) in
+     Node ((merge_text_pos p q), a, (Span ("", (rev ws)))))
+
+(** val oattach_list :
+    coq_PosPolicy -> attr -> span -> spot option -> inlines -> inlines **)
+
+let oattach_list h a spec word_start out =
+  let (ws, before) = oword_split h word_start out in
+  (match ws with
+   | [] ->
+     (match out with
+      | [] -> out
+      | n :: rest ->
+        let Node (_, a0, x) = n in
+        (match a0 with
+         | [] ->
+           (match x with
+            | Str _ -> out
+            | NonBreakingSpace -> out
+            | SoftBreak -> out
+            | HardBreak -> out
+            | _ ->
+              (add_inline_role h RAttrSpec spec
+                (let Node (p, a', v) = n in Node (p, (Attr.merge a a'), v))) :: rest)
+         | _ :: _ ->
+           (match x with
+            | NonBreakingSpace -> out
+            | SoftBreak -> out
+            | HardBreak -> out
+            | _ ->
+              (add_inline_role h RAttrSpec spec
+                (let Node (p, a', v) = n in Node (p, (Attr.merge a a'), v))) :: rest)))
+   | _ :: _ ->
+     (match a with
+      | [] -> out
+      | _ :: _ ->
+        isnoc (add_inline_role h RAttrSpec spec (oword_node a ws)) before))
 
 (** val oresolve_go : coq_PosPolicy -> oitems -> inlines * bool **)
 
@@ -1146,6 +1189,21 @@ let idelim_lit t x k txt marker =
 let idelim_lit_prev t k marker =
   Some (if marker then rbrace else dchar t k)
 
+(** val odecay :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle
+    -> 'a1 -> bool -> ostate -> 'a1 * ostate **)
+
+let odecay t x h h0 k txt marker o =
+  match t.dc_decay k with
+  | DDSelf -> ((idelim_lit t x k txt marker), o)
+  | DDPair (_, _, _) ->
+    let start = (dtoken_span t h h0 k false).span_start in
+    (x.tnil,
+    (oemit
+      (imk h start (if marker then h0.cursor_stop else h0.cursor_start)
+        (decay_node t k (ddecay_str t k false marker)))
+      (flush_text_to_at h h0 start (x.tval txt) o)))
+
 (** val idelim_done :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle
     -> 'a1 -> char option -> bool -> char option -> ostate -> 'a1 iscan_g **)
@@ -1156,8 +1214,8 @@ let idelim_done t x h h0 k txt before marker next o =
          (opush t h h0 k false
            (flush_text_to_at h h0 (dtoken_span t h h0 k false).span_start
              (x.tval txt) o)))
-  else IText (false, (idelim_lit t x k txt marker),
-         (idelim_lit_prev t k marker), o)
+  else let (t0, o') = odecay t x h h0 k txt marker o in
+       IText (false, t0, (idelim_lit_prev t k marker), o')
 
 (** val idelim_resolve :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle
@@ -1218,9 +1276,49 @@ let idollar_step t x h h0 c two txt prev o =
 let iperiod_step t x h h0 c two txt prev o =
   if (=) c period
   then if two
-       then IText (false, (x.tpush txt (typography_ellipsis t)), (Some c), o)
+       then if smart_typography t
+            then let start = spot_before h0.cursor_start (periods true) in
+                 IText (false, x.tnil, (Some c),
+                 (oemit (imk h start h0.cursor_stop ellipsis_node)
+                   (flush_text_to_at h h0 start (x.tval txt) o)))
+            else IText (false,
+                   (x.tpush txt
+                     (chars period (Stdlib.succ (Stdlib.succ (Stdlib.succ
+                       0))))),
+                   (Some c), o)
        else IPeriod (true, txt, prev, o)
   else ilead t x h h0 c (x.tpush txt (periods two)) (Some period) o
+
+(** val odash_run :
+    coq_PosPolicy -> int -> inline -> int -> int -> spot -> ostate -> ostate **)
+
+let rec odash_run h w x count after stop o =
+  (fun fO fS n -> if n = 0 then fO () else fS (n - 1))
+    (fun _ -> o)
+    (fun m ->
+    let rest = ( + ) (( * ) m w) after in
+    odash_run h w x m after stop
+      (oemit
+        (imk h (spot_before stop (chars hyphen (( + ) w rest)))
+          (spot_before stop (chars hyphen rest)) x)
+        o))
+    count
+
+(** val odashes :
+    dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> int ->
+    spot -> 'a1 -> ostate -> 'a1 * ostate **)
+
+let odashes t x h h0 n stop txt o =
+  if dash_run_smart t n
+  then let start = spot_before stop (chars hyphen n) in
+       let (p, _) = dash_counts n in
+       let (em, en) = p in
+       (x.tnil,
+       (odash_run h (Stdlib.succ (Stdlib.succ 0)) endash_node en 0 stop
+         (odash_run h (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) emdash_node
+           em (( * ) (Stdlib.succ (Stdlib.succ 0)) en) stop
+           (flush_text_to_at h h0 start (x.tval txt) o))))
+  else ((x.tpush txt (chars hyphen n)), o)
 
 (** val idash_step :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -1233,18 +1331,21 @@ let idash_step t x h h0 c n txt prev o =
        then (match dstyle_of t hyphen with
              | Some k ->
                if ( <= ) (dwidth t k) n
-               then idelim_resolve t x h h0 k
-                      (x.tpush txt (typography_dashes t (sub n (dwidth t k))))
-                      None true (Some c) o
-               else IText (false,
-                      (x.tpush txt ((^) (typography_dashes t n) (one rbrace))),
-                      (Some rbrace), o)
+               then let (t0, o') =
+                      odashes t x h h0 (sub n (dwidth t k))
+                        (spot_before h0.cursor_start
+                          (chars hyphen (dwidth t k)))
+                        txt o
+                    in
+                    idelim_resolve t x h h0 k t0 None true (Some c) o'
+               else let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+                    IText (false, (x.tpush t0 (one rbrace)), (Some rbrace),
+                    o')
              | None ->
-               IText (false,
-                 (x.tpush txt ((^) (typography_dashes t n) (one rbrace))),
-                 (Some rbrace), o))
-       else ilead t x h h0 c (x.tpush txt (typography_dashes t n)) (Some
-              hyphen) o
+               let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+               IText (false, (x.tpush t0 (one rbrace)), (Some rbrace), o'))
+       else let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+            ilead t x h h0 c t0 (Some hyphen) o'
 
 (** val ipercent_step :
     dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -1276,7 +1377,8 @@ let iresolve t x h h0 st = match st with
 | IPeriod (two, txt, _, o) ->
   IText (false, (x.tpush txt (periods two)), (Some period), o)
 | IDash (n, txt, _, o) ->
-  IText (false, (x.tpush txt (typography_dashes t n)), (Some hyphen), o)
+  let (t0, o') = odashes t x h h0 n h0.cursor_start txt o in
+  IText (false, t0, (Some hyphen), o')
 | IBang (txt, _, o) -> IText (false, (x.tpush txt (one bang)), (Some bang), o)
 | IClosed (txt, o) ->
   IText (false, (x.tpush txt (one rbrack)), (Some rbrack), o)
@@ -1428,19 +1530,19 @@ let rec istep_at t x h h0 attrs_enabled c = function
                         o))
        else IVerb (n, 0, (x.tpush txt ((^) (ticks run) (one c))), vk, o)
 | IDollar (two, txt, prev, o) -> idollar_step t x h h0 c two txt prev o
-| IDollarMath (two, escaped, src, txt, last, sh, o) ->
+| IDollarMath (two, escaped, src, txt, last0, sh, o) ->
   let sh' = istep_at t x h h0 attrs_enabled c sh in
   if escaped
   then IDollarMath (two, false, (x.tpush src (one c)), txt, (Some c), sh', o)
   else if (=) c dollar
        then IDollarMathClose (two, src, txt,
-              (if two then Some nl_char else last), sh', o)
+              (if two then Some nl_char else last0), sh', o)
        else IDollarMath (two, (is_bslash c), (x.tpush src (one c)), txt, (Some
               c), sh', o)
-| IDollarMathClose (two, src, txt, last, sh, o) ->
+| IDollarMathClose (two, src, txt, last0, sh, o) ->
   let sh' = istep_at t x h h0 attrs_enabled c sh in
   if two
-  then (match last with
+  then (match last0 with
         | Some p ->
           if (=) p nl_char
           then if (=) c dollar
@@ -1470,7 +1572,7 @@ let rec istep_at t x h h0 attrs_enabled c = function
                    (imk h start h0.cursor_start (Math (DisplayMath,
                      (x.tval src))))
                    (flush_text_to_at h h0 start (x.tval txt) o)))
-  else if (&&) (match last with
+  else if (&&) (match last0 with
                 | Some p -> negb (is_ws_nl p)
                 | None -> false)
             (negb
@@ -1651,9 +1753,9 @@ let ifinish_ostate_flat x h h0 = function
 
 let rec ifinish_ostate t x h h0 st = match st with
 | IDollarMath (_, _, _, _, _, sh, _) -> ifinish_ostate t x h h0 sh
-| IDollarMathClose (two, src, txt, last, sh, o) ->
+| IDollarMathClose (two, src, txt, last0, sh, o) ->
   if two
-  then (match last with
+  then (match last0 with
         | Some _ -> ifinish_ostate t x h h0 sh
         | None ->
           let start =
@@ -1663,7 +1765,7 @@ let rec ifinish_ostate t x h h0 st = match st with
           oemit
             (imk h start h0.cursor_start (Math (DisplayMath, (x.tval src))))
             (flush_text_to_at h h0 start (x.tval txt) o))
-  else if match last with
+  else if match last0 with
           | Some p -> negb (is_ws_nl p)
           | None -> false
        then let start =
@@ -1766,9 +1868,9 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
 | IDollarMath (two, _, src, txt, _, sh, o) ->
   IDollarMath (two, false, (x.tpush src nl), txt, (Some nl_char),
     (ibreak_at t x h h0 attrs_enabled sh), o)
-| IDollarMathClose (two, src, txt, last, sh, o) ->
+| IDollarMathClose (two, src, txt, last0, sh, o) ->
   if two
-  then (match last with
+  then (match last0 with
         | Some p ->
           IDollarMath (true, false,
             (x.tpush src (if (=) p nl_char then (^) (one dollar) nl else nl)),
@@ -1782,7 +1884,7 @@ let rec ibreak_at t x h h0 attrs_enabled st = match st with
             (oemit
               (imk h start h0.cursor_start (Math (DisplayMath, (x.tval src))))
               (flush_text_to_at h h0 start (x.tval txt) o)))))
-  else if match last with
+  else if match last0 with
           | Some p -> negb (is_ws_nl p)
           | None -> false
        then let start =
@@ -1865,11 +1967,11 @@ let rec map_text x = function
 | IOpen (n, vk, o) -> IOpen (n, vk, o)
 | IVerb (n, run, v, vk, o) -> IVerb (n, run, (x.tval v), vk, o)
 | IDollar (two, t, prev, o) -> IDollar (two, (x.tval t), prev, o)
-| IDollarMath (two, escaped, src, t, last, sh, o) ->
-  IDollarMath (two, escaped, (x.tval src), (x.tval t), last, (map_text x sh),
+| IDollarMath (two, escaped, src, t, last0, sh, o) ->
+  IDollarMath (two, escaped, (x.tval src), (x.tval t), last0, (map_text x sh),
     o)
-| IDollarMathClose (two, src, t, last, sh, o) ->
-  IDollarMathClose (two, (x.tval src), (x.tval t), last, (map_text x sh), o)
+| IDollarMathClose (two, src, t, last0, sh, o) ->
+  IDollarMathClose (two, (x.tval src), (x.tval t), last0, (map_text x sh), o)
 | IPeriod (two, t, prev, o) -> IPeriod (two, (x.tval t), prev, o)
 | IDash (n, t, prev, o) -> IDash (n, (x.tval t), prev, o)
 | IBang (t, prev, o) -> IBang ((x.tval t), prev, o)
@@ -1904,10 +2006,10 @@ let rec lift x = function
 | IOpen (n, vk, o) -> IOpen (n, vk, o)
 | IVerb (n, run, v, vk, o) -> IVerb (n, run, (x.tof v), vk, o)
 | IDollar (two, t, prev, o) -> IDollar (two, (x.tof t), prev, o)
-| IDollarMath (two, escaped, src, t, last, sh, o) ->
-  IDollarMath (two, escaped, (x.tof src), (x.tof t), last, (lift x sh), o)
-| IDollarMathClose (two, src, t, last, sh, o) ->
-  IDollarMathClose (two, (x.tof src), (x.tof t), last, (lift x sh), o)
+| IDollarMath (two, escaped, src, t, last0, sh, o) ->
+  IDollarMath (two, escaped, (x.tof src), (x.tof t), last0, (lift x sh), o)
+| IDollarMathClose (two, src, t, last0, sh, o) ->
+  IDollarMathClose (two, (x.tof src), (x.tof t), last0, (lift x sh), o)
 | IPeriod (two, t, prev, o) -> IPeriod (two, (x.tof t), prev, o)
 | IDash (n, t, prev, o) -> IDash (n, (x.tof t), prev, o)
 | IBang (t, prev, o) -> IBang ((x.tof t), prev, o)
@@ -2305,14 +2407,30 @@ let rec key_scan t s lbl prev st =
 let key_point t l =
   key_scan t (drop_leading_ws l) "" None istart
 
+(** val text_piece : inline node -> bool **)
+
+let text_piece = function
+| Node (_, a, x) ->
+  (match a with
+   | [] ->
+     (match x with
+      | Str _ -> true
+      | SmartPunctuation (_, _) -> true
+      | _ -> false)
+   | _ :: _ -> false)
+
+(** val one_element : inlines -> bool **)
+
+let one_element ns = match ns with
+| [] -> false
+| _ :: l -> (match l with
+             | [] -> true
+             | _ :: _ -> forallb text_piece ns)
+
 (** val key_label_ok : dtable -> string -> bool **)
 
 let key_label_ok t lbl =
-  match para_inlines t (lbl :: []) with
-  | [] -> false
-  | _ :: l -> (match l with
-               | [] -> true
-               | _ :: _ -> false)
+  one_element (para_inlines t (lbl :: []))
 
 (** val key_split : dtable -> string -> (string * string) option **)
 

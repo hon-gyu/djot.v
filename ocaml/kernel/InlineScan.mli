@@ -62,6 +62,8 @@ val imk : coq_PosPolicy -> spot -> spot -> inline -> inline node
 
 val imk_here : coq_PosPolicy -> coq_InlineCursor -> inline -> inline node
 
+val fr_node : dtable -> frame -> inline
+
 val fr_lit : dtable -> coq_PosPolicy -> frame -> inline node
 
 val add_inline_role :
@@ -114,6 +116,10 @@ val tag_push :
   coq_PosPolicy -> coq_InlineCursor -> string -> spot -> ostate -> ostate
 
 val split_text_pos : pos -> spot option -> pos * pos
+
+val oword_split : coq_PosPolicy -> spot option -> inlines -> inlines * inlines
+
+val oword_node : attr -> inlines -> inline node
 
 val oattach_list :
   coq_PosPolicy -> attr -> span -> spot option -> inlines -> inlines
@@ -301,6 +307,10 @@ val idelim_lit : dtable -> 'a1 coq_TextOps -> dstyle -> 'a1 -> bool -> 'a1
 
 val idelim_lit_prev : dtable -> dstyle -> bool -> char option
 
+val odecay :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
+  'a1 -> bool -> ostate -> 'a1 * ostate
+
 val idelim_done :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> dstyle ->
   'a1 -> char option -> bool -> char option -> ostate -> 'a1 iscan_g
@@ -316,6 +326,13 @@ val idollar_step :
 val iperiod_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
   bool -> 'a1 -> char option -> ostate -> 'a1 iscan_g
+
+val odash_run :
+  coq_PosPolicy -> int -> inline -> int -> int -> spot -> ostate -> ostate
+
+val odashes :
+  dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> int ->
+  spot -> 'a1 -> ostate -> 'a1 * ostate
 
 val idash_step :
   dtable -> 'a1 coq_TextOps -> coq_PosPolicy -> coq_InlineCursor -> char ->
@@ -470,6 +487,10 @@ val key_scan :
   (string * string) option
 
 val key_point : dtable -> string -> (string * string) option
+
+val text_piece : inline node -> bool
+
+val one_element : inlines -> bool
 
 val key_label_ok : dtable -> string -> bool
 

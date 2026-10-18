@@ -709,6 +709,7 @@ let rec reference_text il =
    | HardBreak -> nl
    | Ext_wikilink (_, t, al) -> wiki_display t al
    | Hole s -> s
+   | SmartPunctuation (src, _) -> src
    | _ -> "")
 
 (** val reference_inlines_text : inlines -> string **)

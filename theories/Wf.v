@@ -872,34 +872,122 @@ Proof.
     destruct j; try reflexivity. discriminate.
 Qed.
 
+(* `wf_inline`'s inline-list check, as a global fixpoint with the same
+   body: the local one is not nameable, and every container obligation
+   below needs to talk about it. *)
+Local Fixpoint wf_ils (ns : list (node inline)) : bool :=
+  match ns with
+  | [] => true
+  | Node _ _ x :: rest => wf_inline x && wf_ils rest
+  end.
+
+Local Lemma wf_ils_forallb :
+  forall ns, wf_ils ns = forallb (fun n => wf_inline (node_contents n)) ns.
+Proof.
+  induction ns as [|[p a x] ns IH]; [reflexivity|].
+  cbn [wf_ils forallb node_contents]. rewrite IH. reflexivity.
+Qed.
+
+Local Lemma rlist_ok_head :
+  forall n out, rlist_ok (n :: out) = true ->
+    (plain_str n && istarts_str out)%bool = false.
+Proof.
+  intros n [|[q b y] out] H; [destruct (plain_str n); reflexivity|].
+  unfold rlist_ok in H. apply andb_true_iff in H as [_ Hadj].
+  cbn [List.rev] in Hadj. rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
+  pose proof (no_adjacent_str_app2_pair _ _ _ Hadj) as E.
+  rewrite andb_comm in E. destruct b as [|kv b]; [|destruct (plain_str n); reflexivity].
+  exact E.
+Qed.
+
+(* A word's pieces head it exactly as the list they come from is headed. *)
+Local Lemma oword_split_starts_str :
+  forall w out, fst (oword_split w out) <> [] ->
+    istarts_str (fst (oword_split w out)) = istarts_str out.
+Proof.
+  intros w [|[p [|kv a] v] out] H; try (destruct H; reflexivity).
+  destruct v; try (destruct H; reflexivity); cbn [oword_split] in H |- *.
+  - destruct (last_ws_split s) as [pre w0].
+    destruct (nonempty_str w0); [|destruct H; reflexivity].
+    destruct (nonempty_str pre); [destruct (split_text_pos p w); reflexivity|].
+    destruct (oword_split w out) as [[|x ws] before]; reflexivity.
+  - destruct (oword_split w out) as [ws before]; reflexivity.
+Qed.
+
+(* A word's pieces, and what is before them, keep the invariant. *)
+Local Lemma rlist_ok_oword_split :
+  forall w out, rlist_ok out = true ->
+    rlist_ok (fst (oword_split w out)) = true
+    /\ rlist_ok (snd (oword_split w out)) = true.
+Proof.
+  intros w. induction out as [|[p a v] out IH]; intros Ho; [split; reflexivity|].
+  pose proof (rlist_ok_tail _ _ Ho) as Hr. specialize (IH Hr).
+  destruct a as [|kv a]; [|split; [reflexivity|exact Ho]].
+  assert (Hv : wf_inline v = true).
+  { unfold rlist_ok in Ho. apply andb_true_iff in Ho as [Hall _].
+    cbn [forallb node_contents] in Hall. apply andb_true_iff in Hall as [H _]. exact H. }
+  destruct v; try (split; [reflexivity|exact Ho]); cbn [oword_split].
+  - destruct (last_ws_split s) as [pre w0].
+    destruct (nonempty_str w0) eqn:Ew; [|split; [reflexivity|exact Ho]].
+    destruct (nonempty_str pre) eqn:Ep.
+    + destruct (split_text_pos p w) as [pp wp]. cbn [fst snd].
+      split; [apply rlist_ok_push; [reflexivity|exact Ew|reflexivity]|].
+      apply rlist_ok_isnoc; [exact Hr|exact Ep].
+    + pose proof (oword_split_starts_str w out) as Hs.
+      destruct (oword_split w out) as [[|x ws] before]; cbn [fst snd] in IH, Hs |- *;
+        destruct IH as [Iw Ib]; (split; [|exact Ib]).
+      * apply rlist_ok_push; [reflexivity|exact Hv|reflexivity].
+      * apply rlist_ok_push; [exact Iw|exact Hv|].
+        rewrite Hs by discriminate. exact (rlist_ok_head _ _ Ho).
+  - destruct (oword_split w out) as [ws before]; cbn [fst snd] in IH |- *.
+    destruct IH as [Iw Ib]. split; [|exact Ib].
+    apply rlist_ok_push; [exact Iw|reflexivity|reflexivity].
+Qed.
+
+Local Lemma wf_inline_oword_node :
+  forall a ws, rlist_ok ws = true -> wf_inline (node_contents (oword_node a ws)) = true.
+Proof.
+  intros a [|[q b x] [|y ws]] H; [reflexivity| |].
+  - unfold rlist_ok in H. apply andb_true_iff in H as [Hall _].
+    cbn [forallb node_contents] in Hall. apply andb_true_iff in Hall as [Hx _]. exact Hx.
+  - cbn [oword_node]. destruct (last _ _) as [p c z]. cbn [node_contents].
+    unfold rlist_ok in H. apply andb_true_iff in H as [Hall Hadj].
+    change (wf_inline (Span "" (List.rev (Node q b x :: y :: ws))))
+      with (wf_ils (List.rev (Node q b x :: y :: ws))
+            && no_adjacent_str (List.rev (Node q b x :: y :: ws)))%bool.
+    rewrite wf_ils_forallb, forallb_rev, Hall, Hadj. reflexivity.
+Qed.
+
+Local Lemma node_contents_add_inline_role :
+  forall role r n, node_contents (add_inline_role role r n) = node_contents n.
+Proof.
+  intros role r [[|pr] a x]; unfold add_inline_role, add_roles;
+    destruct pos_records; reflexivity.
+Qed.
+
 (* Where a spec lands, on a list that already satisfies the invariant.
-   Every disposition either leaves the list alone or replaces its head
-   by nodes carrying its payload, so no condition on the spec is
-   needed. *)
+   Every disposition either leaves the list alone, replaces its head by
+   nodes carrying its payload, or puts its last word in a span, so no
+   condition on the spec is needed. *)
 Local Lemma rlist_ok_attach :
   forall a spec word_start out,
     rlist_ok out = true ->
     rlist_ok (oattach_list a spec word_start out) = true.
 Proof.
   intros a spec word_start out Ho. unfold oattach_list.
-  destruct out as [|[p a' v] out].
-  - exact Ho.
-  - assert (Hre : plain_str (Node p a' v) = false ->
+  pose proof (rlist_ok_oword_split word_start out Ho) as Hw.
+  destruct (oword_split word_start out) as [[|y ws] before]; cbn [fst snd] in Hw.
+  - destruct out as [|[p a' v] out]; [exact Ho|].
+    assert (Hre : plain_str (Node p a' v) = false ->
                   rlist_ok (add_inline_role RAttrSpec spec
                               (Node p (Attr.merge a a') v) :: out) = true).
     { intros Hp. apply rlist_ok_reattr with (n := Node p a' v);
         [exact Ho | reflexivity | apply plain_str_reattr, Hp | exact Hp]. }
     destruct a' as [|kv a'']; destruct v;
-      try (apply Hre; reflexivity); try exact Ho.
-    (* the one case left: a plain `Str` head, which the spec splits *)
-    destruct (last_ws_split s) as [pre w] eqn:Es.
-    destruct (nonempty_str w) eqn:Ew; [|exact Ho].
-    destruct a as [|ka a2]; [exact Ho|].
-    destruct (split_text_pos p word_start) as [pp wp] eqn:Esp.
-    assert (Hrest : rlist_ok out = true) by exact (rlist_ok_tail _ _ Ho).
-    apply rlist_ok_isnoc; [|exact Ew].
-    destruct (nonempty_str pre) eqn:Ep; [|exact Hrest].
-    apply rlist_ok_isnoc; [exact Hrest|exact Ep].
+      try (apply Hre; reflexivity); exact Ho.
+  - destruct a as [|ka a2]; [exact Ho|]. destruct Hw as [Hws Hb].
+    apply rlist_ok_isnoc; [exact Hb|].
+    rewrite node_contents_add_inline_role. apply wf_inline_oword_node, Hws.
 Qed.
 
 (* The bridge.  Note what the input invariant does *not* say: it allows
@@ -1003,22 +1091,6 @@ Local Fixpoint iscan_wf (st : iscan) : bool :=
   | INote _ _ _ _ sh o => (oscope_ok o && iscan_wf sh)%bool
   | IWiki _ _ _ _ _ o => oscope_ok o
   end.
-
-(* `wf_inline`'s inline-list check, as a global fixpoint with the same
-   body: the local one is not nameable, and every container obligation
-   below needs to talk about it. *)
-Local Fixpoint wf_ils (ns : list (node inline)) : bool :=
-  match ns with
-  | [] => true
-  | Node _ _ x :: rest => wf_inline x && wf_ils rest
-  end.
-
-Local Lemma wf_ils_forallb :
-  forall ns, wf_ils ns = forallb (fun n => wf_inline (node_contents n)) ns.
-Proof.
-  induction ns as [|[p a x] ns IH]; [reflexivity|].
-  cbn [wf_ils forallb node_contents]. rewrite IH. reflexivity.
-Qed.
 
 Local Lemma wf_inline_dnode :
   forall k ns, rlist_ok (List.rev ns) = true -> wf_inline (dnode k ns) = true.
@@ -1196,11 +1268,14 @@ Proof.
   - destruct name; reflexivity.
 Qed.
 
-Local Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (Str (fr_src f)))] = true.
+Local Lemma ilist_ok_src : forall f, ilist_ok [OIn (mk (fr_node f))] = true.
 Proof.
   intros f. unfold ilist_ok.
-  cbn [forallb oitem_ok node_contents mk List.rev].
-  cbn [wf_inline no_adjacent_item]. rewrite (fr_src_nonempty f). reflexivity.
+  cbn [forallb oitem_ok node_contents mk List.rev no_adjacent_item].
+  pose proof (fr_src_nonempty f) as Hn.
+  destruct f as [[k cm|im|nm] fm fo fout]; cbn [fr_node fr_kind] in *;
+    [unfold decay_node; destruct (dc_decay cfg k)|..];
+    cbn [wf_inline]; rewrite ?Hn; reflexivity.
 Qed.
 
 Local Lemma oclose_go_ok :
@@ -1216,7 +1291,7 @@ Proof.
   { destruct (nonempty (oapp pend (fr_out f))); [|discriminate].
     injection E as <- <- <-. rewrite (frames_ok_tail f stk Hs), andb_true_r.
     apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]. }
-  apply (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  apply (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
            content open rest (frames_ok_tail f stk Hs)); [|exact E].
   apply ilist_ok_oapp;
     [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -1234,7 +1309,7 @@ Proof.
   destruct (dmatch k m f) eqn:Em.
   { destruct (nonempty (oapp pend (fr_out f))) eqn:En; [|discriminate].
     injection E as <- <- <-. exact En. }
-  exact (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  exact (IH k m (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
            content open rest E).
 Qed.
 
@@ -1332,7 +1407,7 @@ Proof.
   induction stk as [|f stk IH]; intros pend content image open rest Hs Hp E;
     [discriminate|].
   cbn [bclose_go] in E. destruct (fr_kind f).
-  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
             content image open rest (frames_ok_tail f stk Hs)); [|exact E].
     apply ilist_ok_oapp;
       [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -1352,7 +1427,7 @@ Proof.
   induction stk as [|f stk IH]; intros pend content name open rest Hs Hp E;
     [discriminate|].
   cbn [tag_close_go] in E. destruct (fr_kind f).
-  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (Str (fr_src f)))])
+  - apply (IH (oapp (oapp pend (fr_out f)) [OIn (mk (fr_node f))])
             content name open rest (frames_ok_tail f stk Hs)); [|exact E].
     apply ilist_ok_oapp;
       [apply ilist_ok_oapp; [exact Hp | exact (frames_ok_head f stk Hs)]
@@ -1625,6 +1700,50 @@ Proof.
     cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity.
 Qed.
 
+(* Dash nodes after the text: no node is a plain `Str`, and a run that
+   is cut is at least one of them, so the scope never ends in text. *)
+Local Lemma odash_run_ok :
+  forall w x count after stop o,
+    oscope_ok o = true -> (x = emdash_node \/ x = endash_node) ->
+    oscope_ok (odash_run w x count after stop o) = true
+    /\ (count <> 0 -> starts_str (ocur (odash_run w x count after stop o)) = false).
+Proof.
+  intros w x count. induction count as [|m IH]; intros after stop o Ho Hx;
+    [split; [exact Ho|intros H; contradiction]|].
+  cbn [odash_run].
+  assert (Hp : plain_str (@imk semantic_pos (spot_before stop (chars hyphen (w + (m * w + after))))
+                              (spot_before stop (chars hyphen (m * w + after))) x) = false)
+    by (destruct Hx as [->| ->]; reflexivity).
+  assert (He : oscope_ok (oemit (@imk semantic_pos (spot_before stop (chars hyphen (w + (m * w + after))))
+                              (spot_before stop (chars hyphen (m * w + after))) x) o) = true).
+  { apply oscope_ok_emit; [exact Ho| |rewrite Hp; reflexivity].
+    destruct Hx as [->| ->]; reflexivity. }
+  destruct (IH after stop _ He Hx) as [H1 H2]. split; [exact H1|]. intros _.
+  destruct m as [|m']; [|apply H2; discriminate].
+  cbn [odash_run]. rewrite ocur_emit. destruct Hx as [->| ->]; reflexivity.
+Qed.
+
+Local Lemma odashes_ok :
+  forall n stop txt o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oscope_ok (snd (odashes n stop txt o)) = true
+    /\ starts_str (ocur (snd (odashes n stop txt o))) = false.
+Proof.
+  intros n stop txt o Ho Hs. unfold odashes.
+  destruct (dash_run_smart n) eqn:Ed; [|split; assumption].
+  assert (Hn : 2 <= n)
+    by (unfold dash_run_smart in Ed; apply andb_true_iff in Ed as [Ed _];
+        apply Nat.leb_le, Ed).
+  pose proof (dash_counts_some n Hn) as Hc.
+  destruct (dash_counts n) as [[em en] lit]. cbn [snd]. sem_flush.
+  pose proof (iscan_wf_flush (tval txt) o Ho Hs) as Hf.
+  destruct (odash_run_ok 3 emdash_node em (2 * en) stop _ Hf (or_introl eq_refl)) as [E1 E2].
+  destruct (odash_run_ok 2 endash_node en 0 stop _ E1 (or_intror eq_refl)) as [N1 N2].
+  split; [exact N1|].
+  destruct en as [|en']; [|apply N2; discriminate].
+  destruct em as [|em']; [cbn in Hc; destruct (Nat.lt_irrefl _ Hc)|]. apply E2. discriminate.
+Qed.
+
 Local Lemma ilead_wf :
   forall c txt prev o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
@@ -1677,16 +1796,33 @@ Proof.
   all: apply itable_wf; assumption.
 Qed.
 
+(* A quote that decays is a node after the flushed text, which is no
+   plain `Str`; any other token joins the text. *)
+Local Lemma odecay_wf :
+  forall k txt marker o,
+    oscope_ok o = true -> starts_str (ocur o) = false ->
+    oscope_ok (snd (odecay k txt marker o)) = true
+    /\ starts_str (ocur (snd (odecay k txt marker o))) = false.
+Proof.
+  intros k txt marker o Ho Hs. unfold odecay.
+  destruct (dc_decay cfg k) eqn:Ed; cbn [fst snd]; [split; assumption|].
+  sem_flush. pose proof (iscan_wf_flush (tval txt) o Ho Hs) as Hf.
+  unfold decay_node. rewrite Ed. split.
+  - apply oscope_ok_emit; [exact Hf|reflexivity|reflexivity].
+  - rewrite ocur_emit. reflexivity.
+Qed.
+
 Local Lemma idelim_done_wf :
   forall k txt bef marker next o,
     oscope_ok o = true -> starts_str (ocur o) = false ->
     iscan_wf (idelim_done k txt bef marker next o) = true.
 Proof.
   intros k txt bef marker next o Ho Hs. unfold idelim_done.
-  destruct (dbare k bef && negb marker && nonspace_at next)%bool;
-    [|apply iscan_wf_text; assumption].
-  pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
-  apply iscan_wf_text; [apply oscope_ok_push, Hf | reflexivity].
+  destruct (dbare k bef && negb marker && nonspace_at next)%bool.
+  - pose proof (iscan_wf_flush txt o Ho Hs) as Hf.
+    apply iscan_wf_text; [apply oscope_ok_push, Hf | reflexivity].
+  - destruct (odecay_wf k txt marker o Ho Hs) as [A B].
+    destruct (odecay k txt marker o). apply iscan_wf_text; assumption.
 Qed.
 
 Local Lemma idelim_resolve_wf :
@@ -1925,21 +2061,34 @@ Proof.
           |reflexivity|reflexivity].
       * rewrite ocur_emit. reflexivity.
   - (* and the periods either grow, complete an ellipsis, or become text;
-       the ellipsis goes into the buffer, so the head condition is the
-       one the state already carried *)
-    unfold iperiod_step. destruct (Ascii.eqb c period);
-      [destruct ptwo;
-         (cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity)
-      |apply ilead_wf; assumption].
-  - (* a hyphen run keeps its buffer, and the close it may hand to the
-       delete row is `idelim_resolve`'s business *)
+       a smart ellipsis is a node after the flushed text, and otherwise
+       it goes into the buffer, so the head condition is the one the
+       state already carried *)
+    unfold iperiod_step. destruct (Ascii.eqb c period); [|apply ilead_wf; assumption].
+    destruct ptwo;
+      [destruct smart_typography|];
+      try (cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity).
+    cbn [iscan_wf]. apply andb_true_iff. split.
+    + apply oscope_ok_emit;
+        [sem_flush; apply iscan_wf_flush; [exact Ho|exact Hs]|reflexivity|reflexivity].
+    + rewrite ocur_emit. reflexivity.
+  - (* a hyphen run keeps its buffer until it is cut; its dashes are
+       nodes after the text (`odashes_ok`), and the close it may hand to
+       the delete row is `idelim_resolve`'s business *)
     unfold idash_step. destruct (Ascii.eqb c hyphen);
       [cbn [iscan_wf]; rewrite Ho, hd_str_is_starts_str, Hs; reflexivity|].
-    destruct (Ascii.eqb c rbrace); [|apply ilead_wf; assumption].
-    destruct (dstyle_of hyphen) as [k|];
-      [destruct (Nat.leb (dwidth k) dn);
-         [apply idelim_resolve_wf; assumption|]|];
-      (apply iscan_wf_text; assumption).
+    destruct (Ascii.eqb c rbrace).
+    2: { destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+         destruct (odashes dn cursor_start dtx dob2). apply ilead_wf; assumption. }
+    destruct (dstyle_of hyphen) as [k|].
+    2: { destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+         destruct (odashes dn cursor_start dtx dob2). apply iscan_wf_text; assumption. }
+    destruct (Nat.leb (dwidth k) dn).
+    2: { destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+         destruct (odashes dn cursor_start dtx dob2). apply iscan_wf_text; assumption. }
+    destruct (odashes_ok (dn - dwidth k) (spot_before cursor_start (chars hyphen (dwidth k)))
+                dtx dob2 Ho Hs) as [H1 H2].
+    destruct (odashes (dn - dwidth k) _ dtx dob2). apply idelim_resolve_wf; assumption.
   - unfold ibang_step. destruct (Ascii.eqb c lbrack);
       [apply iscan_wf_text;
          [apply oscope_ok_bpush, iscan_wf_flush; assumption | reflexivity]
@@ -2151,6 +2300,9 @@ Proof.
       [apply iscan_wf_text; assumption|].
     destruct mrk;
       [apply idelim_open_marked_wf | apply idelim_resolve_wf]; assumption.
+  - apply negb_true_iff in Hs; rewrite hd_str_is_starts_str in Hs.
+    destruct (odashes_ok dn cursor_start dtx dob2 Ho Hs) as [H1 H2].
+    destruct (odashes dn cursor_start dtx dob2). apply iscan_wf_text; assumption.
 Qed.
 
 Local Lemma iscan_wf_ostate_flat :
@@ -2275,9 +2427,10 @@ Proof.
   pose proof (iresolve_resolved st) as Hno.
   assert (Hcomp' : is_compound (iresolve st) = false)
     by (destruct st as [| | |k extra txt before marked o
-                       | | | | | | | | | | | | | | | | | | |];
+                       | | | | | | |n dtxt dprev dob | | | | | | | | | | | | ];
         cbn [is_compound iresolve] in *;
         try reflexivity; try discriminate Hcomp;
+        try (destruct (odashes n cursor_start dtxt dob); reflexivity);
         destruct (Nat.ltb (S extra) (dwidth k)); [reflexivity|];
         destruct marked; [reflexivity|];
         destruct (idelim_resolve_text k txt before false None o)

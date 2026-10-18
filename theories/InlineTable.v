@@ -884,6 +884,8 @@ Fixpoint reference_text (il : inline) : string :=
   | Superscript ns | Subscript ns | Span _ ns | Link ns _ | Image ns _
   | Quoted _ ns => go ns
   | Ext_wikilink _ t al => wiki_display t al
+  (* what was typed, as djot.js reads a label *)
+  | SmartPunctuation src _ => src
   | FootnoteReference _ | Symbol _ | UrlLink _ | EmailLink _
   | NonBreakingSpace => EmptyString
   end.

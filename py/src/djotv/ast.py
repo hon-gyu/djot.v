@@ -27,7 +27,7 @@ type Inline = (
     Str | Emph | Strong | Mark | Insert | Delete | Superscript | Subscript | Verbatim
     | Symb | InlineMath | DisplayMath | Link | Image | Span | FootnoteReference | Url
     | Email | RawInline | NonBreakingSpace | SingleQuoted | DoubleQuoted | SoftBreak
-    | HardBreak | ExtWikilink | ExtHole
+    | HardBreak | ExtWikilink | ExtHole | SmartPunctuation
 )  # fmt: skip
 
 type Block = (
@@ -291,6 +291,18 @@ class ExtHole(Node):
 
     tag: ClassVar[str] = "ext_hole"
     text: str
+
+
+@dataclass(slots=True, repr=False)
+class SmartPunctuation(Node):
+    """An unmatched quote, an ellipsis or a dash.  `text` is the token as
+    typed and `type` djot.js's name for what it renders as; a rendering
+    djot.js has no name for is in `rendering` instead."""
+
+    tag: ClassVar[str] = "smart_punctuation"
+    text: str
+    type: str | None = None
+    rendering: str | None = None
 
 
 # Blocks
@@ -567,7 +579,7 @@ _CLASSES: dict[str, type[Node]] = {
         Str, Emph, Strong, Mark, Insert, Delete, Superscript, Subscript, Verbatim, Symb,
         InlineMath, DisplayMath, Link, Image, Span, FootnoteReference, Url, Email,
         RawInline, NonBreakingSpace, SingleQuoted, DoubleQuoted, SoftBreak, HardBreak,
-        ExtWikilink, ExtHole,
+        ExtWikilink, ExtHole, SmartPunctuation,
         Para, Section, Heading, BlockQuote, CodeBlock, Div, ListItem, OrderedList,
         BulletList, TaskListItem, TaskList, Term, Definition, DefinitionListItem,
         DefinitionList, ThematicBreak, Cell, Row, Caption, Table, RawBlock, Footnote,

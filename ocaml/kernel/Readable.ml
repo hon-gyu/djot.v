@@ -122,7 +122,8 @@ let rec readable_text t il before around =
 
        (bslash, (one '\n'))
    | Ext_wikilink (embed, t0, al) -> wiki_text embed t0 al
-   | Hole s -> hole_spell s)
+   | Hole s -> hole_spell s
+   | SmartPunctuation (src, s) -> smart_spell t src s)
 
 (** val readable_nodes : dtable -> inlines -> char option -> string **)
 

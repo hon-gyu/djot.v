@@ -148,6 +148,7 @@ let rec plain_text il =
    | Quoted (_, ns) -> go ns
    | Ext_wikilink (_, t0, al) -> wiki_display t0 al
    | Hole s -> s
+   | SmartPunctuation (src, _) -> src
    | _ -> nl)
 
 (** val plain_texts : inline node list -> string **)
@@ -442,7 +443,11 @@ let rec render_inline refs il a =
      else (HElem ("a", 0, (("href", t0) :: a), ((HText
             (wiki_display t0 al)) :: []))) :: []
    | Hole s ->
-     (HElem ("code", 0, (("data-hole", "") :: a), ((HText s) :: []))) :: [])
+     (HElem ("code", 0, (("data-hole", "") :: a), ((HText s) :: []))) :: []
+   | SmartPunctuation (_, s) ->
+     (match a with
+      | [] -> (HText s) :: []
+      | _ :: _ -> (HElem ("span", 0, a, ((HText s) :: []))) :: []))
 
 (** val render_inlines : resolver -> inlines -> helt list **)
 

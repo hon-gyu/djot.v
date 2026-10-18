@@ -303,6 +303,8 @@ Local Fixpoint plain_text (il : inline) : string :=
   | Link ns _ | Image ns _ => go ns
   | SoftBreak | HardBreak => nl
   | NonBreakingSpace => " "
+  (* what was typed, as djot.js's `alt` reads it *)
+  | SmartPunctuation src _ => src
   | FootnoteReference _ | Symbol _ => ""
   end.
 
@@ -419,7 +421,7 @@ Local Fixpoint render_inline (il : inline) (a : attr) : list helt :=
       | Node _ a' x :: rest => (render_inline x a' ++ go rest)%list
       end in
   match il with
-  | Str s =>
+  | Str s | SmartPunctuation _ s =>
       match a with
       | [] => [HText s]
       | _ => [HElem "span" 0 a [HText s]]
