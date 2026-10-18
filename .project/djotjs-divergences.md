@@ -2951,3 +2951,40 @@ s` nodes, and `inline_text`, `plain_text` (`alt`) and `reference_text`
 read `src`.  HTML writes `s`, so nothing else in the output moves.  A
 spec after text still attaches to the whole last word
 (`word_split`), so `a'{.a}` keeps `<span class="a">a’</span>`.
+
+## 2026-10-18 -- OURS: openers inside the brackets of a failed destination stay open
+
+`links_and_images.test:398`, already read the way the 2026-10-17 entries
+decide; recorded here for djot.js's side.
+
+| Input | djot.js (`9790d4d`) | Ours |
+| --- | --- | --- |
+| `[x_y](x_` | `[x_y](x_` | `[x<em>y](x</em>` |
+| `[x_y][x_` | `[x_y][x_` | `[x<em>y][x</em>` |
+| `[x_y]{x_` | `[x_y]{x_` | `[x<em>y]{x</em>` |
+| `[x_y]_` | `[x<em>y]</em>` | the same |
+
+djot.js treats `](`, `][` and `]{` as closing the `[` on sight.  The
+`]` handler clears every opener between the `[` and the `]`
+(`clearOpeners(opener.startpos + 1, pos - 1)`, `inline.ts:469,482`) and
+nothing restores them when the destination, label or spec fails.  This
+is the reference's precedence rule ("once an opener gets closed, any
+potential openers between the opener and the closer get marked as
+regular text") with the `[` counted as closed at the `](`.  The test
+file states it as intended, just above the case:
+
+> Openers inside `[..](` or `[..][` or `[..]{` can't match outside them,
+> even if the construction doesn't turn out to be a link or span or
+> image.
+
+Neither djot.js nor the reference gives a reason.  A likely one is that
+deciding at `](` keeps the parser single-pass with no backtracking; that
+is a guess, not a stated rationale.  The reference itself does not say
+that a `](` with no closing `)` closes anything.
+
+Ours follows the 2026-10-17 decision: a delimiter that is never closed
+is text, so the `(` never forms a construct, the `[` is never closed,
+and the two `_` are the first opener and closer that pair.  This is the
+same reading as `_[](a_`, which differs in djot.js through its
+destination barrier (`inline.ts:198`) rather than through
+`clearOpeners`, since there the opener is before the `[`.
