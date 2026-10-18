@@ -730,6 +730,34 @@ Definition item_trim (out : list titem) : list titem :=
   | _ => out
   end.
 
+(* The last word of the nodes before a spec, latest first, and the nodes
+   before it.  A word runs back over plain text and smart punctuation and
+   ends after the last whitespace, so `a'b` is one word.  It is empty when
+   the text before the spec ends in whitespace or there is none. *)
+Fixpoint word_split (out : inlines) : inlines * inlines :=
+  match out with
+  | Node p [] (Str s) :: rest =>
+      let '(pre, w) := last_ws_split s in
+      if nonempty_str w
+      then if nonempty_str pre
+           then ([Node p [] (Str w)], Node p [] (Str pre) :: rest)
+           else let '(ws, before) := word_split rest in
+                (Node p [] (Str s) :: ws, before)
+      else ([], out)
+  | Node p [] (SmartPunctuation src t) :: rest =>
+      let '(ws, before) := word_split rest in
+      (Node p [] (SmartPunctuation src t) :: ws, before)
+  | _ => ([], out)
+  end.
+
+(* A word that is one node takes the attributes itself; a longer one is
+   put in a span that takes them. *)
+Definition word_node (a : attr) (ws : inlines) : node inline :=
+  match ws with
+  | [Node p _ x] => Node p a x
+  | _ => Node NoPos a (Span EmptyString (List.rev ws))
+  end.
+
 (* Where a spec lands, given the nodes before it, latest first.  "They
    must immediately follow the inline element to which they are attached
    (with no intervening whitespace)": after plain text that element is
@@ -738,18 +766,18 @@ Definition item_trim (out : list titem) : list titem :=
    after whitespace, after a break, after a non-breaking space or with
    nothing before it the spec attaches to nothing. *)
 Definition attach (a : attr) (out : inlines) : inlines :=
-  match out with
-  | Node p [] (Str s) :: rest =>
-      let '(pre, w) := last_ws_split s in
-      if nonempty_str w
-      then match a with
-           | [] => out
-           | _ => Node p a (Str w)
-                  :: (if nonempty_str pre then Node p [] (Str pre) :: rest else rest)
-           end
-      else out
-  | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
-  | Node p a' v :: rest => Node p (Attr.merge a a') v :: rest
+  match word_split out with
+  | ((_ :: _) as ws, before) =>
+      match a with
+      | [] => out
+      | _ => word_node a ws :: before
+      end
+  | ([], _) =>
+      match out with
+      | Node _ [] (Str _) :: _
+      | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
+      | Node p a' v :: rest => Node p (Attr.merge a a') v :: rest
+      end
   end.
 
 (* A node after the nodes before it, plain text merging. *)

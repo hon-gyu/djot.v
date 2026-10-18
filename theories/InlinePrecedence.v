@@ -503,31 +503,64 @@ Qed.
 Definition bare_item (it : titem) : Prop :=
   match it with TIn n => bare n | TMark _ => True end.
 
+(* What is before a word keeps the invariants of the nodes it came from,
+   and the word's pieces have no position. *)
+Local Lemma word_split_ok : forall out,
+  Forall bare out -> normal (map vof out) ->
+  Forall bare (fst (word_split out)) /\ Forall bare (snd (word_split out))
+  /\ normal (map vof (snd (word_split out))).
+Proof.
+  induction out as [|[p a v] rest IH]; intros B N; [repeat split; constructor|].
+  pose proof (proj1 (Forall_cons_iff _ _ _) B) as [Bp Br]. cbn in Bp. subst p.
+  pose proof (normal_tail _ _ N) as Nr. specialize (IH Br Nr).
+  destruct a as [|kv a]; [|repeat split; [constructor|exact B|exact N]].
+  destruct v; try (repeat split; [constructor|exact B|exact N]); cbn [word_split].
+  - destruct (last_ws_split s) as [pre w].
+    destruct (nonempty_str w); [|repeat split; [constructor|exact B|exact N]].
+    destruct (nonempty_str pre).
+    + cbn [fst snd]. repeat split;
+        [constructor; [reflexivity|constructor]|constructor; [reflexivity|exact Br]|].
+      destruct rest as [|r0 rest]; [exact Logic.I|]. exact N.
+    + destruct (word_split rest) as [ws before]; cbn [fst snd] in IH |- *.
+      destruct IH as (Iw & Ib & In). repeat split; [constructor; [reflexivity|exact Iw]|..];
+        assumption.
+  - destruct (word_split rest) as [ws before]; cbn [fst snd] in IH |- *.
+    destruct IH as (Iw & Ib & In). repeat split; [constructor; [reflexivity|exact Iw]|..];
+      assumption.
+Qed.
+
+Local Lemma word_node_bare : forall a ws, Forall bare ws -> bare (word_node a ws).
+Proof.
+  intros a [|[q b x] [|y ws]] H; try reflexivity.
+  inversion H; assumption.
+Qed.
+
 Local Lemma attach_ok : forall a out,
   Forall bare out -> normal (map vof out) ->
   Forall bare (attach a out) /\ normal (map vof (attach a out)).
 Proof.
-  intros a out B N. destruct out as [|[p a' v] rest]; [split; assumption|].
-  pose proof (proj1 (Forall_cons_iff _ _ _) B) as [Bp Br]. cbn in Bp. subst p.
-  pose proof (normal_tail _ _ N) as Nr.
-  assert (Other : forall b y, (b <> [] \/ forall s, y <> Str s) ->
-            Forall bare (Node NoPos b y :: rest)
-            /\ normal (map vof (Node NoPos b y :: rest))).
-  { intros b y H. split; [constructor; [reflexivity|exact Br]|].
-    cbn [map]. apply normal_cons; [|exact Nr].
-    destruct b as [|kv b]; [|reflexivity]. destruct H as [H|H]; [contradiction|].
-    destruct y; try reflexivity. destruct (H _ eq_refl). }
-  unfold attach. destruct a' as [|kv a'].
-  - destruct v; try (apply Other; right; intros s0 E; discriminate E); try (split; assumption).
-    destruct (last_ws_split s) as [pre w]. destruct (nonempty_str w); [|split; assumption].
-    destruct a as [|x a]; [split; assumption|]. split.
-    + constructor; [reflexivity|].
-      destruct (nonempty_str pre); [constructor; [reflexivity|]|]; exact Br.
-    + cbn [map vof]. apply normal_cons; [reflexivity|].
-      destruct (nonempty_str pre); [|exact Nr]. cbn [map vof].
-      destruct rest as [|r0 rest]; [exact Logic.I|]. exact N.
-  - destruct (Attr.merge_cons a kv a') as (x & r & E).
-    destruct v; try (rewrite E; apply Other; left; discriminate); split; assumption.
+  intros a out B N. unfold attach.
+  destruct (word_split_ok out B N) as (Bw & Bb & Nb).
+  destruct (word_split out) as [[|y ws] before]; cbn [fst snd] in Bw, Bb, Nb.
+  - destruct out as [|[p a' v] rest]; [split; assumption|].
+    pose proof (proj1 (Forall_cons_iff _ _ _) B) as [Bp Br]. cbn in Bp. subst p.
+    pose proof (normal_tail _ _ N) as Nr.
+    assert (Other : forall b y, (b <> [] \/ forall s, y <> Str s) ->
+              Forall bare (Node NoPos b y :: rest)
+              /\ normal (map vof (Node NoPos b y :: rest))).
+    { intros b z H. split; [constructor; [reflexivity|exact Br]|].
+      cbn [map]. apply normal_cons; [|exact Nr].
+      destruct b as [|kv b]; [|reflexivity]. destruct H as [H|H]; [contradiction|].
+      destruct z; try reflexivity. destruct (H _ eq_refl). }
+    destruct a' as [|kv a'].
+    + destruct v; try (apply Other; right; intros s0 E; discriminate E);
+        split; assumption.
+    + destruct (Attr.merge_cons a kv a') as (x & r & E).
+      destruct v; try (rewrite E; apply Other; left; discriminate); split; assumption.
+  - destruct a as [|kv a]; [split; assumption|]. split.
+    + constructor; [apply word_node_bare, Bw|exact Bb].
+    + cbn [map]. apply normal_cons; [|exact Nb].
+      destruct ws as [|z w']; destruct y; reflexivity.
 Qed.
 
 Local Lemma resolve_rev_ok : forall l, Forall bare_item l ->
@@ -1433,6 +1466,22 @@ Proof.
     apply clean_xapp; [apply clean_xapp; assumption|apply lit_clean].
 Qed.
 
+Local Lemma word_split_clean : forall out,
+  clean (map vof out) -> clean (map vof (snd (word_split out))).
+Proof.
+  induction out as [|[p a v] rest IH]; intros C; [exact C|].
+  pose proof (proj1 (Forall_cons_iff _ _ _) C) as [Cp Cr]. specialize (IH Cr).
+  destruct a as [|kv a]; [|exact C].
+  destruct v; try exact C; cbn [word_split].
+  - destruct (last_ws_split s) as [pre w].
+    destruct (nonempty_str w); [|exact C].
+    destruct (nonempty_str pre) eqn:Ep.
+    + cbn [snd map vof]. constructor; [|exact Cr].
+      intros E. injection E as ->. discriminate Ep.
+    + destruct (word_split rest) as [ws before]; exact IH.
+  - destruct (word_split rest) as [ws before]; exact IH.
+Qed.
+
 (* What a closed pair gives back holds no empty `Str` either. *)
 Local Lemma vres_clean : forall c, clean c -> clean (vback (vres c)).
 Proof.
@@ -1443,18 +1492,18 @@ Proof.
   - destruct x; try (constructor; [discriminate|exact IH]).
     cbn [push mk]. rewrite vof_str_snoc. apply clean_xsnoc; assumption.
   - constructor; [discriminate|exact IH].
-  - destruct (resolve_rev (map et c)) as [|[p a' v] rest]; [exact IH|].
-    apply Forall_cons_iff in IH as [Ih It]. unfold attach.
-    destruct a' as [|kv a'].
-    + destruct v; try (constructor; [destruct (Attr.merge a []); discriminate|exact It]);
-        try (constructor; assumption).
-      destruct (last_ws_split s) as [pre w]. destruct (nonempty_str w); [|constructor; assumption].
-      destruct a as [|y a]; [constructor; assumption|].
-      constructor; [discriminate|].
-      destruct (nonempty_str pre) eqn:Ep; [|exact It].
-      constructor; [|exact It]. intros E. injection E as ->. discriminate Ep.
-    + destruct (Attr.merge_cons a kv a') as (y & r & E).
-      destruct v; try (rewrite E; constructor; [discriminate|exact It]); constructor; assumption.
+  - pose proof (word_split_clean _ IH) as Cb. unfold attach.
+    destruct (word_split (resolve_rev (map et c))) as [[|y ws] before]; cbn [snd] in Cb.
+    + destruct (resolve_rev (map et c)) as [|[p a' v] rest]; [exact IH|].
+      apply Forall_cons_iff in IH as [Ih It].
+      destruct a' as [|kv a'].
+      * destruct v; try (constructor; [destruct (Attr.merge a []); discriminate|exact It]);
+          constructor; assumption.
+      * destruct (Attr.merge_cons a kv a') as (y & r & E).
+        destruct v; try (rewrite E; constructor; [discriminate|exact It]);
+          constructor; assumption.
+    + destruct a as [|kv a]; [exact IH|]. constructor; [|exact Cb].
+      destruct ws as [|z w']; destruct y; discriminate.
 Qed.
 
 (* A closed pair's nodes, as a region holds them. *)
@@ -2377,20 +2426,46 @@ Local Lemma isnoc_attr : forall q kv b y l,
   isnoc (Node q (kv :: b) y) l = Node q (kv :: b) y :: l.
 Proof. intros q kv b y [|[? [|] []] l0]; reflexivity. Qed.
 
-Local Lemma oattach_embed : forall a sp out,
-  normal (map vof out) -> oattach_list a sp None out = attach a out.
+Local Lemma oword_split_embed : forall out,
+  Forall bare out -> normal (map vof out) -> oword_split None out = word_split out.
 Proof.
-  intros a sp out N. destruct out as [|[p a' v] rest]; [reflexivity|].
-  unfold oattach_list, attach. destruct a' as [|kv a']; [|destruct v; reflexivity].
-  destruct v; try reflexivity.
-  destruct (last_ws_split s) as [pre w]. destruct (nonempty_str w); [|reflexivity].
-  destruct a as [|x a]; [reflexivity|].
-  replace (split_text_pos p None) with (p, p) by (destruct p; reflexivity).
-  unfold add_inline_role, add_roles. cbn [pos_records semantic_pos].
-  rewrite isnoc_attr. f_equal.
-  destruct (nonempty_str pre); [|reflexivity].
-  destruct rest as [|[q [|kw b] y] rest]; try reflexivity.
-  destruct y; try reflexivity. destruct N as [[N|N] _]; discriminate N.
+  induction out as [|[p a v] rest IH]; intros B N; [reflexivity|].
+  pose proof (proj1 (Forall_cons_iff _ _ _) B) as [Bp Br]. cbn in Bp. subst p.
+  specialize (IH Br (normal_tail _ _ N)).
+  destruct a as [|kv a]; [|destruct v; reflexivity].
+  destruct v; try reflexivity; cbn [oword_split word_split]; rewrite IH.
+  - destruct (last_ws_split s) as [pre w].
+    destruct (nonempty_str w); [|reflexivity].
+    destruct (nonempty_str pre); cbn [split_text_pos].
+    + f_equal. destruct rest as [|[q [|kw b] y] rest]; try reflexivity.
+      destruct y; try reflexivity. destruct N as [[N|N] _]; discriminate N.
+    + destruct (word_split rest) as [[|x ws] before]; reflexivity.
+  - reflexivity.
+Qed.
+
+Local Lemma oattach_embed : forall a sp out,
+  Forall bare out -> normal (map vof out) -> oattach_list a sp None out = attach a out.
+Proof.
+  intros a sp out B N. unfold oattach_list, attach.
+  pose proof (proj1 (word_split_ok out B N)) as Bw.
+  rewrite (oword_split_embed out B N).
+  destruct (word_split out) as [[|y ws] before]; cbn [fst] in Bw.
+  - destruct out as [|[p a' v] rest]; [reflexivity|].
+    destruct a' as [|kv a']; destruct v; reflexivity.
+  - destruct a as [|x a]; [reflexivity|].
+    unfold add_inline_role, add_roles. cbn [pos_records semantic_pos].
+    destruct ws as [|z ws]; [destruct y; apply isnoc_attr|].
+    (* a span of several pieces: its range is no range, as theirs are *)
+    assert (L : forall l d, Forall bare l -> bare d -> bare (last l d)).
+    { induction l as [|u l IHl]; intros d Hl Hd; [exact Hd|].
+      apply Forall_cons_iff in Hl as [Hu Hl].
+      destruct l as [|v l]; [exact Hu|]. apply IHl; assumption. }
+    destruct y as [q b x0].
+    pose proof (proj1 (Forall_cons_iff _ _ _) Bw) as [Bq _]. cbn in Bq. subst q.
+    pose proof (L (Node NoPos b x0 :: z :: ws) (Node NoPos [] SoftBreak) Bw eq_refl) as Hl.
+    cbn [oword_node word_node].
+    destruct (last (Node NoPos b x0 :: z :: ws) (Node NoPos [] SoftBreak)) as [p' c' z'].
+    cbn in Hl. subst p'. apply isnoc_attr.
 Qed.
 
 Local Lemma oresolve_go_embed : forall c, normal c ->
@@ -2399,7 +2474,7 @@ Local Lemma oresolve_go_embed : forall c, normal c ->
 Proof.
   induction c as [|x c IH]; intros N; [reflexivity|].
   pose proof (normal_tail _ _ N) as Nc. specialize (IH Nc).
-  destruct (resolve_rev_ok (map et c) (et_bare c)) as [_ No]. fold (vsettle c) in No.
+  destruct (resolve_rev_ok (map et c) (et_bare c)) as [Bo No]. fold (vsettle c) in Bo, No.
   assert (Node_ : forall n, (forall p s, n <> Node p [] (Str s)) ->
             (let '(out, m) := oresolve_go (map eo c) in
              ((if m then isnoc n out else n :: out), false))
@@ -2426,7 +2501,7 @@ Proof.
     + destruct (vsettle (VMark a :: c)) as [|[p [|kv b] y] r]; try reflexivity.
       destruct y; try reflexivity. cbn. destruct p; reflexivity.
   - apply Node_. intros p s0 E; discriminate E.
-  - rewrite IH. rewrite (oattach_embed a null_span _ No). reflexivity.
+  - rewrite IH. rewrite (oattach_embed a null_span _ Bo No). reflexivity.
 Qed.
 
 Local Lemma oresolve_embed : forall c, normal c -> oresolve (map eo c) = vsettle c.

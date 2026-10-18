@@ -115,6 +115,10 @@ val tag_push :
 
 val split_text_pos : pos -> spot option -> pos * pos
 
+val oword_split : coq_PosPolicy -> spot option -> inlines -> inlines * inlines
+
+val oword_node : attr -> inlines -> inline node
+
 val oattach_list :
   coq_PosPolicy -> attr -> span -> spot option -> inlines -> inlines
 

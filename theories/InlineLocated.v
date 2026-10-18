@@ -399,25 +399,63 @@ Proof.
   intros [|[p [|kv a] v] l]; try reflexivity; destruct v; reflexivity.
 Qed.
 
+Local Lemma of_oword_split : forall `{P : PosPolicy} w out,
+  @oword_split semantic_pos None (Erase.of_inlines out) =
+  (let '(ws, before) := @oword_split P w out in
+   (Erase.of_inlines ws, Erase.of_inlines before)).
+Proof.
+  intros P w. induction out as [|[p a v] out IH]; [reflexivity|].
+  destruct a as [|kv a]; [|destruct v; reflexivity].
+  destruct v; try reflexivity;
+    cbn [Erase.of_inlines Erase.inode Erase.of_inline oword_split]; rewrite IH.
+  - destruct (last_ws_split s) as [pre w0].
+    destruct (nonempty_str w0); [|reflexivity].
+    destruct (nonempty_str pre).
+    + destruct (split_text_pos p w) as [pp wp]. cbn [split_text_pos].
+      rewrite of_isnoc. reflexivity.
+    + destruct (@oword_split P w out) as [[|x ws] before];
+        destruct (split_text_pos p w); reflexivity.
+  - destruct (@oword_split P w out) as [ws before]; reflexivity.
+Qed.
+
+Local Lemma of_oword_node : forall a ws,
+  Erase.inode (oword_node a ws) = oword_node a (Erase.of_inlines ws).
+Proof.
+  intros a [|[q b x] [|y ws]]; [reflexivity|reflexivity|].
+  (* an erased word's nodes have no position, the last among them *)
+  assert (L : forall l d,
+    match last (Erase.of_inlines l) (Erase.inode d) with Node p _ _ => p end = NoPos).
+  { induction l as [|n l IH]; intros d; [destruct d; reflexivity|].
+    destruct l as [|m l]; [destruct n; reflexivity|]. apply IH. }
+  set (l := Node q b x :: y :: ws).
+  change (Erase.inode (match last l (Node q [] SoftBreak) with
+                       | Node p _ _ => Node (merge_text_pos p q) a (Span "" (rev l)) end)
+          = oword_node a (Erase.of_inlines l)).
+  unfold oword_node.
+  replace (Erase.of_inlines l)
+    with (Node NoPos b (Erase.of_inline x) :: Erase.of_inlines (y :: ws)) by reflexivity.
+  change (Node NoPos b (Erase.of_inline x) :: Erase.of_inlines (y :: ws))
+    with (Erase.of_inlines l).
+  pose proof (L l (Node q [] SoftBreak)) as Ll. cbn [Erase.inode Erase.of_inline] in Ll.
+  destruct (last l (Node q [] SoftBreak)) as [p c z].
+  destruct (last (Erase.of_inlines l) (Node NoPos [] SoftBreak)) as [p' c' z'].
+  subst p'. cbn [Erase.inode Erase.of_inline].
+  rewrite Erase.inline_children, Erase.inlines_rev. reflexivity.
+Qed.
+
 Local Lemma of_oattach_list : forall `{P : PosPolicy} a spec w out,
   Erase.of_inlines (@oattach_list P a spec w out) =
   @oattach_list semantic_pos a null_span None (Erase.of_inlines out).
 Proof.
-  intros P a spec w [|[p a' v] out]; [reflexivity|].
-  destruct v;
-    try (destruct a' as [|kv a'];
-         cbn [Erase.of_inlines Erase.inode oattach_list];
-         rewrite ?of_add_inline_role; reflexivity).
-  destruct a' as [|kv a'];
-    [|cbn [Erase.of_inlines Erase.inode oattach_list];
-      rewrite of_add_inline_role; reflexivity].
-  cbn [Erase.of_inlines Erase.inode Erase.of_inline oattach_list].
-  destruct (last_ws_split s) as [pre w0].
-  destruct (nonempty_str w0); [|reflexivity].
-  destruct a as [|kv a]; [reflexivity|].
-  destruct (split_text_pos p w) as [pp wp]. cbn [split_text_pos].
-  rewrite of_isnoc, of_add_inline_role. cbn [Erase.inode].
-  destruct (nonempty_str pre); [rewrite of_isnoc|]; reflexivity.
+  intros P a spec w out. unfold oattach_list. rewrite (of_oword_split w out).
+  destruct (@oword_split P w out) as [[|x ws] before]; cbn [Erase.of_inlines].
+  - destruct out as [|[p a' v] out]; [reflexivity|].
+    destruct a' as [|kv a'];
+      destruct v; cbn [Erase.of_inlines Erase.inode Erase.of_inline];
+      rewrite ?of_add_inline_role; reflexivity.
+  - destruct a as [|kv a]; [reflexivity|].
+    rewrite of_isnoc, of_add_inline_role, <- Erase.inlines_cons, <- of_oword_node.
+    reflexivity.
 Qed.
 
 (* Erasure commutes with resolution for the same reason it commutes with

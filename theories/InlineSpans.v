@@ -537,25 +537,51 @@ Proof.
   inversion Hout; subst. constructor; [apply dn_node_str|assumption].
 Qed.
 
+Lemma oword_split_ok : forall W w out,
+  Forall (dn_node W) out ->
+  Forall (dn_node W) (fst (oword_split w out))
+  /\ Forall (dn_node W) (snd (oword_split w out)).
+Proof.
+  intros W w out. induction out as [|[p a' x] rest IH]; intros Hout;
+    [split; constructor|].
+  inversion Hout as [|? ? Hn Hrest]; subst. specialize (IH Hrest).
+  destruct a' as [|kv a']; [|split; [constructor|exact Hout]].
+  destruct x; try (split; [constructor|exact Hout]); cbn [oword_split].
+  - destruct (last_ws_split s) as [pre w0].
+    destruct (nonempty_str w0); [|split; [constructor|exact Hout]].
+    destruct (nonempty_str pre).
+    + destruct (split_text_pos p w) as [pp wp]. cbn [fst snd].
+      split; [constructor; [apply dn_node_str|constructor]|].
+      apply isnoc_ok; [apply dn_node_str|exact Hrest].
+    + destruct (oword_split w rest) as [[|y ws] before]; cbn [fst snd] in IH |- *;
+        destruct IH as [Iw Ib];
+        (split; [constructor; [apply dn_node_str|exact Iw]|exact Ib]).
+  - destruct (oword_split w rest) as [ws before]; cbn [fst snd] in IH |- *.
+    destruct IH as [Iw Ib]. split; [constructor; [exact Hn|exact Iw]|exact Ib].
+Qed.
+
+Lemma oword_node_ok : forall W a ws,
+  Forall (dn_node W) ws -> dn_node W (oword_node a ws).
+Proof.
+  intros W a ws H. destruct ws as [|[q b x] [|y ws]].
+  - apply dn_node_plain; [reflexivity|constructor].
+  - inversion H as [|? ? Hn _]; subst. apply dn_node_eq in Hn. apply dn_node_eq. exact Hn.
+  - cbn [oword_node]. destruct (last _ _) as [p c z].
+    apply dn_node_plain; [reflexivity|]. cbn [children]. apply Forall_rev, H.
+Qed.
+
 Lemma oattach_list_ok : forall W a spec w out,
   Forall (dn_node W) out -> Forall (dn_node W) (oattach_list a spec w out).
 Proof.
   intros W a spec w out Hout. unfold oattach_list.
-  destruct out as [|[p a' x] rest]; [constructor|].
-  inversion Hout as [|? ? Hn Hrest]; subst.
-  destruct x;
-    try (destruct a'; constructor; first [apply dn_add_inline_role; exact Hn|exact Hrest]).
-  - destruct a' as [|kv a'];
-      [|constructor; [apply dn_add_inline_role; exact Hn|exact Hrest]].
-    destruct (last_ws_split s) as [pre w0].
-    destruct (nonempty_str w0); [|exact Hout].
-    destruct a as [|kv a]; [exact Hout|].
-    destruct (split_text_pos p w) as [pp wp].
-    apply isnoc_ok; [apply dn_add_inline_role, dn_node_str|].
-    destruct (nonempty_str pre); [apply isnoc_ok; [apply dn_node_str|]|]; exact Hrest.
-  - destruct a'; exact Hout.
-  - destruct a'; exact Hout.
-  - destruct a'; exact Hout.
+  pose proof (oword_split_ok W w out Hout) as Hw.
+  destruct (oword_split w out) as [[|y ws] before]; cbn [fst snd] in Hw.
+  - destruct out as [|[p a' x] rest]; [constructor|].
+    inversion Hout as [|? ? Hn Hrest]; subst.
+    destruct a' as [|kv a']; destruct x; try exact Hout;
+      constructor; first [apply dn_add_inline_role; exact Hn|exact Hrest].
+  - destruct a as [|kv a]; [exact Hout|]. destruct Hw as [Hws Hb].
+    apply isnoc_ok; [apply dn_add_inline_role, oword_node_ok, Hws|exact Hb].
 Qed.
 
 Lemma oresolve_go_ok : forall W l,

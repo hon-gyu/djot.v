@@ -872,34 +872,122 @@ Proof.
     destruct j; try reflexivity. discriminate.
 Qed.
 
+(* `wf_inline`'s inline-list check, as a global fixpoint with the same
+   body: the local one is not nameable, and every container obligation
+   below needs to talk about it. *)
+Local Fixpoint wf_ils (ns : list (node inline)) : bool :=
+  match ns with
+  | [] => true
+  | Node _ _ x :: rest => wf_inline x && wf_ils rest
+  end.
+
+Local Lemma wf_ils_forallb :
+  forall ns, wf_ils ns = forallb (fun n => wf_inline (node_contents n)) ns.
+Proof.
+  induction ns as [|[p a x] ns IH]; [reflexivity|].
+  cbn [wf_ils forallb node_contents]. rewrite IH. reflexivity.
+Qed.
+
+Local Lemma rlist_ok_head :
+  forall n out, rlist_ok (n :: out) = true ->
+    (plain_str n && istarts_str out)%bool = false.
+Proof.
+  intros n [|[q b y] out] H; [destruct (plain_str n); reflexivity|].
+  unfold rlist_ok in H. apply andb_true_iff in H as [_ Hadj].
+  cbn [List.rev] in Hadj. rewrite <- app_assoc in Hadj. cbn [app] in Hadj.
+  pose proof (no_adjacent_str_app2_pair _ _ _ Hadj) as E.
+  rewrite andb_comm in E. destruct b as [|kv b]; [|destruct (plain_str n); reflexivity].
+  exact E.
+Qed.
+
+(* A word's pieces head it exactly as the list they come from is headed. *)
+Local Lemma oword_split_starts_str :
+  forall w out, fst (oword_split w out) <> [] ->
+    istarts_str (fst (oword_split w out)) = istarts_str out.
+Proof.
+  intros w [|[p [|kv a] v] out] H; try (destruct H; reflexivity).
+  destruct v; try (destruct H; reflexivity); cbn [oword_split] in H |- *.
+  - destruct (last_ws_split s) as [pre w0].
+    destruct (nonempty_str w0); [|destruct H; reflexivity].
+    destruct (nonempty_str pre); [destruct (split_text_pos p w); reflexivity|].
+    destruct (oword_split w out) as [[|x ws] before]; reflexivity.
+  - destruct (oword_split w out) as [ws before]; reflexivity.
+Qed.
+
+(* A word's pieces, and what is before them, keep the invariant. *)
+Local Lemma rlist_ok_oword_split :
+  forall w out, rlist_ok out = true ->
+    rlist_ok (fst (oword_split w out)) = true
+    /\ rlist_ok (snd (oword_split w out)) = true.
+Proof.
+  intros w. induction out as [|[p a v] out IH]; intros Ho; [split; reflexivity|].
+  pose proof (rlist_ok_tail _ _ Ho) as Hr. specialize (IH Hr).
+  destruct a as [|kv a]; [|split; [reflexivity|exact Ho]].
+  assert (Hv : wf_inline v = true).
+  { unfold rlist_ok in Ho. apply andb_true_iff in Ho as [Hall _].
+    cbn [forallb node_contents] in Hall. apply andb_true_iff in Hall as [H _]. exact H. }
+  destruct v; try (split; [reflexivity|exact Ho]); cbn [oword_split].
+  - destruct (last_ws_split s) as [pre w0].
+    destruct (nonempty_str w0) eqn:Ew; [|split; [reflexivity|exact Ho]].
+    destruct (nonempty_str pre) eqn:Ep.
+    + destruct (split_text_pos p w) as [pp wp]. cbn [fst snd].
+      split; [apply rlist_ok_push; [reflexivity|exact Ew|reflexivity]|].
+      apply rlist_ok_isnoc; [exact Hr|exact Ep].
+    + pose proof (oword_split_starts_str w out) as Hs.
+      destruct (oword_split w out) as [[|x ws] before]; cbn [fst snd] in IH, Hs |- *;
+        destruct IH as [Iw Ib]; (split; [|exact Ib]).
+      * apply rlist_ok_push; [reflexivity|exact Hv|reflexivity].
+      * apply rlist_ok_push; [exact Iw|exact Hv|].
+        rewrite Hs by discriminate. exact (rlist_ok_head _ _ Ho).
+  - destruct (oword_split w out) as [ws before]; cbn [fst snd] in IH |- *.
+    destruct IH as [Iw Ib]. split; [|exact Ib].
+    apply rlist_ok_push; [exact Iw|reflexivity|reflexivity].
+Qed.
+
+Local Lemma wf_inline_oword_node :
+  forall a ws, rlist_ok ws = true -> wf_inline (node_contents (oword_node a ws)) = true.
+Proof.
+  intros a [|[q b x] [|y ws]] H; [reflexivity| |].
+  - unfold rlist_ok in H. apply andb_true_iff in H as [Hall _].
+    cbn [forallb node_contents] in Hall. apply andb_true_iff in Hall as [Hx _]. exact Hx.
+  - cbn [oword_node]. destruct (last _ _) as [p c z]. cbn [node_contents].
+    unfold rlist_ok in H. apply andb_true_iff in H as [Hall Hadj].
+    change (wf_inline (Span "" (List.rev (Node q b x :: y :: ws))))
+      with (wf_ils (List.rev (Node q b x :: y :: ws))
+            && no_adjacent_str (List.rev (Node q b x :: y :: ws)))%bool.
+    rewrite wf_ils_forallb, forallb_rev, Hall, Hadj. reflexivity.
+Qed.
+
+Local Lemma node_contents_add_inline_role :
+  forall role r n, node_contents (add_inline_role role r n) = node_contents n.
+Proof.
+  intros role r [[|pr] a x]; unfold add_inline_role, add_roles;
+    destruct pos_records; reflexivity.
+Qed.
+
 (* Where a spec lands, on a list that already satisfies the invariant.
-   Every disposition either leaves the list alone or replaces its head
-   by nodes carrying its payload, so no condition on the spec is
-   needed. *)
+   Every disposition either leaves the list alone, replaces its head by
+   nodes carrying its payload, or puts its last word in a span, so no
+   condition on the spec is needed. *)
 Local Lemma rlist_ok_attach :
   forall a spec word_start out,
     rlist_ok out = true ->
     rlist_ok (oattach_list a spec word_start out) = true.
 Proof.
   intros a spec word_start out Ho. unfold oattach_list.
-  destruct out as [|[p a' v] out].
-  - exact Ho.
-  - assert (Hre : plain_str (Node p a' v) = false ->
+  pose proof (rlist_ok_oword_split word_start out Ho) as Hw.
+  destruct (oword_split word_start out) as [[|y ws] before]; cbn [fst snd] in Hw.
+  - destruct out as [|[p a' v] out]; [exact Ho|].
+    assert (Hre : plain_str (Node p a' v) = false ->
                   rlist_ok (add_inline_role RAttrSpec spec
                               (Node p (Attr.merge a a') v) :: out) = true).
     { intros Hp. apply rlist_ok_reattr with (n := Node p a' v);
         [exact Ho | reflexivity | apply plain_str_reattr, Hp | exact Hp]. }
     destruct a' as [|kv a'']; destruct v;
-      try (apply Hre; reflexivity); try exact Ho.
-    (* the one case left: a plain `Str` head, which the spec splits *)
-    destruct (last_ws_split s) as [pre w] eqn:Es.
-    destruct (nonempty_str w) eqn:Ew; [|exact Ho].
-    destruct a as [|ka a2]; [exact Ho|].
-    destruct (split_text_pos p word_start) as [pp wp] eqn:Esp.
-    assert (Hrest : rlist_ok out = true) by exact (rlist_ok_tail _ _ Ho).
-    apply rlist_ok_isnoc; [|exact Ew].
-    destruct (nonempty_str pre) eqn:Ep; [|exact Hrest].
-    apply rlist_ok_isnoc; [exact Hrest|exact Ep].
+      try (apply Hre; reflexivity); exact Ho.
+  - destruct a as [|ka a2]; [exact Ho|]. destruct Hw as [Hws Hb].
+    apply rlist_ok_isnoc; [exact Hb|].
+    rewrite node_contents_add_inline_role. apply wf_inline_oword_node, Hws.
 Qed.
 
 (* The bridge.  Note what the input invariant does *not* say: it allows
@@ -1003,22 +1091,6 @@ Local Fixpoint iscan_wf (st : iscan) : bool :=
   | INote _ _ _ _ sh o => (oscope_ok o && iscan_wf sh)%bool
   | IWiki _ _ _ _ _ o => oscope_ok o
   end.
-
-(* `wf_inline`'s inline-list check, as a global fixpoint with the same
-   body: the local one is not nameable, and every container obligation
-   below needs to talk about it. *)
-Local Fixpoint wf_ils (ns : list (node inline)) : bool :=
-  match ns with
-  | [] => true
-  | Node _ _ x :: rest => wf_inline x && wf_ils rest
-  end.
-
-Local Lemma wf_ils_forallb :
-  forall ns, wf_ils ns = forallb (fun n => wf_inline (node_contents n)) ns.
-Proof.
-  induction ns as [|[p a x] ns IH]; [reflexivity|].
-  cbn [wf_ils forallb node_contents]. rewrite IH. reflexivity.
-Qed.
 
 Local Lemma wf_inline_dnode :
   forall k ns, rlist_ok (List.rev ns) = true -> wf_inline (dnode k ns) = true.

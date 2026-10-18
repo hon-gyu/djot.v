@@ -893,9 +893,33 @@ Proof.
 Qed.
 
 
-(* A waiting spec reads only the head of what is below it, and `base_ok`
-   makes that head a `SoftBreak` -- which it declines exactly as it
-   declines an empty scope.  So the splice is invisible to it. *)
+(* A word stops at a `SoftBreak`, so it never reaches into the suffix. *)
+Local Lemma oword_split_app :
+  forall word out bl, ibase_ok bl = true ->
+    oword_split word (out ++ bl)%list
+    = (let '(ws, before) := oword_split word out in (ws, before ++ bl))%list.
+Proof.
+  intros word out bl Hbi.
+  pose proof (ibase_ok_starts_str _ Hbi) as Hh.
+  induction out as [|[p a v] out IH]; cbn [app].
+  - destruct bl as [|[q b w] bl]; [reflexivity|].
+    cbn [ibase_ok] in Hbi. destruct w; try discriminate Hbi.
+    destruct b; reflexivity.
+  - destruct a as [|kv a]; [|reflexivity].
+    destruct v; try reflexivity; cbn [oword_split]; rewrite ?IH.
+    + destruct (last_ws_split s) as [pre w].
+      destruct (nonempty_str w); [|reflexivity].
+      destruct (nonempty_str pre).
+      * destruct (split_text_pos p word) as [pp wp].
+        rewrite isnoc_app by exact Hh. reflexivity.
+      * destruct (oword_split word out) as [[|x ws] before]; reflexivity.
+    + destruct (oword_split word out) as [ws before]; reflexivity.
+Qed.
+
+(* A waiting spec reads only the last word of what is below it, and
+   `base_ok` makes the suffix begin with a `SoftBreak` -- where a word
+   ends, and which a spec declines exactly as it declines an empty
+   scope.  So the splice is invisible to it. *)
 Local Lemma oattach_list_app :
   forall a spec word out base,
     base_ok base = true ->
@@ -905,21 +929,14 @@ Proof.
   intros a spec word out base Hb.
   pose proof (oresolve_base_head base Hb) as Hbi.
   pose proof (ibase_ok_starts_str _ Hbi) as Hh.
-  destruct out as [|[p a' v] out]; cbn [app]; unfold oattach_list.
-  - destruct (oresolve base) as [|[q b w] bl] eqn:Eb; [reflexivity|].
-    cbn [ibase_ok] in Hbi. destruct w; try discriminate Hbi.
-    destruct b; reflexivity.
-  - destruct a' as [|kv a'']; destruct v;
-      try reflexivity; try (apply isnoc_app, Hh).
-    (* the one case left: a plain `Str` head, which the spec splits *)
-    destruct (last_ws_split s) as [pre w].
-    destruct (nonempty_str w); [|reflexivity].
-    destruct a as [|ka a2]; [reflexivity|].
-    destruct (split_text_pos p word) as [pp wp].
-    destruct (nonempty_str pre);
-      [rewrite (isnoc_app (Node pp [] (Str pre)) out (oresolve base))
-         by exact Hh|];
-      apply isnoc_app, Hh.
+  unfold oattach_list. rewrite (oword_split_app word out _ Hbi).
+  destruct (oword_split word out) as [[|x ws] before]; cbn [app].
+  - destruct out as [|[p a' v] out]; cbn [app].
+    + destruct (oresolve base) as [|[q b w] bl] eqn:Eb; [reflexivity|].
+      cbn [ibase_ok] in Hbi. destruct w; try discriminate Hbi.
+      destruct b; reflexivity.
+    + destruct a' as [|kv a'']; destruct v; reflexivity.
+  - destruct a as [|ka a2]; [reflexivity|]. apply isnoc_app, Hh.
 Qed.
 
 Local Lemma oresolve_go_app :

@@ -643,12 +643,48 @@ Definition split_text_pos (p : pos) (word_start : option spot)
   | _, _ => (p, p)
   end.
 
+(* `word_split` with positions.  The text run the word starts in is cut
+   at `word_start`; a run the word covers whole keeps its range, except
+   when it is the whole word. *)
+Fixpoint oword_split `{PosPolicy} (word_start : option spot) (out : inlines)
+  : inlines * inlines :=
+  match out with
+  | Node p [] (Str s) :: rest =>
+      let '(pre, w) := last_ws_split s in
+      if nonempty_str w
+      then if nonempty_str pre
+           then let '(pp, wp) := split_text_pos p word_start in
+                ([Node wp [] (Str w)], isnoc (Node pp [] (Str pre)) rest)
+           else match oword_split word_start rest with
+                | ([], before) =>
+                    ([Node (snd (split_text_pos p word_start)) [] (Str s)], before)
+                | (ws, before) => (Node p [] (Str s) :: ws, before)
+                end
+      else ([], out)
+  | Node p [] (SmartPunctuation src t) :: rest =>
+      let '(ws, before) := oword_split word_start rest in
+      (Node p [] (SmartPunctuation src t) :: ws, before)
+  | _ => ([], out)
+  end.
+
+(* `word_node`, with the span of a longer word covering its pieces. *)
+Definition oword_node (a : attr) (ws : inlines) : node inline :=
+  match ws with
+  | [Node p _ x] => Node p a x
+  | Node q _ _ :: _ =>
+      match last ws (Node q [] SoftBreak) with
+      | Node p _ _ => Node (merge_text_pos p q) a (Span EmptyString (List.rev ws))
+      end
+  | [] => Node NoPos a (Span EmptyString [])
+  end.
+
 (* Where a waiting spec lands, given the list the scope has resolved so
    far, whose head is what sits immediately before the spec.  Openers
    that never closed are text by then.
 
-   - A plain `Str` takes the spec on its last word.  An empty spec keeps
-     the run whole, since cutting it would only produce two plain `Str`s.
+   - A plain `Str` takes the spec on its last word, which runs back over
+     smart punctuation (`word_split`).  An empty spec keeps the run
+     whole, since cutting it would only produce two plain `Str`s.
    - A run ending in whitespace has no last word, and the spec is
      dropped rather than attached across the gap.
    - Any other node takes it (`*e*{.a}`, `[l](u){}`, `x{.a}{.b}`).
@@ -661,24 +697,21 @@ Definition split_text_pos (p : pos) (word_start : option spot)
 Definition oattach_list `{PosPolicy}
   (a : attr) (spec : span) (word_start : option spot) (out : inlines)
   : inlines :=
-  match out with
-  | Node p [] (Str s) :: rest =>
-      let '(pre, w) := last_ws_split s in
-      if nonempty_str w
-      then match a with
-           | [] => out
-           | _ =>
-               let '(pp, wp) := split_text_pos p word_start in
-               let out1 := if nonempty_str pre
-                           then isnoc (Node pp [] (Str pre)) rest else rest in
-               isnoc (add_inline_role RAttrSpec spec (Node wp a (Str w))) out1
-           end
-      else out
-  | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
-  | n :: rest => add_inline_role RAttrSpec spec
-                   (match n with
-                    | Node p a' v => Node p (Attr.merge a a') v
-                    end) :: rest
+  match oword_split word_start out with
+  | ((_ :: _) as ws, before) =>
+      match a with
+      | [] => out
+      | _ => isnoc (add_inline_role RAttrSpec spec (oword_node a ws)) before
+      end
+  | ([], _) =>
+      match out with
+      | Node _ [] (Str _) :: _
+      | Node _ _ (SoftBreak | HardBreak | NonBreakingSpace) :: _ | [] => out
+      | n :: rest => add_inline_role RAttrSpec spec
+                       (match n with
+                        | Node p a' v => Node p (Attr.merge a a') v
+                        end) :: rest
+      end
   end.
 
 (* A scope's items, settled.  Walking the tail first is what puts the
