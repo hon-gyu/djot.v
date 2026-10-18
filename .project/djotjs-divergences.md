@@ -2894,3 +2894,27 @@ reference attaches a spec after text to its last word and does not say
 whether smart punctuation is a word of its own.  Waits on a
 smart-punctuation node in our AST, which the alt-text and identifier
 work also needs.
+
+## 2026-10-18 -- OURS: smart punctuation is part of the word a spec attaches to
+
+The 2026-10-17 entry, decided.
+
+| Input | djot.js (`3b3a9f5`) | Ours |
+| --- | --- | --- |
+| `'{.a}` | `’` | `<span class="a">’</span>` |
+| `a'{.a}` | `a’` | `<span class="a">a’</span>` |
+| `a...{.a}` | `a…` | `<span class="a">a…</span>` |
+| `a--{.a}` | `a–` | `<span class="a">a–</span>` |
+| `a b'c{.x}` | `a b’<span class="x">c</span>` | `a <span class="x">b’c</span>` |
+| `a b--c{.x}` | `a b–<span class="x">c</span>` | `a <span class="x">b–c</span>` |
+
+Decided by the maintainer (2026-10-18): a spec after text attaches to
+the whole last word, smart punctuation included.  The reference says
+"last word" and gives no reason to cut a word at a quote, a dash or an
+ellipsis; djot.js cuts there because its `smart_punctuation` node is a
+node of its own.  This also settles the smart-punctuation rows of the
+2026-09-19 entry; its escape row stays open.
+
+Ours already does this, so nothing changes now.  When the
+smart-punctuation node lands (`json-gaps.md`, "Smart punctuation: the
+plan"), the last word must run across it.

@@ -1265,6 +1265,18 @@ Example attr_punctuation_does_not_split :
   = [Node NoPos [("class", "a")] (Str "a-b")].
 Proof. vm_compute. reflexivity. Qed.
 
+(* Smart punctuation is part of the last word.  djot.js attaches the
+   spec to the quote alone and renders it without attributes. *)
+Example attr_covers_smart_punctuation :
+  parse_inline_line "a'{.a}"
+  = [Node NoPos [("class", "a")] (Str ("a" ++ rsquo))].
+Proof. vm_compute. reflexivity. Qed.
+
+Example attr_covers_word_with_apostrophe :
+  parse_inline_line "a b'c{.x}"
+  = [mk (Str "a "); Node NoPos [("class", "x")] (Str ("b" ++ rsquo ++ "c"))].
+Proof. vm_compute. reflexivity. Qed.
+
 (* A break or a non-breaking space is no element to attach to: a spec
    after a hard break attaches to nothing, as after a soft break, and one
    after an escaped space as after a space. *)

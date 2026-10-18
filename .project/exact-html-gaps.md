@@ -41,11 +41,10 @@ See [[260909.block-attr-reparse]].
 
 ## What is open
 
-Four, none of them in the corpus:
+Three, none of them in the corpus:
 
 | | where |
 | --- | --- |
-| a spec attaching to a decayed quote (`'{.a}`) | below |
 | `{a=}=`, a `key=` slice hiding a marked opener | [[djotjs-divergences]] |
 | a `]` inside a link destination re-entering the bracket | below |
 | a container prefix inside a recovered paragraph | [[djotjs-divergences]] |
@@ -239,7 +238,7 @@ outer `_`, as upstream.  The
 divergences log has the entry, *2026-10-17 -- OURS, to do: a failed
 destination is read as if its `](` were text*.
 
-## A spec that attaches to a decayed quote
+## Decided 2026-10-18 -- a spec that attaches to a decayed quote
 
 `'{.a}` renders `<span class="a">rsquo</span>` here and a bare right
 single quote upstream: djot.js drops the attributes. Eight documents in
@@ -251,6 +250,11 @@ Diagnosed 2026-10-17: djot.js attaches the spec to the quote's
 without attributes; ours attaches it to the last word of the `Str`, quote
 included.  The divergences log has the entry, *2026-10-17 -- open: a spec
 after smart punctuation*.
+
+Decided 2026-10-18: ours stands.  Smart punctuation is part of the last
+word, so the spec covers `a’` in `a'{.a}`.  The divergences log has the
+verdict, *2026-10-18 -- OURS: smart punctuation is part of the word a
+spec attaches to*.
 
 ## Diagnosis is not closure
 

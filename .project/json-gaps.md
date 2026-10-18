@@ -33,6 +33,9 @@ Decided 2026-10-04, not started.
 - Open: whether the node holds only its source, the renderer looking the
   replacement up, or both. A tree rendered without a document
   (`Html.of_blocks`) has no map to look in, which favours both.
+- A spec after text still attaches to the whole last word, the node
+  included: `a'{.a}` keeps `<span class="a">a’</span>` (decided
+  2026-10-18, `djotjs-divergences.md`).
 
 What it touches:
 
