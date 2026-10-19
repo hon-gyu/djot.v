@@ -1672,7 +1672,7 @@ runs, which are cut in djot.js and not here -- a two-tick run inside a
 region is two one-tick runs upstream and one unclosed run for us -- and
 the rest are the `"`/`'` decay families this file already records.
 
-## 2026-09-09 -- ours: a `key=` slice hides a marked opener
+## Closed 2026-10-17 -- djotjs-bug: a `key=` slice hides a marked opener
 
 `{a=}=` is `<p>{a</p>` with a `<mark>}</mark>` upstream and literal text
 here. The `=` the attribute machine took as the value separator becomes
@@ -1704,6 +1704,9 @@ is named yet.
 
 **Verdict: ours, undiagnosed.** One document in 37,448. Logged so the
 re-measured count in [[exact-html-gaps]] has something to point at.
+
+Diagnosed as djot.js's under *2026-10-17 -- djotjs-bug: a failed
+attribute spec lets a bare `=` open a highlight*.
 
 ## Closed 2026-09-09 — a failed block attribute spec's lines
 
@@ -1825,7 +1828,7 @@ would mean keeping source offsets the parser does not have, to reproduce
 a position slip rather than a rule. **Verdict: `SPEC-GAP`, ours stands**;
 the top-level family is the one worth matching and is closed above.
 
-## 2026-09-19 -- open: a spec after a word that djot.js splits into nodes
+## Closed 2026-10-18 -- OURS: a spec after a word that djot.js splits into nodes
 
 | Input | djot.js | ours |
 | --- | --- | --- |
@@ -1845,6 +1848,10 @@ would mean remembering where the last escape or smart-punctuation token
 ended in the pending text, which is the same kind of spot the located
 scanner has to keep for a word split anyway
 (`260916.plan.source-locations.md` F8). Open conformance work, no verdict.
+
+Decided 2026-10-18, ours stands: see *2026-10-18 -- OURS: smart
+punctuation is part of the word a spec attaches to* and *2026-10-18 --
+OURS: an escape is part of the word a spec attaches to*.
 
 ## 2026-09-21 -- ours: a table's span includes its caption
 
@@ -2516,6 +2523,11 @@ backslash and the line break together as a hard-break escape and drops
 both.  Ours stands for now; pending the maintainer's decision.  The
 inline specification will state whichever is chosen.
 
+Probed 2026-10-19 (djot.js `9790d4d`): djot.js gives `href="b\c"` for
+the same URL split in a reference definition (`[x]: b\` / `  c`), as
+ours does in both places.  A backslash before ASCII punctuation in a
+destination is an escape on both sides (`[a](b\)c)` is `b)c`).
+
 ## 2026-10-11 -- OURS: a spec after a hard break or a non-breaking space attaches to nothing
 
 Found while probing attribute specs for the inline specification
@@ -2548,7 +2560,7 @@ they stay, although the spec attaches to nothing.  Decided by the
 maintainer (2026-10-11): leave it.  A dropped spec still holds its
 place, as in `a {#i}b`, where the space stays too.
 
-## 2026-10-11 -- OURS, to do: a `]{` whose spec fails
+## Closed 2026-10-11 -- OURS, fixed: a `]{` whose spec fails
 
 | Input | djot.js | Ours | By the reference |
 | --- | --- | --- | --- |
@@ -2747,7 +2759,7 @@ reads a spec to its `}` anywhere in the paragraph.
 
 Pinned by `attr_brace_ends_its_line` in `dev/InlineExamples.v`.
 
-## 2026-10-17 -- OURS, to do: a failed autolink is read as ordinary text
+## Closed 2026-10-17 -- OURS, fixed: a failed autolink is read as ordinary text
 
 Corrects two entries.  The 2026-10-11 entry on a `]{` whose spec fails
 says a failed autolink "already" leaves no trace; it does not.  At
@@ -2769,7 +2781,7 @@ itself, so the last row stays a link.
 Decided by the maintainer (2026-10-17): follow djot.js.  A `<` whose
 candidate fails is text, and the region is read as usual.
 
-## 2026-10-17 -- OURS, to do: a failed destination is read as if its `](` were text
+## Closed 2026-10-17 -- OURS, fixed: a failed destination is read as if its `](` were text
 
 Corrects the 2026-10-11 entry's "an unclosed destination ... already
 do": the ordinary reading `IDest` keeps is not the reading without the
@@ -2874,7 +2886,7 @@ needs the `}` inside the slice, so the `=` opens and the bare `=` after
 the `}` closes it.  Ours reads all three rows as text, as the reference's
 braced highlight says.
 
-## 2026-10-17 -- open: a spec after smart punctuation
+## Closed 2026-10-18 -- OURS: a spec after smart punctuation
 
 | Input | djot.js (`3b3a9f5`) | Ours |
 | --- | --- | --- |

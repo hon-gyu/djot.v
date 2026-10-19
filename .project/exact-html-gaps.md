@@ -20,8 +20,8 @@ corpus is exact and roundtrip is clean.
 
 That is a smaller claim than it sounds, and the rest of this file is why.
 The corpus is djot.js's regression suite, not a map of the grammar, and
-four divergences are open that no corpus case contains. Quote the number
-with the list, or do not quote it.
+the divergences below were found by sweeping, not by the corpus. Quote
+the number with the list, or do not quote it.
 
 Five cases were closed on 2026-09-09, in this order: an unterminated link
 destination (`links_and_images.test:220`), a marked opener with a `}`
@@ -41,13 +41,13 @@ See [[260909.block-attr-reparse]].
 
 ## What is open
 
-Three, none of them in the corpus:
+None.  The last three, none of them in the corpus, are settled:
 
-| | where |
-| --- | --- |
-| `{a=}=`, a `key=` slice hiding a marked opener | [[djotjs-divergences]] |
-| a `]` inside a link destination re-entering the bracket | below |
-| a container prefix inside a recovered paragraph | [[djotjs-divergences]] |
+| | status | where |
+| --- | --- | --- |
+| `{a=}=`, a `key=` slice hiding a marked opener | djot.js's bug, 2026-10-17 | [[djotjs-divergences]] |
+| a `]` inside a link destination re-entering the bracket | closed 2026-10-17 | below |
+| a container prefix inside a recovered paragraph | `SPEC-GAP`, ours stands | [[djotjs-divergences]] |
 
 ## Closed 2026-09-09 — a block-attribute candidate's lines, re-parsed
 
@@ -220,8 +220,8 @@ shadow landed, and is **0** here: `{#a"`, `{a="x` and `{% "x` all agree
 now. Re-measured 2026-09-09 at `f159676`, exhaustive at length 5 over
 `{}#."='a` (37,448 documents), the sweep leaves **9**, and none of them
 is this family. Eight are the decayed-quote attachment below and one is
-the marked-delimiter case in [[djotjs-divergences]] under *2026-09-09
--- ours: a `key=` slice hides a marked opener*.
+the marked-delimiter case in [[djotjs-divergences]] under *Closed
+2026-10-17 -- djotjs-bug: a `key=` slice hides a marked opener*.
 
 The implementation trace is under *2026-08-22 -- ours: an unclosed
 inline attribute spec*. Because that log is append-only, its old verdict
@@ -235,8 +235,8 @@ is a `][` whose label never closes, so the bytes after it are read as
 usual and the `[` stays open.  `[u](a ](b) c` is a link whose label is
 `u](a `, `[u](a ]{.c} b` is a span of it, and `_[]([!a*[*_` closes the
 outer `_`, as upstream.  The
-divergences log has the entry, *2026-10-17 -- OURS, to do: a failed
-destination is read as if its `](` were text*.
+divergences log has the entry, *Closed 2026-10-17 -- OURS, fixed: a
+failed destination is read as if its `](` were text*.
 
 ## Decided 2026-10-18 -- a spec that attaches to a decayed quote
 
@@ -248,8 +248,8 @@ all of its residue but one.
 Diagnosed 2026-10-17: djot.js attaches the spec to the quote's
 `smart_punctuation` node alone, and its HTML renderer writes that node
 without attributes; ours attaches it to the last word of the `Str`, quote
-included.  The divergences log has the entry, *2026-10-17 -- open: a spec
-after smart punctuation*.
+included.  The divergences log has the entry, *Closed 2026-10-18 -- OURS: a
+spec after smart punctuation*.
 
 Decided 2026-10-18: ours stands.  Smart punctuation is part of the last
 word, so the spec covers `a’` in `a'{.a}`.  The divergences log has the
