@@ -2509,7 +2509,7 @@ as written.  A canonical reference label (`ci_ok`) now has no backslash
 `make diff`, `make roundtrip`, `make check-stack` unchanged.  Pinned by
 `reference_label_escaped_bracket` in `dev/InlineExamples.v`.
 
-## 2026-10-08 -- open: a backslash before a line break inside a destination
+## Closed 2026-10-19 -- OURS: a backslash before a line break inside a destination
 
 Found with the entry above.
 
@@ -3025,3 +3025,24 @@ overrides follow the new patterns.  Pinned in `dev/InlineExamples.v` by
 `auto_mailto_is_url`, `auto_query_email_is_url`,
 `auto_scheme_leading_digit` and `auto_scheme_not_prefix`;
 `auto_email_beats_url` is gone with the overlap.
+
+## 2026-10-19 -- OURS: a backslash before a line break in a destination is kept
+
+The 2026-10-08 entry, decided.
+
+| Input | djot.js (`9790d4d`) | Ours |
+| --- | --- | --- |
+| `[a](b\` / `c)` | `href="bc"` | `href="b\c"` |
+| `[r][x]`, with `[x]: b\` / `  c` | `href="b\c"` | the same |
+| `[a](b\)c)` | `href="b)c"` | the same |
+
+Decided by the maintainer (2026-10-19): ours stands.  A hard break is
+inline content and a destination is not, so L3 applies as written: the
+line break is dropped, the lines are joined, and the backslash is kept.
+djot.js does this for a reference definition's URL and not for an inline
+destination, so the two spellings of one link disagree there.  Ours also
+keeps hard-wrapping safe: breaking a URL after a `\` does not change it.
+A backslash before ASCII punctuation is still an escape.
+
+Ours already does this, so nothing changes.  Pinned by
+`dest_backslash_before_break` in `dev/InlineExamples.v`.
