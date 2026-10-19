@@ -596,12 +596,6 @@ Example dest_crosses_break :
   para_inlines ["[a](b"; "c)"] = [mk (Link bkids (Direct "bc"))].
 Proof. vm_compute. reflexivity. Qed.
 
-(* A backslash before the break is no hard break: a destination is not
-   inline content, so the break is dropped and the backslash kept. *)
-Example dest_backslash_before_break :
-  para_inlines ["[a](b\"; "c)"] = [mk (Link bkids (Direct "b\c"))].
-Proof. vm_compute. reflexivity. Qed.
-
 Example dest_unterminated_keeps_break :
   para_inlines ["[a](b"; "c"]
   = [mk (Str "[a](b"); mk SoftBreak; mk (Str "c")].

@@ -2509,7 +2509,7 @@ as written.  A canonical reference label (`ci_ok`) now has no backslash
 `make diff`, `make roundtrip`, `make check-stack` unchanged.  Pinned by
 `reference_label_escaped_bracket` in `dev/InlineExamples.v`.
 
-## Closed 2026-10-19 -- OURS: a backslash before a line break inside a destination
+## 2026-10-08 -- open: a backslash before a line break inside a destination
 
 Found with the entry above.
 
@@ -2523,10 +2523,36 @@ backslash and the line break together as a hard-break escape and drops
 both.  Ours stands for now; pending the maintainer's decision.  The
 inline specification will state whichever is chosen.
 
-Probed 2026-10-19 (djot.js `9790d4d`): djot.js gives `href="b\c"` for
-the same URL split in a reference definition (`[x]: b\` / `  c`), as
-ours does in both places.  A backslash before ASCII punctuation in a
-destination is an escape on both sides (`[a](b\)c)` is `b)c`).
+Probed 2026-10-19 (djot.js `9790d4d`):
+
+| Input | djot.js | Ours |
+| --- | --- | --- |
+| `[a](b\)c)` | `href="b)c"` | the same |
+| `[a](b\ c)` | `href="b c"` | `href="b\ c"` |
+| `[a](b\  ` / `c)` | `href="b  c"` | `href="b\  c"` |
+| `[a](b  ` / `  c)` | `href="b  c"` | the same |
+| `[r][x]`, with `[x]: b\)c` | `href="b\)c"` | the same |
+| `[r][x]`, with `[x]: b\` / `  c` | `href="b\c"` | the same |
+
+Notes for the decision, not a verdict:
+
+- Both sides apply backslash escapes in an inline destination (first
+  row) and none in a reference definition's URL (fifth row).  So the
+  reference-definition row says nothing about how djot.js reads a hard
+  break; it takes no escapes there at all.
+- The reference states escapes and their two exceptions (backslash
+  before a newline is a hard break, before a space a non-breaking
+  space) as one rule.  Ours applies the escape part in a destination
+  and not the exceptions.  Reading the whole rule there gives djot.js's
+  `bc`: the hard break is a line break, and L3 drops line breaks.
+- Hard-wrapping does not favour either side: breaking a line after a
+  `\` already changes ordinary text into a hard break, so a wrapper has
+  to avoid that point anyway.
+- Deciding this also decides the backslash before a space (second row).
+  A non-breaking space has no meaning in a URL; djot.js drops the
+  backslash and keeps a plain space.
+- The fourth row is separate: L3 says leading and trailing space on
+  each line is ignored, and both sides keep the trailing spaces.
 
 ## 2026-10-11 -- OURS: a spec after a hard break or a non-breaking space attaches to nothing
 
@@ -3025,24 +3051,3 @@ overrides follow the new patterns.  Pinned in `dev/InlineExamples.v` by
 `auto_mailto_is_url`, `auto_query_email_is_url`,
 `auto_scheme_leading_digit` and `auto_scheme_not_prefix`;
 `auto_email_beats_url` is gone with the overlap.
-
-## 2026-10-19 -- OURS: a backslash before a line break in a destination is kept
-
-The 2026-10-08 entry, decided.
-
-| Input | djot.js (`9790d4d`) | Ours |
-| --- | --- | --- |
-| `[a](b\` / `c)` | `href="bc"` | `href="b\c"` |
-| `[r][x]`, with `[x]: b\` / `  c` | `href="b\c"` | the same |
-| `[a](b\)c)` | `href="b)c"` | the same |
-
-Decided by the maintainer (2026-10-19): ours stands.  A hard break is
-inline content and a destination is not, so L3 applies as written: the
-line break is dropped, the lines are joined, and the backslash is kept.
-djot.js does this for a reference definition's URL and not for an inline
-destination, so the two spellings of one link disagree there.  Ours also
-keeps hard-wrapping safe: breaking a URL after a `\` does not change it.
-A backslash before ASCII punctuation is still an escape.
-
-Ours already does this, so nothing changes.  Pinned by
-`dest_backslash_before_break` in `dev/InlineExamples.v`.
