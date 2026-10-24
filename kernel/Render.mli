@@ -166,7 +166,7 @@ val closer_run : string -> int
 
 val div_fence_for : dtable -> bconfig -> string list -> string
 
-val note_indent : string -> string
+val note_lines : string -> bool -> string list -> string list
 
 val render_lines_with :
   dtable -> bconfig -> (inlines -> string list) -> attr -> block -> string

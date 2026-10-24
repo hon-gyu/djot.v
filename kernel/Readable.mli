@@ -26,13 +26,9 @@ val readable_nodes : dtable -> inlines -> char option -> string
 
 val readable_inline_lines : dtable -> inlines -> string list
 
-val first_then : string -> string -> string list -> string list
-
 val item_lines : litem -> string list
 
 val task_lines : (task_status * string list) -> string list
-
-val note_lines : string -> bool -> string list -> string list
 
 val caption_lines : string list -> string list
 

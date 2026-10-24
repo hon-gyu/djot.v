@@ -145,18 +145,12 @@ let rec readable_nodes t ns before =
 let readable_inline_lines t ils =
   split_lines (readable_nodes t ils None)
 
-(** val first_then : string -> string -> string list -> string list **)
-
-let first_then first rest = function
-| [] -> []
-| l :: more -> ((^) first l) :: (map (indent_line rest) more)
-
 (** val item_lines : litem -> string list **)
 
 let item_lines it =
   match snd it with
   | [] -> (strip_trailing_ws (mk_open (fst it))) :: []
-  | s :: l -> first_then (mk_open (fst it)) (mk_cont (fst it)) (s :: l)
+  | s :: l -> indent_lines (mk_open (fst it)) (mk_cont (fst it)) (s :: l)
 
 (** val task_lines : (task_status * string list) -> string list **)
 
@@ -167,20 +161,10 @@ let task_lines it =
   (match snd it with
    | [] -> box :: []
    | s :: l ->
-     first_then ((^) box " ")
+     indent_lines ((^) box " ")
        (blanks (Stdlib.succ (Stdlib.succ (Stdlib.succ (Stdlib.succ
          (Stdlib.succ (Stdlib.succ 0)))))))
        (s :: l))
-
-(** val note_lines : string -> bool -> string list -> string list **)
-
-let note_lines label para ls =
-  let open0 = (^) "[^" ((^) label "]:") in
-  if para
-  then (match ls with
-        | [] -> open0 :: (map (indent_line "  ") ls)
-        | _ :: _ -> first_then ((^) open0 " ") "  " ls)
-  else open0 :: (map (indent_line "  ") ls)
 
 (** val caption_lines : string list -> string list **)
 

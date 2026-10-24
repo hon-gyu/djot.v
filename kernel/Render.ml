@@ -670,17 +670,15 @@ let div_fence_for t k body =
          (Nat.max (Stdlib.succ (Stdlib.succ (Stdlib.succ 0))) (Stdlib.succ
            (list_max (map closer_run body))))
 
-(** val note_indent : string -> string **)
+(** val note_lines : string -> bool -> string list -> string list **)
 
-let note_indent l =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun _ _ -> (^) "  " l)
-    l
+let note_lines label para ls =
+  let open0 = (^) "[^" ((^) label "]:") in
+  if para
+  then (match ls with
+        | [] -> open0 :: (map (indent_line "  ") ls)
+        | _ :: _ -> indent_lines ((^) open0 " ") "  " ls)
+  else open0 :: (map (indent_line "  ") ls)
 
 (** val render_lines_with :
     dtable -> bconfig -> (inlines -> string list) -> attr -> block -> string
@@ -756,7 +754,17 @@ let rec render_lines_with t k text_of a b =
        (code_open ((^) "=" fmt)) :: (app (split_lines text)
                                       (code_close :: []))
      | FootnoteDef (label, bs) ->
-       ((^) "[^" ((^) label "]:")) :: (map note_indent (blocks_lines bs))
+       note_lines label
+         (match bs with
+          | [] -> false
+          | n :: _ ->
+            let Node (_, a0, x) = n in
+            (match a0 with
+             | [] -> (match x with
+                      | Para _ -> true
+                      | _ -> false)
+             | _ :: _ -> false))
+         (blocks_lines bs)
      | RefDef (label, dest) -> (ref_line label dest) :: []
      | AttrBlock -> (match a with
                      | [] -> "{}" :: []
