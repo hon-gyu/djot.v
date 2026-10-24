@@ -437,6 +437,7 @@ end
 
 type style =
   [ `Safe
+  | `Irredundant
   | `Checked
   | `Naive
   ]
@@ -485,6 +486,7 @@ module Styled = struct
     let naive = K.Readable.readable_djot table config in
     match style with
     | `Safe -> safe bs
+    | `Irredundant -> K.Irredundant.render_djot_irredundant table config bs
     | `Naive -> naive bs
     | `Checked ->
       let each f = List.map (fun b -> f [ b ]) bs in
@@ -499,6 +501,7 @@ module Styled = struct
     let naive () = String.concat "\n" (K.Readable.readable_inline_lines table ils) in
     match style with
     | `Safe -> safe
+    | `Irredundant -> blocks `Irredundant profile [ Node.make (K.Ast.Para ils) ]
     | `Naive -> naive ()
     | `Checked -> checked profile ~sep:"" [ safe ] [ naive () ]
   ;;

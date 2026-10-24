@@ -31,6 +31,11 @@ Subcommands
   
   {*strong*} and \[\[w\]\]
 
+  $ djot djot doc.dj --style irredundant
+  # Hi
+  
+  *strong* and [[w]]
+
   $ djot ast doc.dj
   doc
     section

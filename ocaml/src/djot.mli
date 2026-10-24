@@ -259,6 +259,11 @@ end
     - [`Safe]: text is escaped and delimiters are braced by fixed rules, so that the
       result parses back to the tree. Fast, and not what a person would type: [3\:1],
       [{_a_}].
+    - [`Irredundant]: [`Safe] with every backslash and every pair of braces taken out
+      that the parse does not need, so deleting any backslash left, or any [{] with a
+      later [}] and no empty line between them, changes the tree. Proved in Rocq
+      ([Irredundant.v]). Costs a reparse per candidate, from its line to the next point
+      where the parser holds nothing open.
     - [`Naive]: the text a person would type, for a tree built by hand. Nothing is
       escaped, emphasis and quotes are written without braces where they read back as
       such, table columns are padded, and a blank line inside a container is empty. Text
@@ -269,6 +274,7 @@ end
       [`Safe] one. Costs two parses of the result, more when blocks differ. *)
 type style =
   [ `Safe
+  | `Irredundant
   | `Checked
   | `Naive
   ]
@@ -328,7 +334,8 @@ module Inline : sig
   (** The inlines as djot source, as they are written inside a paragraph, a soft or hard
       break ending a line.
       @param profile the syntax to write; default {!Profile.djot}
-      @param style default [`Checked], which reads the inlines as one paragraph *)
+      @param style default [`Checked]. [`Irredundant] and [`Checked] read the inlines as
+      one paragraph *)
   val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
 end
 
@@ -563,16 +570,16 @@ module Doc : sig
   (** The document as djot source, in the syntax of the profile it was parsed with. An
       identifier in {!auto_identifiers} is not written.
 
-      With [`Safe] or [`Checked], parsing the result with that profile gives the same
-      tree, up to source positions, except that:
+      With [`Safe], [`Irredundant] or [`Checked], parsing the result with that profile
+      gives the same tree, up to source positions, except that:
       - whitespace runs in attribute values collapse to one space;
       - a span with no attributes, an empty block quote, an empty table and an empty
         definition item read back as something else;
       - two adjacent bullet lists with the same marker read back as one;
       - a [|] in a table cell's text splits the cell.
 
-      The round trip is proved in Rocq for a fragment of documents written with [`Safe];
-      beyond it this is tested, not proved.
+      The round trip is proved in Rocq for a fragment of documents written with [`Safe]
+      or [`Irredundant]; beyond it this is tested, not proved.
 
       With [`Naive] the result need not parse back to the same tree; see {!style}.
 
