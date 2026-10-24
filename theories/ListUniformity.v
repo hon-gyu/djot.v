@@ -119,12 +119,13 @@ Local Fixpoint scan_list_content (ls : list_state) (inner : pstate)
   match lines with
   | [] => ls
   | l :: rest =>
-      let inner' := snd (step (mk_cont mrk ++ l) inner) in
+      let inner' := snd (step (indent_line (mk_cont mrk) l) inner) in
       let ls' :=
         match classify l with
         | KBlank =>
             list_blank (list_settle (stops_waiting inner inner') ls)
-        | k => list_content ls (fate_after inner inner' (line_fate 0 (mk_cont mrk ++ l) k inner))
+        | k => list_content ls
+                 (fate_after inner inner' (line_fate 0 (indent_line (mk_cont mrk) l) k inner))
         end in
       scan_list_content ls' inner' rest
   end.
@@ -132,138 +133,136 @@ Local Fixpoint scan_list_content (ls : list_state) (inner : pstate)
 Local Lemma run_lines_list_cont :
   forall lines ls done inner bs inner',
     ls_indent ls = 0 ->
-    run_lines (map (fun l => ((mk_cont mrk) ++ l)%string) lines) inner =
-      (bs, inner') ->
-    run_lines (map (fun l => ((mk_cont mrk) ++ l)%string) lines)
-      (PList ls done inner)
+    run_lines (map (indent_line (mk_cont mrk)) lines) inner = (bs, inner') ->
+    run_lines (map (indent_line (mk_cont mrk)) lines) (PList ls done inner)
     = ([], PList (scan_list_content ls inner lines) (rev bs ++ done)%list inner').
 Proof.
   induction lines as [|l lines IH]; intros ls done inner bs inner' Hind Hrun.
   - cbn [map run_lines] in Hrun |- *. inversion Hrun; subst. reflexivity.
   - cbn [map run_lines] in Hrun |- *.
-    destruct (step ((mk_cont mrk) ++ l) inner) as [head inner1] eqn:Hstep.
-    destruct (run_lines (map (fun l0 => (mk_cont mrk) ++ l0) lines) inner1)
+    destruct (step (indent_line (mk_cont mrk) l) inner) as [head inner1] eqn:Hstep.
+    destruct (run_lines (map (indent_line (mk_cont mrk)) lines) inner1)
       as [rest inner2] eqn:Hrest.
     inversion Hrun; subst bs inner'.
     destruct (classify l) as [| |f|dl dc|q|lvl txt|m mc chk item|kap|flbl frest|rlbl rval|krow|] eqn:Hclass.
-    + rewrite (step_list_blank ((mk_cont mrk) ++ l) ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+    + rewrite (step_list_blank (indent_line (mk_cont mrk) l) ls done inner head inner1).
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2).
       * rewrite rev_app_distr, app_assoc. reflexivity.
       * cbn [list_blank]. exact Hind.
       * exact Hrest.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) KThematic ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) KThematic ls done inner head inner1).
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KFence f) ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KFence f) ls done inner head inner1).
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KDiv dl dc) ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KDiv dl dc) ls done inner head inner1).
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KQuote q) ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KQuote q) ls done inner head inner1).
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KHeading lvl txt)
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KHeading lvl txt)
                  ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KList m mc chk item)
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KList m mc chk item)
                  ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KAttr kap)
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KAttr kap)
                  ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KFoot flbl frest)
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KFoot flbl frest)
                  ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KRef rlbl rval)
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KRef rlbl rval)
                  ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) (KRow krow)
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) (KRow krow)
                  ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
       rewrite (IH _ (rev head ++ done)%list inner1 rest inner2)
         by (first [cbn [list_content]; exact Hind | exact Hrest]).
       rewrite rev_app_distr, app_assoc. reflexivity.
-    + rewrite (step_list_indented ((mk_cont mrk) ++ l) KText ls done inner head inner1).
-      2: { rewrite classify_marker_cont. exact Hclass. }
+    + rewrite (step_list_indented (indent_line (mk_cont mrk) l) KText ls done inner head inner1).
+      2: { rewrite classify_indent_cont. exact Hclass. }
       2: discriminate.
-      2: { rewrite Hind, indent_of_marker_cont.
+      2: { rewrite Hind, (indent_of_indent_cont mrk l ltac:(rewrite Hclass; discriminate)).
            apply Nat.ltb_lt. pose proof (mk_pad_pos mrk Hmrk). lia. }
       2: exact Hstep.
       cbn [scan_list_content]. rewrite Hclass, Hstep. cbn [snd].
@@ -324,14 +323,15 @@ them, so they live here and `Render.v` reuses them.
 *)
 
 (* A list item's lines: the marker (`mk_open mrk`) on the first line and
-   plain indent (`mk_cont mrk`) on every line after.  Not repeated per
-   line like `quote_line`: `mk_cont mrk` is whitespace, and
-   `Line.classify_ws_prefix` carries every recognizer through it. *)
+   plain indent (`mk_cont mrk`) on every nonempty line after; an empty
+   line stays empty.  Not repeated per line like `quote_line`: `mk_cont
+   mrk` is whitespace, and `Line.classify_ws_prefix` carries every
+   recognizer through it. *)
 Definition indent_lines (first_prefix rest_prefix : string) (ls : list string)
   : list string :=
   match ls with
   | [] => []
-  | l :: rest => (first_prefix ++ l) :: map (fun x => rest_prefix ++ x) rest
+  | l :: rest => (first_prefix ++ l) :: map (indent_line rest_prefix) rest
   end.
 
 (* Items separated by a blank line when the list is loose and
@@ -358,9 +358,12 @@ case, and both are real rather than artefacts of the proof.
 A quote repeats its prefix on every line, so the parser re-derives the
 descent line by line.  An item's continuation is plain whitespace, so
 the descent is a *column shift* instead: `step_pad_shift` is that
-statement for one line, `run_lines_pad_shift` for a run.  The shift is
-what makes nesting free -- a list opened inside an item records a column
-two further right, and nothing else changes.
+statement for one line, `run_lines_pad_shift` for a run.  An empty line
+shifts the same with no pad in front (`Step.step_empty_pad`), so an
+item's lines leave it empty (`step_indent_shift`,
+`run_lines_indent_shift`).  The shift is what makes nesting free -- a
+list opened inside an item records a column two further right, and
+nothing else changes.
 
 The tight/loose bit is the one thing that is *not* uniform, and
 `lines_loose` is where it lives.  It is a scan of the lines, not a
@@ -400,6 +403,16 @@ Proof.
   rewrite step_at_shift, step_at_zero. reflexivity.
 Qed.
 
+(* The same for a continuation line, which leaves an empty line empty. *)
+Local Lemma step_indent_shift :
+  forall p l st,
+    is_blank p = true ->
+    step (indent_line p l) (pad_state (String.length p) st)
+    = (fst (step l st), pad_state (String.length p) (snd (step l st))).
+Proof.
+  intros p [|c l] st Hp; [apply step_empty_pad | apply (step_pad_shift p _ st Hp)].
+Qed.
+
 (* The side condition along a whole run, and it is two conditions rather
    than one.  The state the run ends in meets a blank line, the item
    separator, so it must be `blank_safe`: a run may contain a code block,
@@ -423,6 +436,22 @@ Proof.
   - reflexivity.
   - cbn [map run_lines] in *.
     rewrite (step_pad_shift p l st Hp).
+    destruct (step l st) as [bs st'] eqn:Es. cbn [fst snd] in *.
+    rewrite (IH st' Hp).
+    destruct (run_lines rest st') as [more st''] eqn:Er. reflexivity.
+Qed.
+
+(* The same for an item's continuation lines. *)
+Local Lemma run_lines_indent_shift :
+  forall p lines st,
+    is_blank p = true ->
+    run_lines (map (indent_line p) lines) (pad_state (String.length p) st)
+    = (fst (run_lines lines st), pad_state (String.length p) (snd (run_lines lines st))).
+Proof.
+  intros p lines. induction lines as [|l rest IH]; intros st Hp.
+  - reflexivity.
+  - cbn [map run_lines] in *.
+    rewrite (step_indent_shift p l st Hp).
     destruct (step l st) as [bs st'] eqn:Es. cbn [fst snd] in *.
     rewrite (IH st' Hp).
     destruct (run_lines rest st') as [more st''] eqn:Er. reflexivity.
@@ -575,14 +604,17 @@ Proof.
     split; reflexivity. }
   rewrite run_lines_snd_cons.
   cbn [scan_list_content lines_loose lines_gap].
-  pose proof (step_pad_shift (mk_cont mrk) l st (marker_cont_blank mrk)) as Hsh.
+  pose proof (step_indent_shift (mk_cont mrk) l st (marker_cont_blank mrk)) as Hsh.
   rewrite mk_cont_length in Hsh.
-  pose proof (fun k => line_fate_pad_prefix (mk_cont mrk) l k st (marker_cont_blank mrk))
-    as Hft.
-  rewrite mk_cont_length in Hft.
+  assert (Hft : forall k, classify l <> KBlank ->
+            line_fate 0 (indent_line (mk_cont mrk) l) k (pad_state (mk_pad mrk) st)
+            = line_fate 0 l k st).
+  { intros k Hl. destruct l as [|c l']; [exfalso; apply Hl; reflexivity|].
+    rewrite <- mk_cont_length.
+    exact (line_fate_pad_prefix (mk_cont mrk) _ k st (marker_cont_blank mrk)). }
   rewrite Hsh. cbn [snd].
   unfold fate_after, stops_waiting. rewrite !pad_state_attr_waits.
-  destruct (classify l) eqn:E; rewrite ?Hft;
+  destruct (classify l) eqn:E; rewrite ?Hft by discriminate;
     try destruct (line_fate 0 l _ st);
     try destruct (attr_waits st && negb (attr_waits (snd (step l st))))%bool;
     match goal with
@@ -636,7 +668,7 @@ Proof.
   intros l0 rest Hth Hts.
   cbn [indent_lines run_lines].
   rewrite (step_item_open l0 Hth Hts).
-  pose proof (run_lines_pad_shift (mk_cont mrk) rest (snd (step l0 (PPara [])))
+  pose proof (run_lines_indent_shift (mk_cont mrk) rest (snd (step l0 (PPara [])))
                 (marker_cont_blank mrk)) as Hrun.
   rewrite mk_cont_length in Hrun.
   rewrite (run_lines_list_cont rest
@@ -685,7 +717,7 @@ Proof.
                       (indent_of_marker_open mrk _ Hmrk); reflexivity))
              Es).
   rewrite configured_mrk_check, configured_mrk_rest, consumed_marker_open.
-  pose proof (run_lines_pad_shift (mk_cont mrk) rest i (marker_cont_blank mrk)) as Hrun.
+  pose proof (run_lines_indent_shift (mk_cont mrk) rest i (marker_cont_blank mrk)) as Hrun.
   rewrite mk_cont_length in Hrun.
   assert (Hi0 : ls_indent (list_next (list_narrow ls (s0 :: ss))
                              (rev done ++ finish inner)%list (mk_check mrk) ((mk_open mrk) ++ l0)) = 0).
@@ -2791,6 +2823,8 @@ Proof.
                 ltac:(cbn [forallb]; rewrite Hok; reflexivity)) as U.
   cbn [map list_lines indent_lines] in U. rewrite Hsp in U.
   change bullet_open with "- " in U. change bullet_cont with (blanks 2) in U.
+  replace (indent_line (blanks 2) b) with (blanks 2 ++ b)%string in U
+    by (destruct b; [discriminate Hb | reflexivity]).
   (* The lazy line is that indented line. *)
   pose proof (classify_marker_open bullet a eq_refl Hth
                 (task_start_shadow bullet a Hts)) as Hc.

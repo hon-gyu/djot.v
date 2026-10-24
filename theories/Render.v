@@ -1186,7 +1186,7 @@ Local Definition task_litem_lines (it : task_status * list string) : list string
   | (chk, []) => [task_empty chk]
   | (chk, l0 :: more) =>
       ((task_open chk ++ l0)%string
-       :: map (fun l => (blanks 6 ++ l)%string) more)%list
+       :: map (indent_line (blanks 6)) more)%list
   end.
 
 (* Any other item's source lines.  An empty item is its marker alone,

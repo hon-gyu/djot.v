@@ -4245,6 +4245,18 @@ Proof.
   reflexivity.
 Qed.
 
+(* An empty line commutes with a pad, as a line with the pad's own
+   whitespace in front does (`step_pad`, `step_at_shift`): so an item may
+   leave a blank line empty instead of indenting it. *)
+Lemma step_empty_pad :
+  forall k st,
+    step "" (pad_state k st) = (fst (step "" st), pad_state k (snd (step "" st))).
+Proof.
+  intros k st. unfold step.
+  rewrite (step_fuel_empty_off _ k 0 (k + 0) st ltac:(lia) ltac:(lia)).
+  rewrite pad_state_depth. apply step_fuel_shift.
+Qed.
+
 (* A lazy line's pad is dropped wherever the line comes to rest -- the
    reason feed_lazy strips leading whitespace at all. *)
 Local Lemma feed_lazy_ws_prefix :

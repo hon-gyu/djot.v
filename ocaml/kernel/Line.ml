@@ -1787,6 +1787,18 @@ let bullet =
 let colon =
   MBullet ':'
 
+(** val indent_line : string -> string -> string **)
+
+let indent_line p l =
+  (* If this appears, you're using String internals. Please don't *)
+ (fun f0 f1 s ->
+    let l = String.length s in
+    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
+
+    (fun _ -> "")
+    (fun _ _ -> (^) p l)
+    l
+
 (** val callout_kind_ok : string -> bool **)
 
 let callout_kind_ok kind =

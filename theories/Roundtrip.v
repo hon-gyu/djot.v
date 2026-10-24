@@ -352,43 +352,49 @@ Proof.
   rewrite no_nl_append. reflexivity.
 Qed.
 
-Local Lemma forallb_no_nl_map_append :
+Local Lemma forallb_no_nl_map_indent :
   forall p ls, no_nl p = true -> forallb no_nl ls = true ->
-  forallb no_nl (map (fun x => p ++ x) ls) = true.
+  forallb no_nl (map (indent_line p) ls) = true.
 Proof.
   intros p ls Hp. induction ls as [|l ls IH]; intros H; [reflexivity|].
   cbn [forallb] in H. apply andb_true_iff in H as [Hl Hls].
-  cbn [map forallb]. rewrite no_nl_append, Hp, Hl. cbn [andb]. apply IH, Hls.
+  cbn [map forallb]. rewrite (IH Hls), andb_true_r.
+  destruct l as [|c l]; [reflexivity|].
+  cbn [indent_line]. rewrite no_nl_append, Hp, Hl. reflexivity.
 Qed.
 
 (* A list item's rendering: marker on the first line, plain indent on the
-   rest.  Two prefixes instead of quote_line's one, so this is not quite
-   lines_ok_map, but the same shape otherwise. *)
+   rest, an empty line left empty.  Two prefixes instead of quote_line's
+   one, so this is not quite lines_ok_map, but the same shape otherwise;
+   the last line is nonempty because the item's own last line is. *)
 Local Lemma lines_ok_indent :
   forall p1 p2 ls,
-    no_nl p1 = true -> no_nl p2 = true -> p1 <> EmptyString -> p2 <> EmptyString ->
-    ls <> [] -> forallb no_nl ls = true ->
+    no_nl p1 = true -> no_nl p2 = true -> p1 <> EmptyString ->
+    lines_ok ls = true ->
     lines_ok (indent_lines p1 p2 ls) = true.
 Proof.
-  intros p1 p2 ls Hn1 Hn2 He1 He2 Hne Hnl.
+  intros p1 p2 ls Hn1 Hn2 He1 Hok.
+  apply lines_ok_parts in Hok as (Hne & Hnl & Hlast).
   destruct ls as [|l rest]; [congruence|].
   cbn [forallb] in Hnl. apply andb_true_iff in Hnl as [Hl Hrest].
   unfold lines_ok. apply andb_true_iff. split; [apply andb_true_iff; split|].
   - cbn [indent_lines]. reflexivity.
   - cbn [indent_lines forallb]. rewrite no_nl_append, Hn1, Hl. cbn [andb].
-    apply forallb_no_nl_map_append; assumption.
+    apply forallb_no_nl_map_indent; assumption.
   - cbn [indent_lines]. destruct rest as [|r rest'].
     + apply nonempty_str_intro. destruct p1 as [|c s].
       * exfalso. apply He1. reflexivity.
       * discriminate.
-    + rewrite (last_cons_nonnil (p1 ++ l) (map (fun x => p2 ++ x) (r :: rest'))
+    + rewrite (last_cons_nonnil (p1 ++ l) (map (indent_line p2) (r :: rest'))
                  EmptyString) by (cbn [map]; discriminate).
-      rewrite (last_default (map (fun x => p2 ++ x) (r :: rest')) EmptyString
-                 (p2 ++ EmptyString)) by (cbn [map]; discriminate).
-      rewrite (last_map (fun x => p2 ++ x) (r :: rest') EmptyString) by discriminate.
-      apply nonempty_str_intro. destruct p2 as [|c s].
-      * exfalso. apply He2. reflexivity.
-      * discriminate.
+      rewrite (last_cons_nonnil l (r :: rest') EmptyString) in Hlast
+        by discriminate.
+      change (last (map (indent_line p2) (r :: rest')) EmptyString)
+        with (last (map (indent_line p2) (r :: rest')) (indent_line p2 EmptyString)).
+      rewrite (last_map (indent_line p2) (r :: rest') EmptyString) by discriminate.
+      apply nonempty_str_intro.
+      destruct (last (r :: rest') EmptyString) as [|c s]; [congruence|].
+      cbn [indent_line]. destruct p2; discriminate.
 Qed.
 
 (* Putting an item's marker and continuation pad on preserves the layout
@@ -398,10 +404,8 @@ Local Lemma litem_lines_ok :
   forall m L, marker_ok m = true -> lines_ok L = true ->
   lines_ok (litem_lines (m, L)) = true.
 Proof.
-  intros m L Hm HL. apply lines_ok_parts in HL as (Hne & Hnl & _).
-  unfold litem_lines. cbn [fst snd].
-  apply lines_ok_indent;
-    auto using mk_open_no_nl, mk_cont_no_nl, mk_open_nonempty, mk_cont_nonempty.
+  intros m L Hm HL. unfold litem_lines. cbn [fst snd].
+  apply lines_ok_indent; auto using mk_open_no_nl, mk_cont_no_nl, mk_open_nonempty.
 Qed.
 
 Local Lemma litems_lines_ok :

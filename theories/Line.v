@@ -3866,6 +3866,25 @@ Proof.
   unfold mk_cont. rewrite blanks_length. reflexivity.
 Qed.
 
+(* A continuation line under the pad `p`.  An empty line stays empty, as
+   a blank line inside a list item is written. *)
+Definition indent_line (p l : string) : string :=
+  match l with
+  | EmptyString => EmptyString
+  | _ => (p ++ l)%string
+  end.
+
+Lemma classify_indent_cont :
+  forall m l, classify (indent_line (mk_cont m) l) = classify l.
+Proof. intros m [|c l]; [reflexivity | apply classify_marker_cont]. Qed.
+
+Lemma indent_of_indent_cont :
+  forall m l, classify l <> KBlank ->
+    indent_of (indent_line (mk_cont m) l) = mk_pad m + indent_of l.
+Proof.
+  intros m [|c l] H; [exfalso; apply H; reflexivity | apply indent_of_marker_cont].
+Qed.
+
 (* The four bullet styles, enumerated: `is_bullet` is a disjunction of
    character tests, so every fact about a recognized marker reduces to
    four concrete cases. *)

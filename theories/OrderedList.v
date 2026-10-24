@@ -1809,7 +1809,7 @@ Proof.
     cbn [app]. eexists; reflexivity. }
   unfold litem_lines in Hlines. cbn [fst snd indent_lines] in Hlines.
   destruct (Hhd (mk_open (ck_first k) ++ l0)
-              (map (fun x : string => mk_cont (ck_first k) ++ x) more')
+              (map (indent_line (mk_cont (ck_first k))) more')
               (map (fun it : litem =>
                       indent_lines (mk_open (fst it)) (mk_cont (fst it)) (snd it))
                    more)) as [tl Htl].
