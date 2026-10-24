@@ -182,6 +182,8 @@ val bullet : marker
 
 val colon : marker
 
+val indent_line : string -> string -> string
+
 val callout_kind_ok : string -> bool
 
 val callout_fold_marker : callout_fold option -> string

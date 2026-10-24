@@ -19,7 +19,7 @@ let item_end_ok l =
 
 let indent_lines first_prefix rest_prefix = function
 | [] -> []
-| l :: rest -> ((^) first_prefix l) :: (map (fun x -> (^) rest_prefix x) rest)
+| l :: rest -> ((^) first_prefix l) :: (map (indent_line rest_prefix) rest)
 
 (** val list_lines : list_spacing -> string list list -> string list **)
 

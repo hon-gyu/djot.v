@@ -607,12 +607,11 @@ let task_litem_lines = function
   (match l with
    | [] -> (task_empty chk) :: []
    | l0 :: more ->
-     ((^) (task_open chk) l0) :: (map (fun l1 ->
-                                   (^)
+     ((^) (task_open chk) l0) :: (map
+                                   (indent_line
                                      (blanks (Stdlib.succ (Stdlib.succ
                                        (Stdlib.succ (Stdlib.succ (Stdlib.succ
-                                       (Stdlib.succ 0)))))))
-                                     l1)
+                                       (Stdlib.succ 0))))))))
                                    more))
 
 (** val item_or_marker_lines : litem -> string list **)
