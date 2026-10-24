@@ -11,9 +11,7 @@
    What differs from `Render.render_lines`:
    - no escapes, in text or in a link's destination;
    - a delimiter is written bare where it reads back as one (`bare_ok`);
-   - a blank line inside a footnote is empty;
-   - a table's columns are padded to one width;
-   - a footnote that starts with a paragraph starts on its label's line.
+   - a table's columns are padded to one width.
 
    The fences, markers, attribute lines and document assembly are
    `Render.v`'s. *)
@@ -137,33 +135,17 @@ Blocks
 ======
 *)
 
-Local Definition first_then (first rest : string) (ls : list string)
-  : list string :=
-  match ls with
-  | [] => []
-  | l :: more => (first ++ l)%string :: map (indent_line rest) more
-  end.
-
 Local Definition item_lines (it : litem) : list string :=
   match snd it with
   | [] => [strip_trailing_ws (mk_open (fst it))]
-  | ls => first_then (mk_open (fst it)) (mk_cont (fst it)) ls
+  | ls => indent_lines (mk_open (fst it)) (mk_cont (fst it)) ls
   end.
 
 Local Definition task_lines (it : task_status * list string) : list string :=
   let box := match fst it with Complete => "- [x]" | Incomplete => "- [ ]" end in
   match snd it with
   | [] => [box]
-  | ls => first_then (box ++ " ") (blanks 6) ls
-  end.
-
-(* A footnote's lines.  A paragraph's first line goes after the label. *)
-Local Definition note_lines (label : string) (para : bool) (ls : list string)
-  : list string :=
-  let open := ("[^" ++ label ++ "]:")%string in
-  match para, ls with
-  | true, _ :: _ => first_then (open ++ " ") "  " ls
-  | _, _ => open :: map (indent_line "  ") ls
+  | ls => indent_lines (box ++ " ") (blanks 6) ls
   end.
 
 Local Definition caption_lines (ls : list string) : list string :=

@@ -1247,9 +1247,15 @@ Definition div_fence_for (body : list string) : string :=
   else chars ":" (Nat.max 3 (S (list_max (map closer_run body)))).
 
 (* A footnote's body sits under its label, indented so that every line
-   belongs to it; blank lines stay blank. *)
-Local Definition note_indent (l : string) : string :=
-  match l with EmptyString => EmptyString | _ => ("  " ++ l)%string end.
+   belongs to it, a blank line left empty.  A body that starts with a
+   paragraph starts on the label's line. *)
+Definition note_lines (label : string) (para : bool) (ls : list string)
+  : list string :=
+  let open := ("[^" ++ label ++ "]:")%string in
+  match para, ls with
+  | true, _ :: _ => indent_lines (open ++ " ") "  " ls
+  | _, _ => open :: map (indent_line "  ") ls
+  end.
 
 Section Lines.
 
@@ -1318,9 +1324,9 @@ Fixpoint render_lines_with (a : attr) (b : block) : list string :=
       is no such line, and the block is written as an empty spec. *)
    | AttrBlock => match a with [] => ["{}"%string] | _ => [] end
    | FootnoteDef label bs =>
-       ("[^" ++ label ++ "]:")%string
-       :: map note_indent
-            (blocks_lines bs)
+       note_lines label
+         (match bs with Node _ [] (Para _) :: _ => true | _ => false end)
+         (blocks_lines bs)
    | Ext_keyed label inner =>
        key_lines
          (String.concat "" (map (fun n => inline_text (node_contents n)) label))
