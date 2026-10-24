@@ -2,7 +2,8 @@
 # ai-disclosure: ai-generated
 # Fails unless the stated versions agree: ocaml/kernel/VERSION is VERSION,
 # the syntax reference is the `djot` submodule's commit or an ancestor of
-# it, and the changelog lists the kernel's and each package's version.
+# it, .project/syntax-reference-coverage.md audited that commit, and the
+# changelog lists the kernel's and each package's version.
 # Also that ocaml/LICENSE is LICENSE: a copy, not a link, since the
 # ocaml branch is ocaml/ alone.
 # Given a release tag, also that the tag names the version stated.
@@ -23,6 +24,11 @@ pinned=$(git rev-parse HEAD:djot)
 [ "$ref" = "$pinned" ] ||
   git -C djot merge-base --is-ancestor "$ref" "$pinned" 2>/dev/null ||
   err "syntax reference $ref is neither the djot submodule's commit nor an ancestor of it"
+
+coverage=.project/syntax-reference-coverage.md
+audited=$(sed -n 's/^\*\*Audited version:\*\* .* at `\([0-9a-f]*\)`.*/\1/p' "$coverage")
+[ -n "$audited" ] && [ "${ref#"$audited"}" != "$ref" ] ||
+  err "$coverage audits ${audited:-no commit}, not the syntax reference $ref"
 
 # released SECTION VERSION: the changelog has a [VERSION] heading under SECTION.
 released() {
