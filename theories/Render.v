@@ -141,9 +141,6 @@ Fixpoint sep_lines (lss : list (list string)) : list string :=
   | ls :: rest => (ls ++ EmptyString :: sep_lines rest)%list
   end.
 
-Local Lemma quote_line_empty : quote_line EmptyString = quote_open.
-Proof. unfold quote_line. apply append_empty_r. Qed.
-
 (*
 Canonical table rows
 --------------------

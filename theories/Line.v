@@ -3407,13 +3407,14 @@ Proof.
     rewrite Hpost, andb_true_r. apply andb_true_iff; split; apply Nat.leb_le; assumption.
 Qed.
 
-(* Canonical block-quote prefixing: "> " in front of every line, blank
-   ones included.  Defined here rather than in Render so that the parser
-   can name its width: both containers descend by two columns, and
-   `String.length quote_open` says which one a proof means where a bare
-   `2` would not. *)
+(* Canonical block-quote prefixing: "> " in front of every line, and a
+   bare ">" for an empty one.  Defined here rather than in Render so that
+   the parser can name its width: both containers descend by two columns,
+   and `String.length quote_open` says which one a proof means where a
+   bare `2` would not. *)
 Definition quote_open : string := "> ".
-Definition quote_line (l : string) : string := quote_open ++ l.
+Definition quote_line (l : string) : string :=
+  match l with EmptyString => ">" | _ => quote_open ++ l end.
 
 (* The column a quote's contents start at.  Definitionally 2, and named
    so that it cannot be confused with `item_pad`. *)
@@ -3430,6 +3431,14 @@ Proof.
   change (is_blank ("> " ++ l)) with false.
   rewrite quote_prefix_canonical. reflexivity.
 Qed.
+
+Lemma classify_quote_line :
+  forall l, classify (quote_line l) = KQuote l.
+Proof. intros [|c l]; [reflexivity | apply classify_canonical_quote]. Qed.
+
+Lemma quote_line_nonempty :
+  forall l, l <> EmptyString -> quote_line l = (quote_open ++ l)%string.
+Proof. intros [|c l] H; [congruence | reflexivity]. Qed.
 
 (* The same through an all-whitespace pad.  The extracted content is
    exactly `l`, so a quote nested in a list item ignores the item's

@@ -26,10 +26,6 @@ val readable_nodes : dtable -> inlines -> char option -> string
 
 val readable_inline_lines : dtable -> inlines -> string list
 
-val prefixed : string -> string -> string
-
-val quoted : string -> string
-
 val first_then : string -> string -> string list -> string list
 
 val item_lines : litem -> string list

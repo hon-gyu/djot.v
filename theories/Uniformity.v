@@ -1219,6 +1219,105 @@ Proof.
   exact (quote_uniformity_pad EmptyString eq_refl l lines Hheader).
 Qed.
 
+(* How a line `x` of a quote's contents may be written: `> x`, or a bare
+   `>` when `x` is empty, as in the reference's `>` between two
+   paragraphs of a quote. *)
+Inductive quote_spelling : string -> string -> Prop :=
+  | QSpace : forall x, quote_spelling x ("> " ++ x)
+  | QBare : quote_spelling "" ">".
+
+Local Lemma parse_lines_quote_bare :
+  forall lines qs tail range header done inner,
+    Forall2 quote_spelling lines qs ->
+    parse_lines (qs ++ tail) (PQuote range header done (pad_state quote_pad inner))
+    = parse_lines (map (fun x => ("> " ++ x)%string) lines ++ tail)
+        (PQuote range header done (pad_state quote_pad inner)).
+Proof.
+  intros lines qs tail range header done inner H. revert range header done inner.
+  induction H as [|x q lines qs Hx Hrest IH]; intros range header done inner;
+    [reflexivity|].
+  destruct (step x inner) as [bs inner'] eqn:Es.
+  assert (Esh : step_at (consumed ("" ++ "> " ++ x) x) x
+                  (pad_state (String.length "" + quote_pad) inner)
+                = (bs, pad_state (String.length "" + quote_pad) inner')).
+  { rewrite consumed_quote_prefix_pad.
+    rewrite <- (Nat.add_0_r (String.length "" + quote_pad)) at 1.
+    rewrite step_at_shift, step_at_zero, Es. reflexivity. }
+  pose proof (step_quote_cont _ _ range header done _ _ _
+                (classify_canonical_quote_pad "" x eq_refl) Esh) as Hc.
+  cbn [map app].
+  assert (Hq : step q (PQuote range header done (pad_state quote_pad inner))
+               = step ("> " ++ x) (PQuote range header done (pad_state quote_pad inner))).
+  { destruct Hx; [reflexivity|].
+    apply step_quote_bare. }
+  rewrite (parse_lines_step _ _ _ _ _ (eq_trans Hq Hc)),
+    (parse_lines_step _ _ _ _ _ Hc).
+  cbn [app]. rewrite IH. reflexivity.
+Qed.
+
+(** Uniformity for block quotes whose empty lines are written `>`.  The
+    first line keeps its space: a bare `>` there opens the same quote but
+    records a different source range. *)
+Theorem quote_uniformity_bare :
+  forall l lines qs,
+    quote_header l = None ->
+    Forall2 quote_spelling lines qs ->
+    parse_lines (("> " ++ l)%string :: qs) (PPara [])
+    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
+Proof.
+  intros l lines qs Hheader H.
+  rewrite <- (quote_uniformity l lines Hheader). cbn [map].
+  destruct (step l (PPara [])) as [bs inner] eqn:Es.
+  pose proof (step_quote_open _ _ _ _ (classify_canonical_quote_pad "" l eq_refl)
+                Hheader Es) as Ho.
+  rewrite (consumed_quote_prefix_pad "") in Ho.
+  rewrite !(parse_lines_step _ _ _ _ _ Ho). cbn [app].
+  rewrite <- (app_nil_r qs), <- (app_nil_r (map _ lines)).
+  exact (parse_lines_quote_bare lines qs [] _ _ _ inner H).
+Qed.
+
+Local Lemma quote_line_spelling :
+  forall ls, Forall2 quote_spelling ls (map quote_line ls).
+Proof.
+  induction ls as [|[|c x] ls IH]; constructor; try exact IH.
+  - exact QBare.
+  - exact (QSpace (String c x)).
+Qed.
+
+(* What the renderer writes, `quote_line` with its bare `>`, parses as
+   the spelling with a space everywhere, given a nonempty first line. *)
+Lemma parse_lines_quote_line :
+  forall l lines tail,
+    l <> EmptyString ->
+    parse_lines (map quote_line (l :: lines) ++ tail) (PPara [])
+    = parse_lines (map (fun x => ("> " ++ x)%string) (l :: lines) ++ tail)
+        (PPara []).
+Proof.
+  intros l lines tail Hl. cbn [map app].
+  rewrite (quote_line_nonempty l Hl).
+  destruct (quote_header l) as [[[kind fold] title]|] eqn:Hheader.
+  - rewrite !(parse_lines_step _ _ _ _ _
+      (step_callout_open _ _ _ _ _ (classify_canonical_quote l) Hheader)).
+    cbn [app].
+    change (PQuote ?r ?h ?d (PPara []))
+      with (PQuote r h d (pad_state quote_pad (PPara []))).
+    apply parse_lines_quote_bare, quote_line_spelling.
+  - destruct (step l (PPara [])) as [bs inner] eqn:Es.
+    pose proof (step_quote_open _ _ _ _ (classify_canonical_quote_pad "" l eq_refl)
+                  Hheader Es) as Ho.
+    rewrite (consumed_quote_prefix_pad "") in Ho.
+    rewrite !(parse_lines_step _ _ _ _ _ Ho), (parse_lines_quote_bare lines).
+    + reflexivity.
+    + apply quote_line_spelling.
+Qed.
+
+Local Lemma quote_header_nonempty :
+  forall l h, quote_header l = Some h -> l <> EmptyString.
+Proof.
+  intros l h H ->. unfold quote_header in H.
+  destruct bcallouts; discriminate H.
+Qed.
+
 Lemma parse_lines_callout :
   forall header lines tail kind fold title,
     (quote_header header) =
@@ -1230,17 +1329,12 @@ Lemma parse_lines_callout :
       :: parse_lines tail (PPara []).
 Proof.
   intros header lines tail kind fold title Hheader.
+  rewrite (parse_lines_quote_line header lines _ (quote_header_nonempty _ _ Hheader)).
   cbn [map app].
   rewrite (parse_lines_step _ _ _ _ _
     (step_callout_open _ _ _ _ _ (classify_canonical_quote header) Hheader)).
-  cbn [app].
-  change (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
-    (Some (kind, fold, remember_line title)) [] (PPara []))
-    with (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
-      (Some (kind, fold, remember_line title)) [] (pad_state quote_pad (PPara []))).
   exact (parse_lines_quote_cont_header_pad EmptyString eq_refl EmptyString
-    (classify_blank EmptyString eq_refl) lines tail
-    (open_extent (quote_line header) (indent_of (quote_line header)))
+    (classify_blank EmptyString eq_refl) lines tail _
     (Some (kind, fold, remember_line title)) [] (PPara [])).
 Qed.
 
@@ -1253,16 +1347,13 @@ Theorem callout_uniformity :
         (parse_lines lines (PPara [])))].
 Proof.
   intros header lines kind fold title Hheader.
+  rewrite <- (app_nil_r (map quote_line _)),
+    (parse_lines_quote_line header lines _ (quote_header_nonempty _ _ Hheader)),
+    app_nil_r.
   cbn [map].
   rewrite (parse_lines_step _ _ _ _ _
     (step_callout_open _ _ _ _ _ (classify_canonical_quote header) Hheader)).
-  cbn [app].
-  change (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
-    (Some (kind, fold, remember_line title)) [] (PPara []))
-    with (PQuote (open_extent (quote_line header) (indent_of (quote_line header)))
-      (Some (kind, fold, remember_line title)) [] (pad_state quote_pad (PPara []))).
-  exact (parse_lines_quote_cont_eof_header_pad EmptyString eq_refl lines
-    (open_extent (quote_line header) (indent_of (quote_line header)))
+  exact (parse_lines_quote_cont_eof_header_pad EmptyString eq_refl lines _
     (Some (kind, fold, remember_line title)) [] (PPara [])).
 Qed.
 
@@ -1339,62 +1430,6 @@ Proof.
     cbn [run_lines]. rewrite Hstep.
     destruct (run_lines xs st1) as [rest st2].
     rewrite app_assoc. reflexivity.
-Qed.
-
-(* How a line `x` of a quote's contents may be written: `> x`, or a bare
-   `>` when `x` is empty, as in the reference's `>` between two
-   paragraphs of a quote. *)
-Inductive quote_spelling : string -> string -> Prop :=
-  | QSpace : forall x, quote_spelling x ("> " ++ x)
-  | QBare : quote_spelling "" ">".
-
-Local Lemma parse_lines_quote_bare :
-  forall lines qs range header done inner,
-    Forall2 quote_spelling lines qs ->
-    parse_lines qs (PQuote range header done (pad_state quote_pad inner))
-    = parse_lines (map (fun x => ("> " ++ x)%string) lines)
-        (PQuote range header done (pad_state quote_pad inner)).
-Proof.
-  intros lines qs range header done inner H. revert range header done inner.
-  induction H as [|x q lines qs Hx Hrest IH]; intros range header done inner;
-    [reflexivity|].
-  destruct (step x inner) as [bs inner'] eqn:Es.
-  assert (Esh : step_at (consumed ("" ++ "> " ++ x) x) x
-                  (pad_state (String.length "" + quote_pad) inner)
-                = (bs, pad_state (String.length "" + quote_pad) inner')).
-  { rewrite consumed_quote_prefix_pad.
-    rewrite <- (Nat.add_0_r (String.length "" + quote_pad)) at 1.
-    rewrite step_at_shift, step_at_zero, Es. reflexivity. }
-  pose proof (step_quote_cont _ _ range header done _ _ _
-                (classify_canonical_quote_pad "" x eq_refl) Esh) as Hc.
-  cbn [map].
-  assert (Hq : step q (PQuote range header done (pad_state quote_pad inner))
-               = step ("> " ++ x) (PQuote range header done (pad_state quote_pad inner))).
-  { destruct Hx; [reflexivity|].
-    apply step_quote_bare. }
-  rewrite (parse_lines_step _ _ _ _ _ (eq_trans Hq Hc)),
-    (parse_lines_step _ _ _ _ _ Hc).
-  cbn [app]. rewrite IH. reflexivity.
-Qed.
-
-(** Uniformity for block quotes whose empty lines are written `>`.  The
-    first line keeps its space: a bare `>` there opens the same quote but
-    records a different source range. *)
-Theorem quote_uniformity_bare :
-  forall l lines qs,
-    quote_header l = None ->
-    Forall2 quote_spelling lines qs ->
-    parse_lines (("> " ++ l)%string :: qs) (PPara [])
-    = [mk (BlockQuote (parse_lines (l :: lines) (PPara [])))].
-Proof.
-  intros l lines qs Hheader H.
-  rewrite <- (quote_uniformity l lines Hheader). cbn [map].
-  destruct (step l (PPara [])) as [bs inner] eqn:Es.
-  pose proof (step_quote_open _ _ _ _ (classify_canonical_quote_pad "" l eq_refl)
-                Hheader Es) as Ho.
-  rewrite (consumed_quote_prefix_pad "") in Ho.
-  rewrite !(parse_lines_step _ _ _ _ _ Ho). cbn [app].
-  exact (parse_lines_quote_bare lines qs _ _ _ inner H).
 Qed.
 
 (* Inside an open quote, a line that is neither a quote line nor lazy

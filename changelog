@@ -14,6 +14,7 @@ listed under the djot syntax reference it implements; moving to a newer
 reference is at least a minor release.
 
 ### [Unreleased]
+- the djot renderer writes a blank line inside a quote or callout as a bare `>`; it was `> `. `quote_line` writes it so; `Uniformity.parse_lines_quote_line` reads it back as the spaced spelling
 - the djot renderer leaves a blank line inside a list item empty; it was indented. `indent_lines` writes it so, so the list uniformity theorems are stated over that layout; `Step.step_empty_pad`
 - block attributes with no block after them are a block of their own, `AttrBlock`, where a blank line or the end of their container follows; they were dropped. It renders to no HTML. `attr_uniformity`, `attr_accumulate` and `attr_continuation` now ask that a line follows the specs
 - the inline grammar as a relation, proved to give the valid reading: `parses_ref_read`, `parses_valid`, `valid_parses`, `parses_unique`

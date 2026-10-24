@@ -348,7 +348,7 @@ Qed.
 Local Lemma no_nl_quote_line :
   forall l, no_nl (quote_line l) = no_nl l.
 Proof.
-  intros l. unfold quote_line, quote_open.
+  intros [|c l]; [reflexivity|]. unfold quote_line, quote_open.
   rewrite no_nl_append. reflexivity.
 Qed.
 
@@ -456,7 +456,7 @@ Local Lemma lines_ok_quote :
 Proof.
   intros ls Hne Hnl. apply lines_ok_map; try assumption.
   - intros l Hl. rewrite no_nl_quote_line. exact Hl.
-  - intros l. unfold quote_line, quote_open. discriminate.
+  - intros [|c l]; discriminate.
 Qed.
 
 Local Lemma heading_ok_parts :
@@ -970,11 +970,11 @@ Proof.
     destruct (sep_lines (map cb_lines inner)) as [|l rest] eqn:Esep.
     + exfalso. apply Hne. rewrite cb_lines_quote, Esep. reflexivity.
     + exists (quote_line l), (map quote_line rest). split; [reflexivity|].
-      intros m mc chk item E. rewrite classify_canonical_quote in E. discriminate.
+      intros m mc chk item E. rewrite classify_quote_line in E. discriminate.
   - exists (quote_line (callout_header_line kind fold (ci_line title))),
       (map quote_line (sep_lines (map cb_lines cinner))).
     split; [reflexivity|].
-    intros m mc chk item E. rewrite classify_canonical_quote in E. discriminate.
+    intros m mc chk item E. rewrite classify_quote_line in E. discriminate.
   - (* div: the opening fence is the first line, whatever the contents *)
     rewrite cb_lines_div.
     exists (div_open_line div_fence dname),
@@ -1085,6 +1085,7 @@ Proof.
     destruct (sep_lines (map cb_lines inner)) as [|l ls] eqn:E;
       [discriminate Hlines|].
     cbn [map] in Hlines. injection Hlines as <- <-.
+    destruct l as [|c l]; [reflexivity|].
     unfold quote_line, quote_prefix, line_ok, nonblank, nonempty_str.
     cbn [drop_leading_ws is_ws no_nl].
     pose proof (cb_ok_lines_ok (CQuote inner) Hok) as Hall.
@@ -1298,9 +1299,11 @@ Proof.
     destruct (sep_lines (map cb_lines inner)) as [|l0 rest0] eqn:Esep;
       [discriminate Hlines|].
     cbn [map] in Hlines. injection Hlines as <- _.
-    unfold pend_ready. rewrite classify_canonical_quote. reflexivity.
+    unfold pend_ready. rewrite classify_quote_line. reflexivity.
   - cbn [cb_lines] in Hlines. injection Hlines as <- _.
-    unfold pend_ready. rewrite classify_canonical_quote. reflexivity.
+    change (pend_ready (PPara [])
+      (quote_line (callout_header_line kind fold (ci_line title))) = true).
+    unfold pend_ready. rewrite classify_quote_line. reflexivity.
   - rewrite cb_lines_div in Hlines. injection Hlines as <- _.
     rewrite cb_ok_div in Hok. apply andb_true_iff in Hok as [Hok _].
     do 2 apply andb_true_iff in Hok as [Hok _].
@@ -1326,6 +1329,18 @@ Proof.
   - destruct (ckey_first_line label keyed Hok) as (a' & rest' & E & _ & Hcl).
     rewrite E in Hlines. injection Hlines as <- _. unfold pend_ready.
     rewrite Hcl. reflexivity.
+Qed.
+
+Local Lemma cb_lines_first_nonempty :
+  forall cb a rest, cb_ok cb = true ->
+    cb_lines cb = (a :: rest)%list -> a <> EmptyString.
+Proof.
+  intros cb a rest Hok Hlines ->.
+  destruct (is_cid cb) eqn:Hid;
+    [destruct cb; try discriminate Hid; discriminate Hlines|].
+  destruct (is_cattrs cb) eqn:Hat;
+    [destruct cb; try discriminate Hat; discriminate Hlines|].
+  discriminate (cb_lines_first_ready _ _ _ Hid Hat Hok Hlines).
 Qed.
 
 (* Attaching the pending id to the block the parser emits is what
@@ -1714,6 +1729,7 @@ Proof.
   - (* quote: the contents parse at top level, then get wrapped *)
     assert (Hsplit : cb_ok (CQuote inner) = true ->
                      exists l L, sep_lines (map cb_lines inner) = l :: L
+                                 /\ l <> EmptyString
                                  /\ forallb cb_ok inner = true).
       { intros H. rewrite cb_ok_quote in H.
         apply andb_true_iff in H as [H _].
@@ -1723,13 +1739,15 @@ Proof.
       assert (Hc : lines_ok (cb_lines c) = true).
       { apply cb_ok_lines_ok. cbn [forallb] in Hok.
         apply andb_true_iff in Hok as [H1 _]. exact H1. }
-      destruct (sep_lines (map cb_lines (c :: rest))) as [|l L] eqn:E.
-      - exfalso. apply (sep_lines_nonempty (cb_lines c) (map cb_lines rest) Hc).
-        exact E.
-      - eauto. }
+      destruct (cb_lines c) as [|a r] eqn:Ec; [discriminate Hc|].
+      assert (Ha : a <> EmptyString).
+      { cbn [forallb] in Hok. apply andb_true_iff in Hok as [Hok1 _].
+        exact (cb_lines_first_nonempty _ _ _ Hok1 Ec). }
+      cbn [map]. rewrite Ec.
+      destruct (map cb_lines rest); cbn [sep_lines app]; eauto 6. }
     split.
     + intros next tail _ _ H.
-      destruct (Hsplit H) as [l [L [E Hok]]].
+      destruct (Hsplit H) as [l [L [E [Hl Hok]]]].
       assert (Hadj : cb_pairs_ok inner = true).
       { rewrite cb_ok_quote in H.
         apply andb_true_iff in H as [H _].
@@ -1742,10 +1760,9 @@ Proof.
         destruct (quote_header l);
           [discriminate|reflexivity]. }
       rewrite cb_lines_quote, cb_ast_quote, E.
-      unfold quote_line, quote_open.
-      rewrite parse_lines_quote by exact Hheader.
+      rewrite (parse_lines_quote_line l L _ Hl), parse_lines_quote by exact Hheader.
       rewrite <- E, IHinner. reflexivity.
-    + intros H. destruct (Hsplit H) as [l [L [E Hok]]].
+    + intros H. destruct (Hsplit H) as [l [L [E [Hl Hok]]]].
       assert (Hadj : cb_pairs_ok inner = true).
       { rewrite cb_ok_quote in H.
         apply andb_true_iff in H as [H _].
@@ -1758,8 +1775,9 @@ Proof.
         destruct (quote_header l);
           [discriminate|reflexivity]. }
       rewrite cb_lines_quote, cb_ast_quote, E.
-      unfold quote_line, quote_open.
-      rewrite quote_uniformity by exact Hheader.
+      rewrite <- (app_nil_r (map quote_line _)),
+        (parse_lines_quote_line l L _ Hl), app_nil_r, quote_uniformity
+        by exact Hheader.
       rewrite <- E, IHinner. reflexivity.
   - (* callout: the header is consumed; its body follows quote uniformity. *)
     split.
@@ -2234,12 +2252,10 @@ End WithTable.
 Example quote_example_ok : forallb cb_ok quote_example = true.
 Proof. reflexivity. Qed.
 
-(* Spelled with explicit nl rather than a multi-line literal: the blank
-   line inside the quote renders as "> ", prefix and all, and a literal
-   would hide that trailing space. *)
+(* The blank line inside the quote renders as a bare ">". *)
 Example quote_example_render :
   render_djot (blocks_of_cblocks quote_example)
-  = ("> a" ++ nl ++ "> " ++ nl ++ "> * * * *" ++ nl ++ nl ++ "after")%string.
+  = ("> a" ++ nl ++ ">" ++ nl ++ "> * * * *" ++ nl ++ nl ++ "after")%string.
 Proof. reflexivity. Qed.
 
 Example quote_example_roundtrip :
@@ -2277,7 +2293,7 @@ Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 Example heading_in_quote_roundtrip :
   let cbs := [CQuote [cheading 1 ["h"]; cpara ["t"]]] in
   render_djot (blocks_of_cblocks cbs)
-    = ("> # h" ++ nl ++ "> " ++ nl ++ "> t")%string
+    = ("> # h" ++ nl ++ ">" ++ nl ++ "> t")%string
   /\ parse_blocks (render_djot (blocks_of_cblocks cbs)) = blocks_of_cblocks cbs.
 Proof. split; [reflexivity | apply roundtrip_blocks; reflexivity]. Qed.
 

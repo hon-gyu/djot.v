@@ -145,35 +145,11 @@ let rec readable_nodes t ns before =
 let readable_inline_lines t ils =
   split_lines (readable_nodes t ils None)
 
-(** val prefixed : string -> string -> string **)
-
-let prefixed p l =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> "")
-    (fun _ _ -> (^) p l)
-    l
-
-(** val quoted : string -> string **)
-
-let quoted l =
-  (* If this appears, you're using String internals. Please don't *)
- (fun f0 f1 s ->
-    let l = String.length s in
-    if l = 0 then f0 () else f1 (String.get s 0) (String.sub s 1 (l-1)))
-
-    (fun _ -> ">")
-    (fun _ _ -> quote_line l)
-    l
-
 (** val first_then : string -> string -> string list -> string list **)
 
 let first_then first rest = function
 | [] -> []
-| l :: more -> ((^) first l) :: (map (prefixed rest) more)
+| l :: more -> ((^) first l) :: (map (indent_line rest) more)
 
 (** val item_lines : litem -> string list **)
 
@@ -202,9 +178,9 @@ let note_lines label para ls =
   let open0 = (^) "[^" ((^) label "]:") in
   if para
   then (match ls with
-        | [] -> open0 :: (map (prefixed "  ") ls)
+        | [] -> open0 :: (map (indent_line "  ") ls)
         | _ :: _ -> first_then ((^) open0 " ") "  " ls)
-  else open0 :: (map (prefixed "  ") ls)
+  else open0 :: (map (indent_line "  ") ls)
 
 (** val caption_lines : string list -> string list **)
 
@@ -332,7 +308,7 @@ let rec readable_lines t k a b =
      | Section bs -> blocks_lines bs
      | Heading (lvl, ils) ->
        map (heading_line lvl) (readable_inline_lines t ils)
-     | BlockQuote bs -> map quoted (blocks_lines bs)
+     | BlockQuote bs -> map quote_line (blocks_lines bs)
      | CodeBlock (lang, text) ->
        (code_open lang) :: (app (split_lines text) (code_close :: []))
      | Div (name, bs) ->
@@ -399,7 +375,7 @@ let rec readable_lines t k a b =
        (quote_line
          (callout_header_line kind fold
            (String.concat " " (readable_inline_lines t title)))) :: (map
-                                                                    quoted
+                                                                    quote_line
                                                                     (blocks_lines
                                                                     bs)))
 

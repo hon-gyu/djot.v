@@ -11,7 +11,7 @@
    What differs from `Render.render_lines`:
    - no escapes, in text or in a link's destination;
    - a delimiter is written bare where it reads back as one (`bare_ok`);
-   - a blank line inside a list item, a quote or a footnote is empty;
+   - a blank line inside a footnote is empty;
    - a table's columns are padded to one width;
    - a footnote that starts with a paragraph starts on its label's line.
 
@@ -137,18 +137,11 @@ Blocks
 ======
 *)
 
-(* A container's prefix on one of its lines.  A blank line stays empty. *)
-Local Definition prefixed (p l : string) : string :=
-  match l with EmptyString => EmptyString | _ => (p ++ l)%string end.
-
-Local Definition quoted (l : string) : string :=
-  match l with EmptyString => ">" | _ => quote_line l end.
-
 Local Definition first_then (first rest : string) (ls : list string)
   : list string :=
   match ls with
   | [] => []
-  | l :: more => (first ++ l)%string :: map (prefixed rest) more
+  | l :: more => (first ++ l)%string :: map (indent_line rest) more
   end.
 
 Local Definition item_lines (it : litem) : list string :=
@@ -170,7 +163,7 @@ Local Definition note_lines (label : string) (para : bool) (ls : list string)
   let open := ("[^" ++ label ++ "]:")%string in
   match para, ls with
   | true, _ :: _ => first_then (open ++ " ") "  " ls
-  | _, _ => open :: map (prefixed "  ") ls
+  | _, _ => open :: map (indent_line "  ") ls
   end.
 
 Local Definition caption_lines (ls : list string) : list string :=
@@ -272,13 +265,13 @@ Fixpoint readable_lines (a : attr) (b : block) : list string :=
    | RawBlock fmt text =>
        (code_open ("=" ++ fmt)%string :: split_lines text ++ [code_close])%list
    | BlockQuote bs =>
-       map quoted
+       map quote_line
          (blocks_lines bs)
    | Ext_callout kind fold title bs =>
        (quote_line
           (callout_header_line kind fold
              (String.concat " " (readable_inline_lines title)))
-        :: map quoted
+        :: map quote_line
           (blocks_lines bs))%list
    | Div name bs =>
        let body := blocks_lines bs in
