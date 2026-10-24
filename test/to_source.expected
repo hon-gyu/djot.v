@@ -134,3 +134,13 @@ snake\_case\_name
 \^ not a caption
 
 plain again
+
+== irredundant
+Ratio 3:1, a * b, see (x).
+
+\- not a list
+
+a_b_c
+
+x *y* z
+a _b_ 3:1

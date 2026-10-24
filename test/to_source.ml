@@ -146,3 +146,26 @@ let () =
   assert (tree (Block.to_string ~style:`Naive blocks) <> tree out);
   Printf.printf "\n== checked\n%s\n" out
 ;;
+
+(* [`Irredundant] is [`Safe] less the escapes and braces the parse does not
+   need. *)
+let () =
+  let n = Node.make in
+  let str s = n (Inline.Str s) in
+  let para ils = n (Block.Para ils) in
+  let blocks =
+    [ para [ str "Ratio 3:1, a * b, see (x)." ]
+    ; para [ str "- not a list" ]
+    ; para [ str "a"; n (Inline.Emph [ str "b" ]); str "c" ]
+    ; para [ str "x "; n (Inline.Strong [ str "y" ]); str " z" ]
+    ]
+  in
+  let out = Block.to_string ~style:`Irredundant blocks in
+  let tree s = For_testing.kernel (Doc.of_string s) in
+  assert (tree out = tree (Block.to_string ~style:`Safe blocks));
+  Printf.printf "\n== irredundant\n%s\n" out;
+  let ils = [ str "a "; n (Inline.Emph [ str "b" ]); str " 3:1" ] in
+  let out = Inline.to_string ~style:`Irredundant ils in
+  assert (tree out = tree (Inline.to_string ~style:`Safe ils));
+  print_endline out
+;;

@@ -17,11 +17,14 @@ let djot_cmd : int Cmd.t =
   let style : Djot.style Term.t =
     let doc =
       "How to write the source. $(b,safe) escapes text and braces delimiters so that the \
-       result parses back to the same tree. $(b,naive) writes what a person would type \
-       and need not parse back. $(b,checked) is $(b,naive) where that parses back to the \
-       same tree, and $(b,safe) elsewhere."
+       result parses back to the same tree. $(b,irredundant) is $(b,safe) without the \
+       escapes and braces the parse does not need. $(b,naive) writes what a person would \
+       type and need not parse back. $(b,checked) is $(b,naive) where that parses back to \
+       the same tree, and $(b,safe) elsewhere."
     in
-    let styles = [ "checked", `Checked; "safe", `Safe; "naive", `Naive ] in
+    let styles =
+      [ "checked", `Checked; "irredundant", `Irredundant; "safe", `Safe; "naive", `Naive ]
+    in
     Arg.(value & opt (enum styles) `Checked & info [ "style" ] ~doc ~docv:"STYLE")
   in
   Cmd.make (Cmd.info "djot" ~doc ~man ~exits:Djot_cli.exits)
