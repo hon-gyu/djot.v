@@ -39,6 +39,23 @@ about 0.15 s.  `index.d.ts` describes the four styles.
 A failure throws an `Error`: an unknown switch, profile or style, a tree the
 OCaml library cannot read, or a document nested too deeply for the stack.
 
+## Installation
+
+The package is not on npm.  Build it from the repository, pack it, and install
+the tarball:
+
+```sh
+git clone https://github.com/hon-gyu/djot.v
+cd djot.v
+make js-pkg
+cd js && npm pack  # writes djotv-0.1.0.tgz
+
+# in your project
+npm install /path/to/djot.v/js/djotv-0.1.0.tgz
+```
+
+`make js-pkg` needs the build environment described under Development.
+
 ## Development
 
 `djotv.js` is built from `djotv.ml` by `make js-pkg` at the root of the
