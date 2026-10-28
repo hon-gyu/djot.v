@@ -60,3 +60,10 @@ A new kernel is a new release of the package.
 
 ### [0.1.0]
 - initial release, with kernel 0.1.0
+
+## JavaScript package
+
+`djotv` in `js/`.  A new kernel is a new release of the package.
+
+### [Unreleased]
+- initial version: `parse`, `toHtml` and `toDjot`, built with js_of_ocaml

@@ -1,0 +1,23 @@
+{
+  "name": "djotv",
+  "version": "0.1.0",
+  "description": "djot, parsed and rendered by the verified parser of djot.v",
+  "license": "MIT AND ISC",
+  "author": "hon-gyu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hon-gyu/djot.v.git",
+    "directory": "js"
+  },
+  "main": "djotv.js",
+  "types": "index.d.ts",
+  "files": [
+    "djotv.js",
+    "index.d.ts",
+    "LICENSE",
+    "LICENSE-cmarkit"
+  ],
+  "scripts": {
+    "test": "node --test"
+  }
+}

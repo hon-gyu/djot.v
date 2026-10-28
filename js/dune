@@ -1,0 +1,11 @@
+; ai-disclosure: ai-generated
+
+; The library as a CommonJS module, built to JavaScript.  The npm package in
+; this directory ships it as djotv.js.
+
+(executable
+ (name djotv)
+ (modes js)
+ (js_of_ocaml
+  (javascript_files exports.js))
+ (libraries djot djot.json jsont.brr jsont.bytesrw brr))

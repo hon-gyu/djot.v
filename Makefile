@@ -2,7 +2,7 @@
         roundtrip roundtrip-kernel roundtrip-keyed roundtrip-wikilinks roundtrip-callouts roundtrip-dollar-math roundtrip-tags roundtrip-holes roundtrip-irredundant roundtrip-escapes \
         check-span-containment check-stack check-holes bench probe-lemmas \
         ocaml-pkg-regen ocaml-pkg-check-current ocaml-pkg-split-branch \
-        site site-serve site-publish py-wasm check-py check-rocq check-readme check-axioms check-versions check-site
+        site site-serve site-publish py-wasm check-py js-pkg check-js check-rocq check-readme check-axioms check-versions check-site
 
 # Inputs the test/ executables run over:
 #   test suite     djot.js/test/*.test, the cases with expected HTML
@@ -211,6 +211,21 @@ py-wasm:  ## Build the WebAssembly module of the Python package into py/src/djot
 
 check-py:  ## test the Python package against the module in py/src/djotv
 	cd py && uv run pytest -q
+
+# JavaScript package
+# ------------------
+
+# js/ is a dune project of its own, which needs the ocaml/ package's
+# dependencies plus brr and js_of_ocaml-compiler.  DJOT_NO_YAML=1 as for
+# py-wasm.  The package ships the licenses of ocaml/, whose code it holds.
+js-pkg:  ## Build the JavaScript package's module into js/djotv.js
+	cd js && DJOT_NO_YAML=1 dune build --root . --profile release ./djotv.bc.js
+	cp js/_build/default/djotv.bc.js js/djotv.js
+	cp ocaml/LICENSE ocaml/LICENSE-cmarkit js/
+	chmod 644 js/djotv.js js/LICENSE js/LICENSE-cmarkit
+
+check-js:  ## test the JavaScript package against js/djotv.js
+	cd js && node --test
 
 # All local checks. Run before branch merging
 # --------------------------------------------
