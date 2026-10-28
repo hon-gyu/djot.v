@@ -20,12 +20,13 @@ let djot_cmd : int Cmd.t =
        result parses back to the same tree. $(b,irredundant) is $(b,safe) without the \
        escapes and braces the parse does not need. $(b,naive) writes what a person would \
        type and need not parse back. $(b,checked) is $(b,naive) where that parses back to \
-       the same tree, and $(b,safe) elsewhere."
+       the same tree, and $(b,safe) elsewhere; it is faster than $(b,irredundant) on \
+       large files, about 0.1 s against 1 s at 140 KB."
     in
     let styles =
       [ "checked", `Checked; "irredundant", `Irredundant; "safe", `Safe; "naive", `Naive ]
     in
-    Arg.(value & opt (enum styles) `Checked & info [ "style" ] ~doc ~docv:"STYLE")
+    Arg.(value & opt (enum styles) `Irredundant & info [ "style" ] ~doc ~docv:"STYLE")
   in
   Cmd.make (Cmd.info "djot" ~doc ~man ~exits:Djot_cli.exits)
   @@ let+ i = Djot_cli.input

@@ -547,7 +547,8 @@ module Inline = struct
     | Hole of string
     | SmartPunctuation of string * string
 
-  let to_string ?(profile = Profile.djot) ?(style = `Checked) (ils : t node list) : string
+  let to_string ?(profile = Profile.djot) ?(style = `Irredundant) (ils : t node list)
+    : string
     =
     Styled.inlines style profile ils
   ;;
@@ -621,7 +622,9 @@ module Block = struct
     | Ext_keyed of Inline.t node list * t node
     | Ext_callout of string * callout_fold option * Inline.t node list * t node list
 
-  let to_string ?(profile = Profile.djot) ?(style = `Checked) (bs : t node list) : string =
+  let to_string ?(profile = Profile.djot) ?(style = `Irredundant) (bs : t node list)
+    : string
+    =
     Styled.blocks style profile bs
   ;;
 end
@@ -889,7 +892,7 @@ module Doc = struct
 
   let frontmatter (d : t) : Frontmatter.t option = Option.map fst d.front
 
-  let to_string ?(style = `Checked) (d : t) : string =
+  let to_string ?(style = `Irredundant) (d : t) : string =
     let body = Styled.blocks style d.profile (K.Render.doc_source_blocks d.kernel) in
     match d.front with
     | None -> body
