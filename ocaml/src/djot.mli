@@ -262,8 +262,12 @@ end
     - [`Irredundant]: [`Safe] with every backslash and every pair of braces taken out
       that the parse does not need, so deleting any backslash left, or any [{] with a
       later [}] and no empty line between them, changes the tree. Proved in Rocq
-      ([Irredundant.v]). Costs a reparse per candidate, from its line to the next point
-      where the parser holds nothing open.
+      ([Irredundant.v]). The default. Costs a reparse per candidate, from its line to the
+      next point where the parser holds nothing open, so time grows with the document
+      times its largest paragraph or table: a 140 KB document takes about 1 s, against
+      0.1 s with [`Checked]. Table columns are not padded, and text in table cells keeps
+      [`Safe]'s escapes. Whether a character is escaped depends on its neighbours, so an
+      edit in a paragraph can add or remove an escape elsewhere in it.
     - [`Naive]: the text a person would type, for a tree built by hand. Nothing is
       escaped, emphasis and quotes are written without braces where they read back as
       such, table columns are padded, and a blank line inside a container is empty. Text
@@ -271,7 +275,9 @@ end
       as strong emphasis.
     - [`Checked]: [`Naive] wherever that parses to the same tree as [`Safe] does, and
       [`Safe] for the top-level blocks where it does not. The result always parses as the
-      [`Safe] one. Costs two parses of the result, more when blocks differ. *)
+      [`Safe] one. Costs two parses of the result, more when blocks differ, so it suits
+      large documents better than [`Irredundant]. A block that needs one escape is
+      written all in [`Safe]: [*{*bold*}*] where [**bold**] would do. *)
 type style =
   [ `Safe
   | `Irredundant
@@ -334,8 +340,8 @@ module Inline : sig
   (** The inlines as djot source, as they are written inside a paragraph, a soft or hard
       break ending a line.
       @param profile the syntax to write; default {!Profile.djot}
-      @param style default [`Checked]. [`Irredundant] and [`Checked] read the inlines as
-      one paragraph *)
+      @param style default [`Irredundant]. [`Irredundant] and [`Checked] read the inlines
+      as one paragraph *)
   val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
 end
 
@@ -422,7 +428,7 @@ module Block : sig
   (** The blocks as djot source, for the source of one node or of a mapped tree. Unlike
       {!Doc.to_string}, a heading's identifier is always written as an attribute.
       @param profile the syntax to write; default {!Profile.djot}
-      @param style default [`Checked] *)
+      @param style default [`Irredundant] *)
   val to_string : ?profile:Profile.t -> ?style:style -> t node list -> string
 end
 
@@ -585,7 +591,7 @@ module Doc : sig
 
       {!frontmatter} is written first, its text as it was.
 
-      @param style default [`Checked] *)
+      @param style default [`Irredundant] *)
   val to_string : ?style:style -> t -> string
 
   val blocks : t -> Block.t node list

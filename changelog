@@ -39,6 +39,7 @@ The `djot` opam package in `ocaml/`: the library, `djot.json` and the CLI.
 A new kernel is a new release of the package.
 
 ### [Unreleased]
+- breaking: `` `Irredundant `` is the default source style for `to_string` and `djot djot`; it was `` `Checked ``, which stays faster on large documents
 - `` `Irredundant ``, a source style: `` `Safe `` without the backslashes and braces the parse does not need, as `Irredundant.v` proves; `djot djot --style irredundant`
 - `Block.AttrBlock`: block attributes with no block after them; `block_attributes` in the JSON
 - `Doc.source_blocks`: the blocks without the identifiers derived from heading text, for `Doc.make` to give the same document
